@@ -9,7 +9,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { Phone, PhoneCall, PhoneOff, Search, Clock, DollarSign, Play, Pause, Volume2, User, Plus } from "lucide-react"
-
 import { getBestPhoneNumber, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
@@ -162,6 +161,9 @@ export default function TeamCallsCenter() {
         title: 'Call Initiated',
         description: `Calling ${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}`,
       })
+      // Open quick activity dialog while in progress
+      setShowActivityDialog(true)
+
 
       // Refresh calls list
       loadData()
@@ -202,6 +204,30 @@ export default function TeamCallsCenter() {
         return 'bg-gray-100 text-gray-800'
     }
   }
+  const hangupActiveCall = async () => {
+    try {
+      const latest = recentCalls.find(c => c.status === 'initiated' || c.status === 'ringing' || c.status === 'answered' || c.status === 'bridged')
+      if (!latest) {
+        toast({ title: 'No active call', description: 'There is no active call to hang up.' })
+        return
+      }
+      const res = await fetch('/api/telnyx/calls/hangup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telnyxCallId: latest.telnyxCallId })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed to hang up call')
+      }
+      toast({ title: 'Call ended' })
+      await loadData()
+    } catch (e) {
+      console.error('Hangup error:', e)
+      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Failed to end call', variant: 'destructive' })
+    }
+  }
+
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -225,7 +251,7 @@ export default function TeamCallsCenter() {
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-xl font-semibold mb-4">Calls Center</h2>
-        
+
         {/* Phone Number Selection */}
         <div className="mb-4">
           <label className="text-sm font-medium mb-2 block">Select Phone Number</label>
@@ -267,7 +293,7 @@ export default function TeamCallsCenter() {
                 className="pl-10"
               />
             </div>
-            
+
             <ScrollArea className="h-[calc(100vh-200px)]">
               <div className="space-y-2">
                 {filteredContacts.map((contact) => (
@@ -354,14 +380,31 @@ export default function TeamCallsCenter() {
                           trigger={
                             <Button variant="outline" size="default" title="Assign Contact to Team">
                               <User className="h-4 w-4" />
+                      {/* Active Call Banner */}
+                      {recentCalls.some(c => ['initiated','ringing','answered','bridged'].includes(c.status)) && (
+                        <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-amber-50 border border-amber-200">
+                          <div className="flex items-center gap-2 text-amber-800 text-sm">
+                            <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                            <span>Active call in progress</span>
+                          </div>
+                          <div className="ml-auto flex items-center gap-2">
+                            <Button type="button" onClick={hangupActiveCall} size="sm" variant="destructive">
+                              <PhoneOff className="h-4 w-4 mr-1" /> Hang Up
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
                             </Button>
                           }
                         />
                       )}
                       <Button
+                        type="button"
                         onClick={() => makeCall(selectedContact)}
                         disabled={isDialing || !selectedPhoneNumber}
                         className="flex items-center gap-2"
+                        onMouseDown={(e) => e.preventDefault()}
                       >
                         {isDialing ? (
                           <>
@@ -375,6 +418,17 @@ export default function TeamCallsCenter() {
                           </>
                         )}
                       </Button>
+                      <Button
+                        type="button"
+                        onClick={hangupActiveCall}
+                        variant="destructive"
+                        className="flex items-center gap-2"
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        <PhoneOff className="h-4 w-4" />
+                        Hang Up
+                      </Button>
+
                       <Button
                         variant="outline"
                         onClick={() => setShowActivityDialog(true)}

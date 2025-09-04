@@ -115,17 +115,63 @@ export default function NewTextMessageModal({
     }
   }
 
-  // Filter contacts based on search
-  const filteredContacts = contacts.filter(contact => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
-    return (
-      contact.firstName?.toLowerCase().includes(query) ||
-      contact.lastName?.toLowerCase().includes(query) ||
-      contact.phone1?.includes(query) ||
-      contact.propertyAddress?.toLowerCase().includes(query)
-    )
+  // Server-side contacts with pagination + debounced search
+  const [contactsResults, setContactsResults] = useState<Contact[]>([])
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(() => {
+    if (typeof window === 'undefined') return 20
+    const saved = localStorage.getItem('popupContactsPageSize')
+    return saved ? parseInt(saved) : 20
   })
+  const [totalPages, setTotalPages] = useState(1)
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false)
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+
+  useEffect(() => {
+    try { localStorage.setItem('popupContactsPageSize', String(limit)) } catch {}
+  }, [limit])
+
+  // Debounce the search input so we don't spam the API
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 500)
+    return () => clearTimeout(id)
+  }, [searchQuery])
+
+  // Fetch contacts from database when modal opens, page changes, or search changes
+  useEffect(() => {
+    if (!open) return
+    const controller = new AbortController()
+    const fetchContacts = async () => {
+      setIsLoadingContacts(true)
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(limit),
+        })
+        if (debouncedSearch) params.set('search', debouncedSearch)
+
+        // Use assigned-contacts endpoint for team users so they only see assigned contacts
+        const base = (typeof window !== 'undefined' && (window as any).NEXT_PUBLIC_ROLE === 'TEAM_USER') ? '/api/team/assigned-contacts' : '/api/contacts'
+        const res = await fetch(`${base}?${params.toString()}`, { signal: controller.signal })
+        if (res.ok) {
+          const data = await res.json()
+          setContactsResults(Array.isArray(data.contacts) ? data.contacts : [])
+          setTotalPages(data.pagination?.totalPages || 1)
+        } else {
+          setContactsResults([])
+          setTotalPages(1)
+        }
+      } catch (err) {
+        if ((err as any)?.name !== 'AbortError') {
+          console.error('Failed to load contacts:', err)
+        }
+      } finally {
+        setIsLoadingContacts(false)
+      }
+    }
+    fetchContacts()
+    return () => controller.abort()
+  }, [open, page, limit, debouncedSearch])
 
   const handleSendMessage = async () => {
     if (!message.trim() || !selectedSenderNumber) {
@@ -315,7 +361,11 @@ export default function NewTextMessageModal({
               
               <ScrollArea className="h-48 border rounded-md">
                 <div className="p-2 space-y-1">
-                  {filteredContacts.map((contact) => (
+                  {isLoadingContacts && (
+                    <div className="text-sm text-muted-foreground p-3">Loading...</div>
+                  )}
+
+                  {!isLoadingContacts && contactsResults.map((contact) => (
                     <div
                       key={contact.id}
                       className={`p-3 rounded-md cursor-pointer transition-colors ${
@@ -347,8 +397,8 @@ export default function NewTextMessageModal({
                       </div>
                     </div>
                   ))}
-                  
-                  {filteredContacts.length === 0 && (
+
+                  {!isLoadingContacts && contactsResults.length === 0 && (
                     <div className="text-center py-8 text-muted-foreground">
                       <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
                       <p className="text-sm">No contacts found</p>
@@ -357,7 +407,30 @@ export default function NewTextMessageModal({
                 </div>
               </ScrollArea>
             </TabsContent>
-            
+
+            {/* Pagination + Page size */}
+            <div className="flex items-center justify-between pt-2 gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Rows:</span>
+                <select
+                  className="text-sm border rounded px-2 py-1"
+                  value={limit}
+                  onChange={(e) => { setPage(1); setLimit(parseInt(e.target.value)) }}
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" disabled={page <= 1 || isLoadingContacts} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
+                  <Button variant="outline" size="sm" disabled={page >= totalPages || isLoadingContacts} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+                </div>
+              </div>
+            </div>
+
             <TabsContent value="new" className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">

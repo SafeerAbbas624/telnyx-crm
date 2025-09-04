@@ -158,7 +158,10 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
         }),
       })
 
-      if (response.ok) {
+      let data: any = null
+      try { data = await response.json() } catch {}
+
+      if (response.ok || data?.success) {
         setEmailContent("")
         setSubject("")
         setCcEmails("")
@@ -167,13 +170,12 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
         loadMessages() // Reload to show sent message
         toast({
           title: 'Success',
-          description: 'Email sent successfully',
+          description: data?.message || 'Email sent successfully',
         })
       } else {
-        const error = await response.json()
         toast({
           title: 'Error',
-          description: error.message || 'Failed to send email',
+          description: data?.error || data?.message || 'Failed to send email',
           variant: 'destructive',
         })
       }

@@ -95,6 +95,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Build webhook URL: require https. If local (http), fall back to production webhook
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL
+    const webhookUrl = appUrl && appUrl.startsWith('https')
+      ? `${appUrl}/api/telnyx/webhooks/calls`
+      : (process.env.TELNYX_PROD_WEBHOOK_URL || 'https://adlercapitalcrm.com/api/telnyx/webhooks/calls')
+
     // Initiate call via Telnyx Call Control API
     const telnyxResponse = await fetch(TELNYX_CALLS_API_URL, {
       method: 'POST',
@@ -106,7 +112,7 @@ export async function POST(request: NextRequest) {
         connection_id: process.env.TELNYX_CONNECTION_ID,
         to: formattedToNumber,
         from: formattedFromNumber,
-        webhook_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/telnyx/webhooks/calls`,
+        webhook_url: webhookUrl,
         webhook_url_method: 'POST',
         record: 'record-from-answer',
         record_format: 'mp3',
@@ -118,22 +124,27 @@ export async function POST(request: NextRequest) {
     const telnyxData = await telnyxResponse.json();
 
     if (!telnyxResponse.ok) {
+      const pretty = (() => { try { return JSON.stringify(telnyxData, null, 2) } catch { return String(telnyxData) } })()
       console.error('Telnyx API error:', {
         status: telnyxResponse.status,
         statusText: telnyxResponse.statusText,
         data: telnyxData,
         connectionId: process.env.TELNYX_CONNECTION_ID
-      });
+      })
+      console.error('Telnyx API error details:', pretty)
 
-      let errorMessage = 'Failed to initiate call via Telnyx';
+      const firstError = Array.isArray(telnyxData?.errors) ? telnyxData.errors[0] : undefined
+      let errorMessage = firstError?.detail || firstError?.title || 'Failed to initiate call via Telnyx'
       if (telnyxResponse.status === 404) {
-        errorMessage = 'Connection not found. Please check your TELNYX_CONNECTION_ID and ensure you have a SIP Connection set up in Telnyx Mission Control.';
+        errorMessage = 'Connection not found. Please check TELNYX_CONNECTION_ID and ensure the Connection exists and is Call Control enabled.'
       } else if (telnyxResponse.status === 401) {
-        errorMessage = 'Unauthorized. Please check your TELNYX_API_KEY.';
+        errorMessage = 'Unauthorized. Please check TELNYX_API_KEY.'
+      } else if (firstError?.code === 'caller-id-not-owned' || /caller.?id/i.test(firstError?.title || '')) {
+        errorMessage = 'The From number is not owned or not allowed on the selected Connection. Assign the number to the Connection or set a valid caller ID.'
       }
 
       return NextResponse.json(
-        { error: errorMessage, details: telnyxData, status: telnyxResponse.status },
+        { error: errorMessage, telnyx: telnyxData, status: telnyxResponse.status },
         { status: telnyxResponse.status }
       );
     }

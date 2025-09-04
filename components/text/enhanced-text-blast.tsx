@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Send, Users, MessageSquare, Play, Pause, Square, RefreshCw, AlertCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import AdvancedContactFilter from "./advanced-contact-filter"
+import BasicContactFilter from "./basic-contact-filter"
 import SenderNumberSelection from "./sender-number-selection"
 import MessageDelaySettings from "./message-delay-settings"
 import TemplateManager from "./template-manager"
@@ -76,7 +76,6 @@ interface MessageTemplate {
 
 export default function EnhancedTextBlast() {
   const { contacts } = useContacts()
-  const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [selectedNumbers, setSelectedNumbers] = useState<TelnyxPhoneNumber[]>([])
@@ -104,10 +103,7 @@ export default function EnhancedTextBlast() {
   console.log('EnhancedTextBlast - availableNumbers:', availableNumbers)
   console.log('EnhancedTextBlast - selectedNumbers:', selectedNumbers)
 
-  // Initialize filtered contacts when contacts change
-  useEffect(() => {
-    setFilteredContacts(contacts)
-  }, [contacts])
+
 
   // Load data on component mount
   useEffect(() => {
@@ -478,9 +474,7 @@ export default function EnhancedTextBlast() {
         {/* Left Column */}
         <div className="space-y-6">
           {/* Contact Selection */}
-          <AdvancedContactFilter
-            contacts={contacts}
-            onFilteredContactsChange={setFilteredContacts}
+          <BasicContactFilter
             selectedContacts={selectedContacts}
             onSelectedContactsChange={setSelectedContacts}
           />

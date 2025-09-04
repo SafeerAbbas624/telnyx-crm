@@ -1,13 +1,16 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { useDebounce } from "@/hooks/use-debounce"
 import { Button } from "@/components/ui/button"
-import { Plus, UserPlus, Trash2 } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Plus, UserPlus, Trash2, Search } from "lucide-react"
 import ContactsList from "./contacts-list"
 import AddContactDialog from "./add-contact-dialog"
 import EditContactDialog from "./edit-contact-dialog"
 import ContactDetails from "./contact-details" // Import ContactDetails
 import ContactsFilterBar from "./contacts-filter-bar"
+import ContactsAdvancedFilter from "./contacts-advanced-filter"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
@@ -26,7 +29,7 @@ import {
 
 export default function ContactsSection() {
   const { data: session } = useSession()
-  const { contacts, addContact, updateContact, deleteContact, isLoading, error } = useContacts()
+  const { contacts, addContact, updateContact, deleteContact, isLoading, error, pagination, loadMoreContacts, goToPage, searchContacts, filterOptions } = useContacts()
   const { toast } = useToast()
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
@@ -40,9 +43,40 @@ export default function ContactsSection() {
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([])
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
 
-  // Use filtered contacts from the filter bar
-  const finalFilteredContacts = filteredContacts
+  // Debounce search - wait longer for user to finish typing
+  const debouncedSearchTerm = useDebounce(searchTerm, 800) // 800ms wait
+
+  // Initialize filtered contacts with all contacts when they're first loaded
+  useEffect(() => {
+    console.log('🔍 ContactsSection - Contacts changed:', {
+      contacts,
+      contactsLength: Array.isArray(contacts) ? contacts.length : 'Not an array',
+      contactsType: typeof contacts,
+      filteredContactsLength: filteredContacts.length,
+      isArray: Array.isArray(contacts),
+      firstContact: Array.isArray(contacts) ? contacts[0] : 'N/A'
+    })
+
+    if (contacts.length > 0 && filteredContacts.length === 0) {
+      console.log('🔍 ContactsSection - Setting filtered contacts from context')
+      setFilteredContacts(contacts)
+    }
+  }, [contacts, filteredContacts.length])
+
+  // Real-time database search effect
+  useEffect(() => {
+    console.log('🔍 Search effect triggered:', { searchTerm, debouncedSearchTerm })
+    // Trigger database search when debounced term changes
+    searchContacts(debouncedSearchTerm)
+    // Intentionally exclude searchContacts from deps to avoid identity changes causing loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchTerm])
+
+  // Use filtered contacts from the filter bar, fallback to all contacts if no filtering is applied
+  const finalFilteredContacts = filteredContacts.length > 0 ? filteredContacts : contacts
 
 
 
@@ -155,6 +189,46 @@ export default function ContactsSection() {
             Add Contact
           </Button>
         </div>
+
+        {/* Search Bar */}
+        <div className="relative mb-4">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+          <Input
+            type="search"
+            placeholder="Search all contacts by name, email, phone, address..."
+            className="pl-8"
+            value={searchTerm}
+            onChange={(e) => {
+              console.log('🔍 Search input changed:', e.target.value)
+              setSearchTerm(e.target.value)
+            }}
+          />
+        </div>
+
+        {/* Advanced Filters Toggle */}
+        <div className="flex items-center gap-2 mb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+          >
+            Advanced Filters
+          </Button>
+        </div>
+
+        {/* Advanced Filters Component */}
+        {showAdvancedFilters && (
+          <div className="mb-6">
+            <ContactsAdvancedFilter />
+          </div>
+        )}
+
+        {/* Filter Info */}
+        {pagination && (
+          <div className="text-sm text-gray-600 mb-4">
+            Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
+          </div>
+        )}
 
         {/* Bulk Actions */}
         <div className="flex items-center gap-2 mt-4">
@@ -290,6 +364,44 @@ export default function ContactsSection() {
           />
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {pagination && pagination.totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(pagination.page - 1)}
+              disabled={pagination.page <= 1}
+            >
+              Previous
+            </Button>
+            <span className="text-sm">
+              Page {pagination.page} of {pagination.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToPage(pagination.page + 1)}
+              disabled={!pagination.hasMore}
+            >
+              Next
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadMoreContacts}
+              disabled={!pagination.hasMore}
+            >
+              Load More
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Add Contact Dialog */}
       <AddContactDialog open={showAddDialog} onOpenChange={setShowAddDialog} onAddContact={handleAddContact} />

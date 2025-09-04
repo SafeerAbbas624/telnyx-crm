@@ -786,10 +786,12 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
                                 })
                               })
 
-                              if (response.ok) {
+                              let data: any = null
+                              try { data = await response.json() } catch {}
+                              if (response.ok || data?.success) {
                                 toast({
                                   title: "Success",
-                                  description: selectedConversation ? "Reply sent successfully" : "Email sent successfully"
+                                  description: data?.message || (selectedConversation ? "Reply sent successfully" : "Email sent successfully")
                                 })
                                 setReplySubject('')
                                 setReplyMessage('')
@@ -798,7 +800,7 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
                                   fetchMessages(selectedConversation.id)
                                 }
                               } else {
-                                throw new Error('Failed to send email')
+                                throw new Error(data?.error || data?.message || 'Failed to send email')
                               }
                             } catch (error) {
                               toast({

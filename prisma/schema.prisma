@@ -46,6 +46,15 @@ model Contact {
   email_conversations EmailConversation[]
   assignments        ContactAssignment[]
 
+  // Performance indexes for common queries
+  @@index([createdAt(sort: Desc)], name: "idx_contacts_created_at")
+  @@index([firstName, lastName], name: "idx_contacts_name")
+  @@index([phone1], name: "idx_contacts_phone1")
+  @@index([email1], name: "idx_contacts_email1")
+  @@index([dealStatus, createdAt(sort: Desc)], name: "idx_contacts_status_created")
+  @@index([city, state], name: "idx_contacts_location")
+  @@index([propertyType], name: "idx_contacts_property_type")
+  @@index([dnc], name: "idx_contacts_dnc")
   @@map("contacts")
 }
 
@@ -181,6 +190,10 @@ model Activity {
   contact              Contact           @relation(fields: [contact_id], references: [id], onDelete: Cascade)
   createdBy            User?             @relation("UserActivities", fields: [created_by], references: [id], onDelete: SetNull)
 
+  @@index([contact_id, due_date], name: "idx_activities_contact_due")
+  @@index([created_by, created_at(sort: Desc)], name: "idx_activities_created_by")
+  @@index([status, due_date], name: "idx_activities_status_due")
+  @@index([assigned_to, due_date], name: "idx_activities_assigned_due")
   @@map("activities")
 }
 
@@ -296,6 +309,10 @@ model Conversation {
   contact                Contact               @relation(fields: [contact_id], references: [id], onDelete: Cascade)
 
   @@unique([contact_id, phone_number])
+  @@index([contact_id], name: "idx_conversations_contact")
+  @@index([last_message_at(sort: Desc)], name: "idx_conversations_last_message")
+  @@index([unread_count], name: "idx_conversations_unread")
+  @@index([assigned_to], name: "idx_conversations_assigned")
   @@map("conversations")
 }
 
@@ -479,6 +496,10 @@ model TelnyxMessage {
   contact           Contact?          @relation(fields: [contactId], references: [id], onDelete: Cascade)
   automation        TextAutomation?   @relation("AutomationMessages", fields: [automationId], references: [id], onDelete: SetNull)
 
+  @@index([contactId, createdAt(sort: Desc)], name: "idx_telnyx_messages_contact_created")
+  @@index([fromNumber], name: "idx_telnyx_messages_from")
+  @@index([toNumber], name: "idx_telnyx_messages_to")
+  @@index([direction, createdAt(sort: Desc)], name: "idx_telnyx_messages_direction_created")
   @@map("telnyx_messages")
 }
 
@@ -504,6 +525,10 @@ model TelnyxCall {
   // Relations
   initiatedByUser   User?          @relation("UserCalls", fields: [initiatedBy], references: [id], onDelete: SetNull)
 
+  @@index([contactId, createdAt(sort: Desc)], name: "idx_telnyx_calls_contact_created")
+  @@index([fromNumber], name: "idx_telnyx_calls_from")
+  @@index([toNumber], name: "idx_telnyx_calls_to")
+  @@index([direction, createdAt(sort: Desc)], name: "idx_telnyx_calls_direction_created")
   @@map("telnyx_calls")
 }
 
@@ -1088,6 +1113,9 @@ model ContactAssignment {
   assignedByUser    User                @relation("AssignedBy", fields: [assignedBy], references: [id], onDelete: Cascade)
 
   @@unique([userId, contactId])
+  @@index([userId], name: "idx_contact_assignments_user")
+  @@index([contactId], name: "idx_contact_assignments_contact")
+  @@index([assignedBy], name: "idx_contact_assignments_assigned_by")
   @@map("contact_assignments")
 }
 

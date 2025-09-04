@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { MessageSquare, Send, Repeat } from "lucide-react"
 import type { Contact } from "@/lib/types"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 interface TextCenterProps {
   selectedContactId?: string | null
@@ -21,6 +22,17 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [showConversation, setShowConversation] = useState(false)
   const isMobile = useMediaQuery("(max-width: 768px)")
+  const router = useRouter()
+  const pathname = usePathname()
+
+  // Initialize active sub-tab from URL exactly once to avoid race conditions
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const sub = url.searchParams.get('sub')
+    if (sub === 'blast' || sub === 'automation' || sub === 'conversations') {
+      setActiveTab(sub)
+    }
+  }, [])
 
   // Handle selectedContactId from URL parameter
   useEffect(() => {
@@ -44,6 +56,17 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
     }
   }, [activeTab, selectedContactId])
 
+  // Update URL when user changes sub-tab (prevents stale updates from older renders)
+  const handleSetActiveTab = (tab: string) => {
+    setActiveTab(prev => {
+      if (prev === tab) return prev
+      const url = new URL(window.location.href)
+      url.searchParams.set('sub', tab)
+      window.history.replaceState(null, '', url.toString())
+      return tab
+    })
+  }
+
   const handleSelectContact = (contact: Contact) => {
     setSelectedContact(contact)
     if (isMobile) {
@@ -63,7 +86,7 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-xl font-semibold mb-4">Text Center</h2>
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleSetActiveTab} className="w-full">
           <TabsList className="grid grid-cols-3">
             <TabsTrigger value="conversations" className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />

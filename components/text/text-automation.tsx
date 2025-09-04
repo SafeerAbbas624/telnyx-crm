@@ -11,10 +11,10 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import AdvancedContactFilter from "./advanced-contact-filter"
+import BasicContactFilter from "./basic-contact-filter"
 import SenderNumberSelection from "./sender-number-selection"
 import TemplateManager from "./template-manager"
 import { useContacts } from "@/lib/context/contacts-context"
@@ -95,7 +95,6 @@ export default function TextAutomation() {
   const { contacts } = useContacts()
   const [automations, setAutomations] = useState<TextAutomation[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [selectedNumbers, setSelectedNumbers] = useState<TelnyxPhoneNumber[]>([])
@@ -111,10 +110,7 @@ export default function TextAutomation() {
   const [showContactSelection, setShowContactSelection] = useState(false)
   const { toast } = useToast()
 
-  // Initialize filtered contacts when contacts change
-  useEffect(() => {
-    setFilteredContacts(contacts)
-  }, [contacts])
+
 
   useEffect(() => {
     loadAutomations()
@@ -439,9 +435,7 @@ export default function TextAutomation() {
         {/* Left Column - Contact Selection & Templates */}
         <div className="space-y-6">
           {/* Contact Selection */}
-          <AdvancedContactFilter
-            contacts={contacts}
-            onFilteredContactsChange={setFilteredContacts}
+          <BasicContactFilter
             selectedContacts={selectedContacts}
             onSelectedContactsChange={setSelectedContacts}
           />
@@ -557,14 +551,10 @@ export default function TextAutomation() {
                 {/* Total Cycles */}
                 <div>
                   <Label>Total Cycles</Label>
-                  <RadioGroup value={cycleType} onValueChange={(value: any) => setCycleType(value)} className="mt-2">
+                  <ToggleGroup type="single" value={cycleType} onValueChange={(value: any) => value && setCycleType(value)} className="mt-2 gap-2">
+                    <ToggleGroupItem value="indefinite" aria-label="Run indefinitely">Indefinite</ToggleGroupItem>
                     <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="indefinite" id="indefinite" />
-                      <Label htmlFor="indefinite">Run indefinitely</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="limited" id="limited" />
-                      <Label htmlFor="limited">Stop after</Label>
+                      <ToggleGroupItem value="limited" aria-label="Limited cycles">Limited</ToggleGroupItem>
                       <Input
                         type="number"
                         min="1"
@@ -575,7 +565,7 @@ export default function TextAutomation() {
                       />
                       <span className="text-sm text-muted-foreground">cycles</span>
                     </div>
-                  </RadioGroup>
+                  </ToggleGroup>
                 </div>
               </div>
             </CardContent>
@@ -612,11 +602,9 @@ export default function TextAutomation() {
             <DialogTitle>Select Contacts for Automation</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-hidden">
-            <AdvancedContactFilter
-              contacts={contacts}
+            <BasicContactFilter
               selectedContacts={selectedContacts}
               onSelectedContactsChange={setSelectedContacts}
-              onFilteredContactsChange={setFilteredContacts}
             />
           </div>
         </DialogContent>

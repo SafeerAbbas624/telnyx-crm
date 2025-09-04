@@ -8,8 +8,9 @@ export async function GET(request: NextRequest) {
       const userId = user.sub
       const { searchParams } = new URL(request.url)
       const search = searchParams.get('search')
-      const limit = parseInt(searchParams.get('limit') || '50')
-      const offset = parseInt(searchParams.get('offset') || '0')
+      const page = parseInt(searchParams.get('page') || '1')
+      const limit = parseInt(searchParams.get('limit') || '20')
+      const offset = (page - 1) * limit
 
       // Build where clause for search
       const where: any = {
@@ -29,6 +30,9 @@ export async function GET(request: NextRequest) {
           { llcName: { contains: search, mode: 'insensitive' } },
         ]
       }
+
+      // Get total count for pagination
+      const totalCount = await prisma.contact.count({ where })
 
       const contacts = await prisma.contact.findMany({
         where,
@@ -93,7 +97,13 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         contacts: formattedContacts,
-        total: contacts.length
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasMore: page * limit < totalCount
+        }
       })
     } catch (error) {
       console.error('Error fetching assigned contacts:', error)

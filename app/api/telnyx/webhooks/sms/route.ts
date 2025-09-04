@@ -1,24 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import crypto from 'crypto'
+
+function rawToPemEd25519PublicKey(rawBase64: string): string {
+  const raw = Buffer.from(rawBase64, 'base64')
+  if (raw.length !== 32) throw new Error('Invalid Telnyx public key length')
+  // ASN.1 DER prefix for Ed25519 public key (RFC 8410)
+  const derPrefix = Buffer.from('302a300506032b6570032100', 'hex')
+  const der = Buffer.concat([derPrefix, raw])
+  const b64 = der.toString('base64')
+  const pem = `-----BEGIN PUBLIC KEY-----\n${b64.match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----\n`
+  return pem
+}
+
+function verifyTelnyxSignature(timestamp: string | null, signature: string | null, body: string): boolean {
+  try {
+    if (!timestamp || !signature) return false
+    const publicKeyB64 = process.env.TELNYX_PUBLIC_KEY
+    if (!publicKeyB64) return false
+    const pem = rawToPemEd25519PublicKey(publicKeyB64)
+    const payload = Buffer.from(`${timestamp}|${body}`)
+    const sig = Buffer.from(signature, 'base64')
+    const keyObject = crypto.createPublicKey(pem)
+    return crypto.verify(null, payload, keyObject, sig)
+  } catch (e) {
+    console.error('Telnyx signature verification error:', e)
+    return false
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { data, event_type, occurred_at, id: webhookId } = body;
+    // Read raw body for signature verification
+    const rawBody = await request.text()
+    const json = JSON.parse(rawBody)
+    const { data, event_type, occurred_at, id: webhookId } = json
+
+    // Verify webhook signature (Ed25519)
+    const signature = request.headers.get('telnyx-signature-ed25519')
+    const timestamp = request.headers.get('telnyx-timestamp')
+    const valid = verifyTelnyxSignature(timestamp, signature, rawBody)
+    if (!valid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
 
     console.log('Telnyx SMS webhook received:', {
       event_type,
       webhookId,
       occurred_at,
-      messageId: data?.payload?.id
+      messageId: data?.payload?.id || data?.id
     });
-
-    // Verify webhook signature (optional but recommended)
-    // const signature = request.headers.get('telnyx-signature-ed25519');
-    // const timestamp = request.headers.get('telnyx-timestamp');
-    // if (!verifyWebhookSignature(body, signature, timestamp)) {
-    //   return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    // }
 
     const payload = data?.payload || data;
 
@@ -206,8 +237,32 @@ async function handleMessageReceived(data: any) {
           status: 'received',
           segments: data.parts || 1,
           webhookData: data,
+          cost: data.cost?.amount ? parseFloat(data.cost.amount) : undefined,
         },
       });
+    }
+
+    // Record inbound SMS cost if present
+    if (data.cost?.amount && prisma.telnyxBilling) {
+      const inboundCost = parseFloat(data.cost.amount)
+      await prisma.telnyxBilling.create({
+        data: {
+          phoneNumber: data.to?.[0]?.phone_number || data.to,
+          recordType: 'sms',
+          recordId: data.id,
+          cost: inboundCost,
+          currency: data.cost.currency || 'USD',
+          billingDate: new Date(),
+          description: `Inbound SMS from ${data.from?.phone_number || data.from}`,
+          metadata: data,
+        },
+      })
+      if (prisma.telnyxPhoneNumber) {
+        await prisma.telnyxPhoneNumber.updateMany({
+          where: { phoneNumber: data.to?.[0]?.phone_number || data.to },
+          data: { totalCost: { increment: inboundCost } }
+        })
+      }
     }
 
     // Update phone number usage stats (skip if models not available)
@@ -277,6 +332,50 @@ async function handleMessageFinalized(data: any) {
         updatedAt: new Date(),
       },
     });
+
+    // Optional cost reconciliation at finalization
+    if (data.cost?.amount && prisma.telnyxBilling) {
+      const finalCost = parseFloat(data.cost.amount)
+      const existingBilling = await prisma.telnyxBilling.findFirst({
+        where: { recordId: data.id, recordType: 'sms' }
+      })
+      if (existingBilling) {
+        const existingCost = parseFloat(existingBilling.cost.toString())
+        if (existingCost !== finalCost) {
+          const diff = finalCost - existingCost
+          await prisma.telnyxBilling.update({
+            where: { id: existingBilling.id },
+            data: { cost: finalCost, description: `SMS finalized (${data.to?.[0]?.status || 'final'})`, metadata: data }
+          })
+          if (prisma.telnyxPhoneNumber) {
+            await prisma.telnyxPhoneNumber.updateMany({
+              where: { phoneNumber: data.from?.phone_number || data.from },
+              data: { totalCost: { increment: diff } }
+            })
+          }
+        }
+      } else {
+        // Create if missing (rare)
+        await prisma.telnyxBilling.create({
+          data: {
+            phoneNumber: data.from?.phone_number || data.from,
+            recordType: 'sms',
+            recordId: data.id,
+            cost: finalCost,
+            currency: data.cost.currency || 'USD',
+            billingDate: new Date(),
+            description: `SMS finalized to ${data.to?.[0]?.phone_number || data.to}`,
+            metadata: data,
+          },
+        })
+        if (prisma.telnyxPhoneNumber) {
+          await prisma.telnyxPhoneNumber.updateMany({
+            where: { phoneNumber: data.from?.phone_number || data.from },
+            data: { totalCost: { increment: finalCost } }
+          })
+        }
+      }
+    }
   } catch (error) {
     console.error('Error handling message finalized:', error);
   }

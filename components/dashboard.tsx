@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
+import React, { useState, useEffect, useRef, useCallback } from "react"
+import { useRouter, usePathname } from "next/navigation"
 import Sidebar from "./sidebar"
 import MobileHeader from "./mobile-header"
 import DashboardTabs from "./dashboard-tabs"
@@ -14,28 +14,42 @@ export default function Dashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const isMobile = useMediaQuery("(max-width: 768px)")
-  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
 
-  // Handle URL parameters
+  // Guard to initialize from URL only once to avoid race conditions
+  const initializedRef = useRef(false)
+
+  // Initialize from URL exactly once (on mount)
   useEffect(() => {
-    const section = searchParams.get('section')
-    const contactId = searchParams.get('contactId')
+    if (initializedRef.current) return
+    const url = new URL(window.location.href)
+    const section = url.searchParams.get('section')
+    const contactId = url.searchParams.get('contactId')
 
-    if (section) {
-      setActiveTab(section)
-    }
+    if (section) setActiveTab(section)
+    if (contactId) setSelectedContactId(contactId)
 
-    if (contactId) {
-      setSelectedContactId(contactId)
-    }
-  }, [searchParams])
+    initializedRef.current = true
+  }, [])
+
+  // Only update URL when user intentionally changes tabs (avoids stale writes)
+  const handleSetActiveTab = useCallback((tab: string) => {
+    setActiveTab(prev => {
+      if (prev === tab) return prev
+      const url = new URL(window.location.href)
+      url.searchParams.set('section', tab)
+      window.history.replaceState(null, '', url.toString())
+      return tab
+    })
+  }, [])
 
   return (
     <div className="h-screen bg-gray-50 flex overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleSetActiveTab}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -43,7 +57,7 @@ export default function Dashboard() {
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile header */}
-        {isMobile && <MobileHeader activeTab={activeTab} setActiveTab={setActiveTab} setSidebarOpen={setSidebarOpen} />}
+        {isMobile && <MobileHeader activeTab={activeTab} setActiveTab={handleSetActiveTab} setSidebarOpen={setSidebarOpen} />}
         
         {/* Desktop header */}
         {!isMobile && <Header />}
@@ -52,7 +66,7 @@ export default function Dashboard() {
         <main className="flex-1 overflow-auto bg-background">
           <DashboardTabs
             activeTab={activeTab}
-            setActiveTab={setActiveTab}
+            setActiveTab={handleSetActiveTab}
             selectedContactId={selectedContactId}
           />
         </main>

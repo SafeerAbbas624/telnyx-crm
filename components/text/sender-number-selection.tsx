@@ -4,12 +4,12 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Phone, Plus, X, RotateCcw, Settings, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -161,24 +161,16 @@ export default function SenderNumberSelection({
         {/* Selection Mode */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Selection Mode</Label>
-          <RadioGroup
+          <ToggleGroup
+            type="single"
             value={selectionMode}
-            onValueChange={(value: "single" | "multiple" | "all") => onSelectionModeChange(value)}
-            className="flex gap-6"
+            onValueChange={(value: any) => value && onSelectionModeChange(value)}
+            className="flex gap-2"
           >
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="single" id="single" />
-              <Label htmlFor="single" className="text-sm">Single Number</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="multiple" id="multiple" />
-              <Label htmlFor="multiple" className="text-sm">Multiple Numbers</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="all" id="all" />
-              <Label htmlFor="all" className="text-sm">All Numbers</Label>
-            </div>
-          </RadioGroup>
+            <ToggleGroupItem value="single" aria-label="Single Number">Single</ToggleGroupItem>
+            <ToggleGroupItem value="multiple" aria-label="Multiple Numbers">Multiple</ToggleGroupItem>
+            <ToggleGroupItem value="all" aria-label="All Numbers">All</ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
         {/* Rotation Settings */}

@@ -81,8 +81,8 @@ export default function TeamContacts() {
     }
   }
 
-  // Filter contacts based on search query
-  const filteredContacts = contacts.filter(contact => {
+  // Filter contacts based on search query (with safety check)
+  const filteredContacts = Array.isArray(contacts) ? contacts.filter(contact => {
     if (!searchQuery) return true
     const query = searchQuery.toLowerCase()
     return (
@@ -94,7 +94,7 @@ export default function TeamContacts() {
       contact.propertyAddress?.toLowerCase().includes(query) ||
       contact.city?.toLowerCase().includes(query)
     )
-  })
+  }) : []
 
   const formatCurrency = (amount?: number) => {
     if (!amount) return "N/A"
@@ -130,7 +130,7 @@ export default function TeamContacts() {
               <User className="h-5 w-5 text-blue-500" />
               <div>
                 <p className="text-sm font-medium">Total Contacts</p>
-                <p className="text-2xl font-bold">{contacts.length}</p>
+                <p className="text-2xl font-bold">{Array.isArray(contacts) ? contacts.length : 0}</p>
               </div>
             </div>
           </CardContent>
@@ -143,7 +143,7 @@ export default function TeamContacts() {
               <div>
                 <p className="text-sm font-medium">With LLC</p>
                 <p className="text-2xl font-bold">
-                  {contacts.filter(c => c.llcName).length}
+                  {Array.isArray(contacts) ? contacts.filter(c => c.llcName).length : 0}
                 </p>
               </div>
             </div>
@@ -157,7 +157,7 @@ export default function TeamContacts() {
               <div>
                 <p className="text-sm font-medium">With Email</p>
                 <p className="text-2xl font-bold">
-                  {contacts.filter(c => c.email1).length}
+                  {Array.isArray(contacts) ? contacts.filter(c => c.email1).length : 0}
                 </p>
               </div>
             </div>

@@ -349,6 +349,15 @@ const ContactsList: React.FC<ContactsListProps> = ({
     onContactSelectionChange(newSelection)
   }
 
+  // Safety check: ensure contacts is an array
+  if (!Array.isArray(contacts)) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">Loading contacts...</p>
+      </div>
+    )
+  }
+
   return (
     <div>
       {contacts.map((contact) => (

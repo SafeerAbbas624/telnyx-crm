@@ -3,6 +3,8 @@
 import React, { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import Image from "next/image"
+import Logo from "../Adler Capital.png"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,7 +57,12 @@ export default function Header() {
   }
 
   return (
-    <header className="h-16 bg-background border-b border-border flex items-center justify-end px-6 gap-4">
+    <header className="h-28 md:h-32 bg-background border-b border-border flex items-center justify-between px-6 gap-4">
+      {/* Brand */}
+      <div className="flex items-center gap-2">
+        <Image src={Logo as any} alt="Logo" className="h-24 w-auto md:h-28" priority />
+        <span className="text-xl font-semibold hidden sm:inline">Adler Capital CRM</span>
+      </div>
       {/* Notifications */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

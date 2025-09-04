@@ -11,7 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { Send, Users, Clock, Mail, FileText, Settings, Play, Pause, Square, Filter } from "lucide-react"
-import AdvancedContactFilter from "../text/advanced-contact-filter"
+import BasicContactFilter from "../text/basic-contact-filter"
 import EmailTemplateManager from "./email-template-manager"
 import { useContacts } from "@/lib/context/contacts-context"
 import type { Contact } from "@/lib/types"
@@ -71,7 +71,6 @@ export default function EmailBlast({ emailAccounts }: EmailBlastProps) {
   const { toast } = useToast()
   const { contacts } = useContacts()
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
-  const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [selectedAccount, setSelectedAccount] = useState<string>("")
   const [subject, setSubject] = useState("")
   const [emailContent, setEmailContent] = useState("")
@@ -301,11 +300,9 @@ export default function EmailBlast({ emailAccounts }: EmailBlastProps) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <AdvancedContactFilter
-              contacts={contacts}
+            <BasicContactFilter
               selectedContacts={selectedContacts}
               onSelectedContactsChange={setSelectedContacts}
-              onFilteredContactsChange={setFilteredContacts}
             />
           </CardContent>
         </Card>

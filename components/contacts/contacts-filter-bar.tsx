@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
-import { Search, X, Filter, Users } from "lucide-react"
+import { Filter, Users } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import type { Contact } from "@/lib/types"
 
@@ -53,7 +53,6 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
   selectedContacts,
   onSelectedContactsChange
 }) => {
-  const [searchTerm, setSearchTerm] = useState("")
   const [showFilters, setShowFilters] = useState(false)
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     states: [],
@@ -78,6 +77,11 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
 
   // Extract dynamic filter options from contacts data
   useEffect(() => {
+    // Safety check: ensure contacts is an array
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      return
+    }
+
     const states = [...new Set(contacts.map(c => c.state).filter(Boolean))].sort()
     const cities = [...new Set(contacts.map(c => c.city).filter(Boolean))].sort()
     const counties = [...new Set(contacts.map(c => c.propertyCounty).filter(Boolean))].sort()
@@ -115,40 +119,14 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
     }))
   }, [contacts])
 
-  // Enhanced search function
-  const matchesSearch = (contact: Contact, searchTerm: string) => {
-    if (!searchTerm) return true
 
-    const searchLower = searchTerm.toLowerCase()
-    const searchFields = [
-      contact.firstName,
-      contact.lastName,
-      contact.llcName,
-      contact.phone1,
-      contact.phone2,
-      contact.phone3,
-      contact.email1,
-      contact.email2,
-      contact.email3,
-      contact.propertyAddress,
-      contact.city,
-      contact.state,
-      contact.propertyCounty,
-      contact.propertyType,
-      contact.notes,
-      contact.dncReason,
-    ].filter(Boolean)
 
-    return searchFields.some(field =>
-      field?.toString().toLowerCase().includes(searchLower)
-    )
-  }
+
 
   // Apply filters to contacts
   const filteredContacts = useMemo(() => {
     // If no filters are applied, return all contacts
-    const hasFilters = searchTerm ||
-      filters.states.length > 0 ||
+    const hasFilters = filters.states.length > 0 ||
       filters.cities.length > 0 ||
       filters.counties.length > 0 ||
       filters.propertyTypes.length > 0 ||
@@ -164,8 +142,6 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
     }
 
     return contacts.filter((contact) => {
-      // Search filter
-      if (searchTerm && !matchesSearch(contact, searchTerm)) return false
 
       // State filter
       if (filters.states.length > 0 && !filters.states.includes(contact.state || '')) return false
@@ -195,7 +171,7 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
 
       return true
     })
-  }, [contacts, searchTerm, filters, filterOptions.valueRange.min, filterOptions.valueRange.max, filterOptions.equityRange.min, filterOptions.equityRange.max])
+  }, [contacts, filters, filterOptions.valueRange.min, filterOptions.valueRange.max, filterOptions.equityRange.min, filterOptions.equityRange.max])
 
   // Update filtered contacts when they change
   useEffect(() => {
@@ -320,26 +296,8 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Search Bar and Action Buttons */}
+      {/* Advanced Filters Button */}
       <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-lg">
-          <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Search contacts by name, email, phone, address..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm("")}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
-        
         <Button
           variant={showFilters ? "default" : "outline"}
           onClick={() => setShowFilters(!showFilters)}

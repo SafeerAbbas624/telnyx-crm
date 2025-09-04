@@ -109,12 +109,15 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
         })
       })
 
-      if (response.ok) {
+      let data: any = null
+      try { data = await response.json() } catch {}
+
+      if (response.ok || data?.success) {
         toast({
           title: "Success",
-          description: "Email sent successfully"
+          description: data?.message || "Email sent successfully"
         })
-        
+
         // Reset form
         setToEmail('')
         setSubject('')
@@ -122,8 +125,7 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
         onEmailSent()
         onClose()
       } else {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to send email')
+        throw new Error(data?.error || data?.message || 'Failed to send email')
       }
     } catch (error: any) {
       toast({

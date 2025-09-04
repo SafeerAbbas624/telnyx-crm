@@ -118,6 +118,7 @@ export async function GET(request: NextRequest) {
 
       return {
         id: call.id,
+        telnyxCallId: call.telnyxCallId,
         direction: call.direction,
         status: call.status,
         duration: call.duration,

@@ -139,25 +139,31 @@ export async function POST(request: NextRequest) {
     const info = await transporter.sendMail(mailOptions);
 
     // Save to database
-    const emailMessage = await prisma.emailMessage.create({
-      data: {
-        messageId: info.messageId,
-        contactId: contactId || null,
-        emailAccountId,
-        fromEmail: emailAccount.emailAddress,
-        fromName: emailAccount.displayName,
-        toEmails,
-        ccEmails,
-        bccEmails,
-        subject,
-        content: emailHtml,
-        textContent: textContent || null,
-        direction: 'outbound',
-        status: 'sent',
-        sentAt: new Date(),
-        blastId: blastId || null,
-      },
-    });
+    let emailMessage: any = null
+    try {
+      emailMessage = await prisma.emailMessage.create({
+        data: {
+          messageId: info.messageId,
+          contactId: contactId || null,
+          emailAccountId,
+          fromEmail: emailAccount.emailAddress,
+          fromName: emailAccount.displayName,
+          toEmails,
+          ccEmails,
+          bccEmails,
+          subject,
+          content: emailHtml,
+          textContent: textContent || null,
+          direction: 'outbound',
+          status: 'sent',
+          sentAt: new Date(),
+          blastId: blastId || null,
+        },
+      })
+    } catch (err) {
+      console.error('Warning: email sent but failed to persist emailMessage:', err)
+      // Do not fail the request; email was sent successfully
+    }
 
     // Update or create conversation if contactId is provided
     if (contactId && prisma.emailConversation) {
@@ -202,7 +208,7 @@ export async function POST(request: NextRequest) {
       status: 'sent',
       message: 'Email sent successfully',
       data: {
-        id: emailMessage.id,
+        id: emailMessage?.id ?? null,
         messageId: info.messageId,
         accepted: info.accepted,
         rejected: info.rejected,

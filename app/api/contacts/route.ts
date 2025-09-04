@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { redisClient } from '@/lib/cache/redis-client';
+import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
 
 interface Contact {
   id: string;
@@ -53,26 +55,189 @@ interface FormattedContact {
 
 
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const contacts = await prisma.contact.findMany({
-      include: {
-        contact_tags: {
-          include: {
-            tag: {
-              select: {
-                id: true,
-                name: true,
-                color: true,
+    const { searchParams } = new URL(request.url)
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100) // Cap at 100 for performance
+    const search = searchParams.get('search')
+    const dealStatus = searchParams.get('dealStatus')
+    const propertyType = searchParams.get('propertyType')
+    const city = searchParams.get('city')
+    const state = searchParams.get('state')
+    const propertyCounty = searchParams.get('propertyCounty')
+    const tags = searchParams.get('tags')
+    const minValue = searchParams.get('minValue') ? parseFloat(searchParams.get('minValue')!) : undefined
+    const maxValue = searchParams.get('maxValue') ? parseFloat(searchParams.get('maxValue')!) : undefined
+    const useElasticsearch = searchParams.get('useElasticsearch') === 'true' || !!search
+
+    const filters = { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue }
+
+    // Try cache first for non-search queries
+    if (!search) {
+      const cached = await redisClient.getCachedContactsPage(page, limit, filters)
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    }
+
+    let result: any
+
+    // Use Elasticsearch for search queries or when explicitly requested
+    if (useElasticsearch && (await elasticsearchClient.isHealthy())) {
+      try {
+        result = await elasticsearchClient.searchContacts({
+          search,
+          dealStatus: dealStatus || undefined,
+          propertyType: propertyType || undefined,
+          city: city || undefined,
+          state: state || undefined,
+          minValue,
+          maxValue,
+          page,
+          limit,
+          sortBy: 'createdAt',
+          sortOrder: 'desc'
+        })
+
+        // Transform Elasticsearch results to match expected format
+        const formattedContacts = result.contacts.map((contact: any) => ({
+          id: contact.id,
+          firstName: contact.firstName || '',
+          lastName: contact.lastName || '',
+          phone: contact.phone1 || contact.phone2 || contact.phone3 || '',
+          email: contact.email1 || contact.email2 || contact.email3 || '',
+          propertyAddress: contact.propertyAddress || '',
+          propertyType: contact.propertyType || '',
+          propertyValue: contact.estValue ? Number(contact.estValue) : null,
+          debtOwed: contact.estValue && contact.estEquity ?
+            Number(contact.estValue) - Number(contact.estEquity) : null,
+          tags: contact.tags || [],
+          createdAt: contact.createdAt,
+          updatedAt: contact.updatedAt,
+          _score: contact._score,
+          _highlights: contact._highlights
+        }))
+
+        const response = {
+          contacts: formattedContacts,
+          pagination: {
+            page: result.page,
+            limit: result.limit,
+            totalCount: result.total,
+            totalPages: result.totalPages,
+            hasMore: page * limit < result.total
+          },
+          source: 'elasticsearch'
+        }
+
+        // Cache search results briefly
+        if (search) {
+          await redisClient.cacheSearchResults(search, page, limit, response, 120)
+        }
+
+        return NextResponse.json(response)
+      } catch (esError) {
+        console.error('Elasticsearch error, falling back to database:', esError)
+        // Fall through to database query
+      }
+    }
+
+    // Fallback to database query with optimizations
+    const offset = (page - 1) * limit
+
+    // Build where clause for filtering
+    const where: any = {}
+
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { llcName: { contains: search, mode: 'insensitive' } },
+        { phone1: { contains: search } },
+        { email1: { contains: search, mode: 'insensitive' } },
+        { propertyAddress: { contains: search, mode: 'insensitive' } },
+      ]
+    }
+
+    if (dealStatus) {
+      where.dealStatus = dealStatus
+    }
+
+    if (propertyType) {
+      where.propertyType = propertyType
+    }
+
+    if (city) {
+      where.city = { contains: city, mode: 'insensitive' }
+    }
+
+    if (state) {
+      where.state = { contains: state, mode: 'insensitive' }
+    }
+
+    if (propertyCounty) {
+      where.propertyCounty = { contains: propertyCounty, mode: 'insensitive' }
+    }
+
+    if (tags) {
+      const tagNames = tags.split(',').map(t => t.trim())
+      where.contact_tags = {
+        some: {
+          tag: {
+            name: { in: tagNames }
+          }
+        }
+      }
+    }
+
+    if (minValue !== undefined || maxValue !== undefined) {
+      where.estValue = {}
+      if (minValue !== undefined) where.estValue.gte = minValue
+      if (maxValue !== undefined) where.estValue.lte = maxValue
+    }
+
+    // Use Promise.all for parallel queries
+    const [totalCount, contacts] = await Promise.all([
+      prisma.contact.count({ where }),
+      prisma.contact.findMany({
+        where,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          llcName: true,
+          phone1: true,
+          phone2: true,
+          phone3: true,
+          email1: true,
+          email2: true,
+          email3: true,
+          propertyAddress: true,
+          propertyType: true,
+          estValue: true,
+          estEquity: true,
+          createdAt: true,
+          updatedAt: true,
+          contact_tags: {
+            select: {
+              tag: {
+                select: {
+                  id: true,
+                  name: true,
+                  color: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: offset,
+        take: limit,
+      })
+    ]);
 
     // Transform the data to match the expected frontend format
     const formattedContacts = contacts.map((contact) => ({
@@ -119,7 +284,24 @@ export async function GET() {
       })),
     }));
 
-    return NextResponse.json(formattedContacts);
+
+
+    const response = {
+      contacts: formattedContacts,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasMore: page * limit < totalCount
+      },
+      source: 'database'
+    }
+
+    // Cache the results
+    await redisClient.cacheContactsPage(page, limit, filters, response)
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error('Error fetching contacts:', error);
     return NextResponse.json(

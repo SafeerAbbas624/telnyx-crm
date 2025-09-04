@@ -155,6 +155,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build webhook URLs with HTTPS fallback for local/dev
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL
+    const baseWebhook = appUrl && appUrl.startsWith('https')
+      ? appUrl
+      : (process.env.TELNYX_PROD_WEBHOOK_URL || 'https://adlercapitalcrm.com')
+
     // Send SMS via Telnyx API
     const telnyxResponse = await fetch(TELNYX_API_URL, {
       method: 'POST',
@@ -166,8 +172,8 @@ export async function POST(request: NextRequest) {
         from: formattedFromNumber,
         to: formattedToNumber,
         text: message,
-        webhook_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/telnyx/webhooks/sms`,
-        webhook_failover_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/telnyx/webhooks/sms-failover`,
+        webhook_url: `${baseWebhook}/api/telnyx/webhooks/sms`,
+        webhook_failover_url: `${baseWebhook}/api/telnyx/webhooks/sms-failover`,
         use_profile_webhooks: false,
       }),
     });

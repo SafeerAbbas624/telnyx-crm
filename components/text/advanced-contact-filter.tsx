@@ -13,6 +13,7 @@ import { Slider } from "@/components/ui/slider"
 import { Search, X, Filter, Users, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatPhoneNumberForDisplay, getBestPhoneNumber } from "@/lib/phone-utils"
+import { useContacts } from "@/lib/context/contacts-context"
 import type { Contact } from "@/lib/types"
 
 interface FilterCriteria {
@@ -65,8 +66,43 @@ export default function AdvancedContactFilter({
   const [yearBuiltRange, setYearBuiltRange] = useState<[number, number]>([1900, 2024])
   const [equityRange, setEquityRange] = useState<[number, number]>([0, 1000000])
   const { toast } = useToast()
+  const { filterOptions, searchContacts, contacts: contextContacts } = useContacts()
 
-  // Get unique values for select filters
+  // Get dynamic filter options from database
+  const getDynamicFilterOptions = () => {
+    if (!filterOptions) return []
+
+    return [
+      {
+        category: "Location",
+        fields: [
+          { value: "city", label: "City", type: "select", options: filterOptions.cities || [] },
+          { value: "state", label: "State", type: "select", options: filterOptions.states || [] },
+          { value: "propertyCounty", label: "County", type: "select", options: filterOptions.counties || [] },
+        ]
+      },
+      {
+        category: "Property Type",
+        fields: [
+          { value: "propertyType", label: "Property Type", type: "select", options: filterOptions.propertyTypes || [] },
+        ]
+      },
+      {
+        category: "Deal Status",
+        fields: [
+          { value: "dealStatus", label: "Deal Status", type: "select", options: filterOptions.dealStatuses || [] },
+        ]
+      },
+      {
+        category: "Tags",
+        fields: [
+          { value: "tags", label: "Tags", type: "select", options: filterOptions.tags?.map((tag: any) => tag.name) || [] },
+        ]
+      }
+    ]
+  }
+
+  // Get unique values for select filters (fallback)
   const getUniqueValues = (field: string) => {
     const values = contacts
       .map(contact => (contact as any)[field])
@@ -145,10 +181,15 @@ export default function AdvancedContactFilter({
     return result
   }, [contacts, searchQuery, selectedFilters, yearBuiltRange, equityRange, minYearBuilt, maxYearBuilt, minEquity, maxEquity])
 
+  const hasActiveFilters = Object.values(selectedFilters).some(values => values.length > 0)
+
   // Update filtered contacts when they change
   useEffect(() => {
-    onFilteredContactsChange(filteredContacts)
-  }, [filteredContacts, onFilteredContactsChange])
+    // Use context contacts when filters are applied (database search results)
+    // Otherwise use local contacts (for initial load)
+    const contactsToUse = (searchQuery || hasActiveFilters) ? contextContacts : filteredContacts
+    onFilteredContactsChange(contactsToUse)
+  }, [filteredContacts, contextContacts, searchQuery, hasActiveFilters, onFilteredContactsChange])
 
   // Initialize slider ranges when contacts load
   useEffect(() => {
@@ -158,24 +199,53 @@ export default function AdvancedContactFilter({
     }
   }, [contacts.length, minYearBuilt, maxYearBuilt, minEquity, maxEquity])
 
-  const handleFilterChange = (field: string, value: string, checked: boolean) => {
-    setSelectedFilters(prev => {
-      const currentValues = prev[field] || []
-      if (checked) {
-        return { ...prev, [field]: [...currentValues, value] }
-      } else {
-        return { ...prev, [field]: currentValues.filter(v => v !== value) }
-      }
-    })
-  }
+
 
   const clearAllFilters = () => {
     setSearchQuery("")
     setSelectedFilters({})
     setShowAdvancedFilters(false)
+    // Reset to show all contacts
+    searchContacts("", {})
   }
 
-  const hasActiveFilters = Object.values(selectedFilters).some(values => values.length > 0)
+  // Handle search with database-wide search
+  const handleSearch = (query: string) => {
+    setSearchQuery(query)
+    // Use database-wide search instead of filtering current page
+    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
+      if (values.length > 0) {
+        acc[key] = values.join(',')
+      }
+      return acc
+    }, {} as any)
+
+    searchContacts(query, filters)
+  }
+
+  // Handle filter changes with database search
+  const handleFilterChange = (field: string, value: string, checked: boolean) => {
+    const newFilters = { ...selectedFilters }
+    const currentValues = newFilters[field] || []
+
+    if (checked) {
+      newFilters[field] = [...currentValues, value]
+    } else {
+      newFilters[field] = currentValues.filter(v => v !== value)
+    }
+
+    setSelectedFilters(newFilters)
+
+    // Apply search with new filters
+    const filters = Object.entries(newFilters).reduce((acc, [key, values]) => {
+      if (values.length > 0) {
+        acc[key] = values.join(',')
+      }
+      return acc
+    }, {} as any)
+
+    searchContacts(searchQuery, filters)
+  }
 
   const handleSelectAll = () => {
     onSelectedContactsChange(filteredContacts)
@@ -222,7 +292,7 @@ export default function AdvancedContactFilter({
             placeholder="Search contacts by name, email, phone, address..."
             className="pl-8"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
 
@@ -259,7 +329,7 @@ export default function AdvancedContactFilter({
               <div className="grid grid-cols-2 gap-8">
                 {/* Left Column */}
                 <div className="space-y-6">
-                  {FILTER_OPTIONS.map(category => {
+                  {getDynamicFilterOptions().map(category => {
                     const hasValues = category.fields.some(field => {
                       if (field.type === "select" && !field.options?.length) {
                         const uniqueValues = getUniqueValues(field.value)
@@ -280,28 +350,31 @@ export default function AdvancedContactFilter({
                             if (options.length === 0) return null
 
                             return (
-                              <div key={field.value} className="grid grid-cols-2 gap-2">
-                                {options.map(option => {
-                                  const count = contacts.filter(c => (c as any)[field.value] === option).length
-                                  const isSelected = selectedFilters[field.value]?.includes(option) || false
-                                  return (
-                                    <div key={option} className="flex items-center space-x-2">
-                                      <Checkbox
-                                        id={`${field.value}-${option}`}
-                                        checked={isSelected}
-                                        onCheckedChange={(checked) =>
-                                          handleFilterChange(field.value, option, checked as boolean)
-                                        }
-                                      />
-                                      <Label
-                                        htmlFor={`${field.value}-${option}`}
-                                        className="text-sm cursor-pointer flex-1"
-                                      >
-                                        {option} ({count})
-                                      </Label>
-                                    </div>
-                                  )
-                                })}
+                              <div key={field.value} className="space-y-2">
+                                <h5 className="font-medium text-sm text-gray-700">{field.label}</h5>
+                                <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
+                                  {options.slice(0, 50).map(option => {
+                                    const count = Array.isArray(contacts) ? contacts.filter(c => (c as any)[field.value] === option).length : 0
+                                    const isSelected = selectedFilters[field.value]?.includes(option) || false
+                                    return (
+                                      <div key={option} className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id={`${field.value}-${option}`}
+                                          checked={isSelected}
+                                          onCheckedChange={(checked) =>
+                                            handleFilterChange(field.value, option, checked as boolean)
+                                          }
+                                        />
+                                        <Label
+                                          htmlFor={`${field.value}-${option}`}
+                                          className="text-sm cursor-pointer flex-1"
+                                        >
+                                          {option} ({count})
+                                        </Label>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
                               </div>
                             )
                           }
