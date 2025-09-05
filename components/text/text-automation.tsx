@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useToast } from "@/hooks/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import BasicContactFilter from "./basic-contact-filter"
+import AdvancedContactFilter from "./advanced-contact-filter"
 import SenderNumberSelection from "./sender-number-selection"
 import TemplateManager from "./template-manager"
 import { useContacts } from "@/lib/context/contacts-context"
@@ -434,10 +434,12 @@ export default function TextAutomation() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Column - Contact Selection & Templates */}
         <div className="space-y-6">
-          {/* Contact Selection */}
-          <BasicContactFilter
+          {/* Contact Selection (Advanced) */}
+          <AdvancedContactFilter
+            contacts={contacts}
             selectedContacts={selectedContacts}
             onSelectedContactsChange={setSelectedContacts}
+            onFilteredContactsChange={() => {}}
           />
 
           {/* Template Manager */}

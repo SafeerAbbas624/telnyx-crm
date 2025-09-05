@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Send, Users, MessageSquare, Play, Pause, Square, RefreshCw, AlertCircle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import BasicContactFilter from "./basic-contact-filter"
+import AdvancedContactFilter from "./advanced-contact-filter"
 import SenderNumberSelection from "./sender-number-selection"
 import MessageDelaySettings from "./message-delay-settings"
 import TemplateManager from "./template-manager"
@@ -473,10 +473,12 @@ export default function EnhancedTextBlast() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left Column */}
         <div className="space-y-6">
-          {/* Contact Selection */}
-          <BasicContactFilter
+          {/* Contact Selection (Advanced) */}
+          <AdvancedContactFilter
+            contacts={contacts}
             selectedContacts={selectedContacts}
             onSelectedContactsChange={setSelectedContacts}
+            onFilteredContactsChange={() => {}}
           />
 
           {/* Template Manager */}
