@@ -81,6 +81,33 @@ export default function CallsCenter() {
     loadData()
   }, [])
 
+  // Track if there is an active call and live-refresh while active
+  const hasActiveCall = React.useMemo(() => recentCalls.some(c => ACTIVE_STATUSES.has(c.status)), [recentCalls])
+
+  // While a call is active, poll backend to keep status fresh so banners/popups auto-hide
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (hasActiveCall) {
+      interval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/telnyx/calls')
+          if (res.ok) {
+            const data = await res.json()
+            setRecentCalls(Array.isArray(data) ? data : (data.calls || []))
+          }
+        } catch {}
+      }, 3000)
+    }
+    return () => { if (interval) clearInterval(interval) }
+  }, [hasActiveCall])
+
+  // Close the activity dialog automatically once there is no active call
+  useEffect(() => {
+    if (!hasActiveCall && showActivityDialog) {
+      setShowActivityDialog(false)
+    }
+  }, [hasActiveCall, showActivityDialog])
+
   // Debounce search to avoid spamming API
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 400)

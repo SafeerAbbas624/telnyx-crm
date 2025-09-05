@@ -64,6 +64,31 @@ export default function TeamCallsCenter() {
     loadData()
   }, [])
 
+
+  // Detect active calls and poll while active to keep UI in sync
+  const hasActiveCall = recentCalls.some(c => ['initiated','ringing','answered','bridged'].includes(c.status))
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (hasActiveCall) {
+      interval = setInterval(async () => {
+        try {
+          const resp = await fetch('/api/team/calls')
+          if (resp.ok) {
+            const data = await resp.json()
+            setRecentCalls(data.calls || [])
+          }
+        } catch {}
+      }, 3000)
+    }
+    return () => { if (interval) clearInterval(interval) }
+  }, [hasActiveCall])
+
+  // Close the activity dialog automatically once there is no active call
+  useEffect(() => {
+    if (!hasActiveCall && showActivityDialog) setShowActivityDialog(false)
+  }, [hasActiveCall, showActivityDialog])
+
   const loadData = async () => {
     try {
       setIsLoading(true)

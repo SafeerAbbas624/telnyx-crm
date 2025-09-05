@@ -296,21 +296,7 @@ const ContactsFilterBar: React.FC<ContactsFilterBarProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Advanced Filters Button */}
-      <div className="flex items-center gap-4">
-        <Button
-          variant={showFilters ? "default" : "outline"}
-          onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center gap-2"
-        >
-          <Filter size={16} />
-          Advanced Filters
-        </Button>
-
-
-      </div>
-
-      {/* Advanced Filters Panel */}
+      {/* Advanced Filters Panel (toggle controlled elsewhere) */}
       {showFilters && (
         <Card className="mb-4">
           <CardContent className="p-4 max-h-[70vh] overflow-y-auto">

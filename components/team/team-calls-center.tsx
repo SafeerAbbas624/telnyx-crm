@@ -9,13 +9,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { useSession } from "next-auth/react"
-import { 
-  Phone, 
-  PhoneCall, 
-  Search, 
-  Clock, 
-  DollarSign, 
-  Play, 
+import {
+  Phone,
+  PhoneCall,
+  Search,
+  Clock,
+  DollarSign,
+  Play,
   Download,
   User,
   Calendar,
@@ -78,6 +78,31 @@ export default function TeamCallsCenter() {
   useEffect(() => {
     loadTeamData()
   }, [])
+
+
+  // Detect active calls and poll while active to keep UI in sync
+  const hasActiveCall = recentCalls.some(c => ['initiated','ringing','answered','bridged'].includes(c.status))
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (hasActiveCall) {
+      interval = setInterval(async () => {
+        try {
+          const resp = await fetch('/api/team/calls')
+          if (resp.ok) {
+            const data = await resp.json()
+            setRecentCalls(data.calls || [])
+          }
+        } catch {}
+      }, 3000)
+    }
+    return () => { if (interval) clearInterval(interval) }
+  }, [hasActiveCall])
+
+  // Clear local activeCall banner when backend shows no active call
+  useEffect(() => {
+    if (!hasActiveCall && activeCall) setActiveCall(null)
+  }, [hasActiveCall])
 
   const loadTeamData = async () => {
     setIsLoading(true)
@@ -229,7 +254,7 @@ export default function TeamCallsCenter() {
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-xl font-semibold mb-4">Calls Center</h2>
-        
+
         {/* Phone Number Selection */}
         <div className="mb-4">
           <label className="text-sm font-medium mb-2 block">Your Assigned Phone Numbers</label>
@@ -274,7 +299,7 @@ export default function TeamCallsCenter() {
                 className="pl-10"
               />
             </div>
-            
+
             <ScrollArea className="h-[calc(100vh-200px)]">
               <div className="space-y-2">
                 {filteredContacts.length === 0 ? (
