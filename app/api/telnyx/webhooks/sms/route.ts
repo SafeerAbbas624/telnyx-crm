@@ -34,7 +34,12 @@ export async function POST(request: NextRequest) {
     // Read raw body for signature verification
     const rawBody = await request.text()
     const json = JSON.parse(rawBody)
-    const { data, event_type, occurred_at, id: webhookId } = json
+
+    // Telnyx v2 webhooks place event fields under data.*; support both shapes
+    const dataContainer = json?.data ?? json
+    const event_type = dataContainer?.event_type ?? json?.event_type
+    const occurred_at = dataContainer?.occurred_at ?? json?.occurred_at
+    const webhookId = dataContainer?.id ?? json?.id
 
     // Verify webhook signature (Ed25519)
     const signature = request.headers.get('telnyx-signature-ed25519')
@@ -48,10 +53,10 @@ export async function POST(request: NextRequest) {
       event_type,
       webhookId,
       occurred_at,
-      messageId: data?.payload?.id || data?.id
+      messageId: dataContainer?.payload?.id || dataContainer?.id
     });
 
-    const payload = data?.payload || data;
+    const payload = dataContainer?.payload || dataContainer;
 
     switch (event_type) {
       case 'message.sent':
