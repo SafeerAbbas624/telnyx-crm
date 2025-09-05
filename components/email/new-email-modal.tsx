@@ -34,45 +34,44 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const [contacts, setContacts] = useState<Contact[]>([])
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const { toast } = useToast()
 
-  // Fetch contacts for email suggestions
+  // Live suggestions from database (debounced query)
   useEffect(() => {
-    const fetchContacts = async () => {
-      try {
-        const response = await fetch('/api/contacts')
-        if (response.ok) {
-          const data = await response.json()
-          setContacts(data.contacts || [])
-        }
-      } catch (error) {
-        console.error('Error fetching contacts:', error)
-      }
-    }
-
-    if (isOpen) {
-      fetchContacts()
-    }
-  }, [isOpen])
-
-  // Filter contacts based on email input
-  useEffect(() => {
-    if (toEmail.length > 0) {
-      const filtered = contacts.filter(contact => 
-        contact.email1?.toLowerCase().includes(toEmail.toLowerCase()) ||
-        contact.email2?.toLowerCase().includes(toEmail.toLowerCase()) ||
-        `${contact.firstName} ${contact.lastName}`.toLowerCase().includes(toEmail.toLowerCase())
-      ).slice(0, 5) // Limit to 5 suggestions
-      
-      setFilteredContacts(filtered)
-      setShowSuggestions(filtered.length > 0 && toEmail.length > 0)
-    } else {
+    const q = toEmail.trim()
+    if (q.length < 2) {
+      setFilteredContacts([])
       setShowSuggestions(false)
+      return
     }
-  }, [toEmail, contacts])
+
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const resp = await fetch(`/api/contacts?search=${encodeURIComponent(q)}&limit=5`, { signal: controller.signal })
+        if (resp.ok) {
+          const data = await resp.json()
+          const contacts = (data.contacts || []) as Contact[]
+          setFilteredContacts(contacts)
+          setShowSuggestions(contacts.length > 0)
+        } else {
+          setFilteredContacts([])
+          setShowSuggestions(false)
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('Suggestion fetch error:', err)
+        }
+      }
+    }, 250)
+
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [toEmail])
 
   const handleSendEmail = async () => {
     if (!emailAccount) {
