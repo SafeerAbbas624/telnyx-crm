@@ -43,6 +43,9 @@ export async function POST(request: NextRequest) {
       case 'call.machine.detection.ended':
         await handleMachineDetectionEnded(payload);
         break;
+      case 'call.cost':
+        await handleCallCost(payload);
+        break;
       default:
         console.log('Unhandled call webhook event type:', event_type);
     }
@@ -175,10 +178,84 @@ async function handleCallHangup(data: any) {
             cost: parseFloat(data.cost.amount),
           },
         });
+
+
+
       }
     }
   } catch (error) {
     console.error('Error handling call hangup:', error);
+  }
+}
+
+
+async function handleCallCost(data: any) {
+  try {
+    const amount = (data?.cost?.amount != null)
+      ? parseFloat(data.cost.amount)
+      : (typeof data?.amount === 'number' ? data.amount : undefined)
+    if (amount == null) {
+      console.log('call.cost without amount payload')
+      return
+    }
+    const currency = data?.cost?.currency || data?.currency || 'USD'
+
+    const call = await prisma.telnyxCall?.findFirst({
+      where: { telnyxCallId: data.call_control_id },
+    })
+
+    if (call) {
+      const existing = call.cost ? parseFloat(call.cost.toString()) : 0
+      const diff = amount - existing
+
+      await prisma.telnyxCall.updateMany({
+        where: { telnyxCallId: data.call_control_id },
+        data: {
+          cost: amount,
+          webhookData: data,
+          updatedAt: new Date(),
+        },
+      })
+
+      if (prisma.telnyxBilling) {
+        const existingBilling = await prisma.telnyxBilling.findFirst({
+          where: { recordId: data.call_control_id, recordType: 'call' },
+        })
+        if (existingBilling) {
+          await prisma.telnyxBilling.update({
+            where: { id: existingBilling.id },
+            data: {
+              cost: amount,
+              currency,
+              description: `Call cost updated (${amount} ${currency})`,
+              metadata: data,
+            },
+          })
+        } else {
+          await prisma.telnyxBilling.create({
+            data: {
+              phoneNumber: call.fromNumber,
+              recordType: 'call',
+              recordId: data.call_control_id,
+              cost: amount,
+              currency,
+              billingDate: new Date(),
+              description: `Call to ${call.toNumber} (${call.duration ?? 0}s)`,
+              metadata: data,
+            },
+          })
+        }
+      }
+
+      if (diff !== 0 && prisma.telnyxPhoneNumber) {
+        await prisma.telnyxPhoneNumber.updateMany({
+          where: { phoneNumber: call.fromNumber },
+          data: { totalCost: { increment: diff } },
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Error handling call cost:', error)
   }
 }
 
