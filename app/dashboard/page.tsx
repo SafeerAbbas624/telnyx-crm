@@ -1,5 +1,6 @@
 "use client"
 
+import { Suspense } from "react"
 import { ContactsProvider } from "@/lib/context/contacts-context"
 import { ActivitiesProvider } from "@/lib/context/activities-context"
 import { ProcessProvider } from "@/lib/context/process-context"
@@ -10,7 +11,9 @@ export default function DashboardPage() {
     <ContactsProvider>
       <ActivitiesProvider>
         <ProcessProvider>
-          <Dashboard />
+          <Suspense fallback={<div className="flex items-center justify-center h-64">Loading...</div>}>
+            <Dashboard />
+          </Suspense>
         </ProcessProvider>
       </ActivitiesProvider>
     </ContactsProvider>
