@@ -604,9 +604,11 @@ export default function TextAutomation() {
             <DialogTitle>Select Contacts for Automation</DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-hidden">
-            <BasicContactFilter
+            <AdvancedContactFilter
+              contacts={contacts}
               selectedContacts={selectedContacts}
               onSelectedContactsChange={setSelectedContacts}
+              onFilteredContactsChange={() => {}}
             />
           </div>
         </DialogContent>

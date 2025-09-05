@@ -9,8 +9,7 @@ import ContactsList from "./contacts-list"
 import AddContactDialog from "./add-contact-dialog"
 import EditContactDialog from "./edit-contact-dialog"
 import ContactDetails from "./contact-details" // Import ContactDetails
-import ContactsFilterBar from "./contacts-filter-bar"
-import ContactsAdvancedFilter from "./contacts-advanced-filter"
+import AdvancedContactFilter from "../text/advanced-contact-filter"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
@@ -29,7 +28,7 @@ import {
 
 export default function ContactsSection() {
   const { data: session } = useSession()
-  const { contacts, addContact, updateContact, deleteContact, isLoading, error, pagination, loadMoreContacts, goToPage, searchContacts, filterOptions } = useContacts()
+  const { contacts, addContact, updateContact, deleteContact, isLoading, error, pagination, loadMoreContacts, goToPage, searchContacts, filterOptions, currentQuery, currentFilters } = useContacts()
   const { toast } = useToast()
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
@@ -75,8 +74,9 @@ export default function ContactsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearchTerm])
 
-  // Use filtered contacts from the filter bar, fallback to all contacts if no filtering is applied
-  const finalFilteredContacts = filteredContacts.length > 0 ? filteredContacts : contacts
+  // Use filtered contacts when a search or filters are active (even if zero results)
+  const isFilteringActive = Boolean(currentQuery) || (currentFilters && Object.values(currentFilters).some(v => String(v).length > 0))
+  const finalFilteredContacts = isFilteringActive ? filteredContacts : contacts
 
 
 
@@ -142,14 +142,31 @@ export default function ContactsSection() {
     }
   }
 
-  const handleAddContact = (newContactData: Omit<Contact, "id" | "createdAt">) => {
-    const newContact: Contact = {
-      ...newContactData,
-      id: `contact-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString(),
+  const handleAddContact = async (newContactData: Omit<Contact, "id" | "createdAt">) => {
+    try {
+      const estValue = newContactData.propertyValue ?? undefined
+      const debtOwed = newContactData.debtOwed ?? undefined
+      const estEquity = typeof estValue === 'number' && typeof debtOwed === 'number'
+        ? Number(estValue) - Number(debtOwed)
+        : undefined
+
+      const payload: any = {
+        firstName: newContactData.firstName,
+        lastName: newContactData.lastName,
+        phone1: (newContactData as any).phone || newContactData.phone1 || undefined,
+        email1: (newContactData as any).email || newContactData.email1 || undefined,
+        propertyAddress: newContactData.propertyAddress || undefined,
+        propertyType: newContactData.propertyType || undefined,
+        estValue,
+        estEquity,
+        notes: newContactData.notes || undefined,
+      }
+
+      await addContact(payload as any)
+      setShowAddDialog(false)
+    } catch (e) {
+      console.error('Failed to add contact', e)
     }
-    addContact(newContact)
-    setShowAddDialog(false)
   }
 
   const handleUpdateContact = (id: string, updates: Partial<Contact>) => {
@@ -190,123 +207,83 @@ export default function ContactsSection() {
           </Button>
         </div>
 
-        {/* Search Bar */}
-        <div className="relative mb-4">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-          <Input
-            type="search"
-            placeholder="Search all contacts by name, email, phone, address..."
-            className="pl-8"
-            value={searchTerm}
-            onChange={(e) => {
-              console.log('🔍 Search input changed:', e.target.value)
-              setSearchTerm(e.target.value)
+
+        {/* Advanced Filters (Unified) */}
+        <div className="mb-6">
+          <AdvancedContactFilter
+            contacts={contacts}
+            onFilteredContactsChange={setFilteredContacts}
+            selectedContacts={selectedContacts}
+            onSelectedContactsChange={(arr) => {
+              setSelectedContacts(arr)
+              setSelectedContactIds(arr.map(c => c.id))
             }}
+            showList={false}
+            hideHeader
+
+            extraActions={(
+              <>
+                {selectedContactIds.length > 0 && (
+                  <>
+                    {isAdmin && (
+                      <AssignContactModal
+                        contacts={selectedContacts}
+                        onAssignmentComplete={() => {
+                          toast({
+                            title: "Success",
+                            description: `${selectedContactIds.length} contact(s) assigned successfully`,
+                          })
+                          setSelectedContacts([])
+                          setSelectedContactIds([])
+                        }}
+                        buttonVariant="outline"
+                        buttonSize="sm"
+                        buttonText={`Assign Selected (${selectedContactIds.length})`}
+                        trigger={
+                          <Button variant="outline" size="sm" className="flex items-center gap-2">
+                            <UserPlus className="h-4 w-4" />
+                            Assign Selected ({selectedContactIds.length})
+                          </Button>
+                        }
+                      />
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleBulkDelete(selectedContactIds)}
+                      className="ml-2"
+                    >
+                      Delete All ({selectedContactIds.length})
+                    </Button>
+                  </>
+                )}
+              </>
+            )}
           />
         </div>
 
-        {/* Advanced Filters Toggle */}
-        <div className="flex items-center gap-2 mb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-          >
-            Advanced Filters
-          </Button>
-        </div>
-
-        {/* Advanced Filters Component */}
-        {showAdvancedFilters && (
-          <div className="mb-6">
-            <ContactsAdvancedFilter />
-          </div>
-        )}
-
-        {/* Filter Info */}
-        {pagination && (
-          <div className="text-sm text-gray-600 mb-4">
-            Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
-          </div>
-        )}
-
-        {/* Bulk Actions */}
-        <div className="flex items-center gap-2 mt-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSelectAll}
-            disabled={finalFilteredContacts.length === 0}
-          >
-            Select All ({finalFilteredContacts.length})
-          </Button>
-
-          {selectedContactIds.length > 0 && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDeselectAll}
-              >
-                Deselect All
-              </Button>
-
-              {isAdmin && (
-                <AssignContactModal
-                  contacts={selectedContacts}
-                  onAssignmentComplete={() => {
-                    toast({
-                      title: "Success",
-                      description: `${selectedContactIds.length} contact(s) assigned successfully`,
-                    })
-                    setSelectedContacts([])
-                    setSelectedContactIds([])
-                  }}
-                  buttonVariant="outline"
-                  buttonSize="sm"
-                  buttonText={`Assign Selected (${selectedContactIds.length})`}
-                  trigger={
-                    <Button variant="outline" size="sm" className="flex items-center gap-2">
-                      <UserPlus className="h-4 w-4" />
-                      Assign Selected ({selectedContactIds.length})
-                    </Button>
-                  }
-                />
-              )}
-
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => handleBulkDelete(selectedContactIds)}
-                className="ml-2"
-              >
-                Delete All ({selectedContactIds.length})
-              </Button>
-            </>
-          )}
-        </div>
 
       </div>
 
-      {/* Filter Bar */}
-      <div className="px-6">
-        <ContactsFilterBar
-          contacts={contacts}
-          onFilteredContactsChange={setFilteredContacts}
-          selectedContacts={selectedContacts}
-          onSelectedContactsChange={setSelectedContacts}
-        />
-      </div>
 
       {/* Results Summary */}
       <div className="px-6 py-3 bg-gray-50 border-b">
         <div className="flex justify-between items-center">
           <div className="text-sm text-gray-600">
-            Showing <span className="font-medium">{finalFilteredContacts.length}</span> of <span className="font-medium">{contacts.length}</span> contacts
-            {selectedContacts.length > 0 && (
-              <span className="ml-2 text-blue-600">
-                • {selectedContacts.length} selected
-              </span>
+            {pagination ? (
+              <>
+                Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
+                {selectedContactIds.length > 0 && (
+                  <span className="ml-2 text-blue-600">• {selectedContactIds.length} selected</span>
+                )}
+              </>
+            ) : (
+              <>
+                Showing {finalFilteredContacts.length} of {contacts.length} contacts
+                {selectedContactIds.length > 0 && (
+                  <span className="ml-2 text-blue-600">• {selectedContactIds.length} selected</span>
+                )}
+              </>
             )}
           </div>
           {hasActiveFilters && (

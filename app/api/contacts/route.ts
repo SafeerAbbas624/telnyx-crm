@@ -69,9 +69,11 @@ export async function GET(request: NextRequest) {
     const tags = searchParams.get('tags')
     const minValue = searchParams.get('minValue') ? parseFloat(searchParams.get('minValue')!) : undefined
     const maxValue = searchParams.get('maxValue') ? parseFloat(searchParams.get('maxValue')!) : undefined
+    const minEquity = searchParams.get('minEquity') ? parseFloat(searchParams.get('minEquity')!) : undefined
+    const maxEquity = searchParams.get('maxEquity') ? parseFloat(searchParams.get('maxEquity')!) : undefined
     const useElasticsearch = searchParams.get('useElasticsearch') === 'true' || !!search
 
-    const filters = { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue }
+    const filters = { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue, minEquity, maxEquity }
 
     // Try cache first for non-search queries
     if (!search) {
@@ -197,6 +199,12 @@ export async function GET(request: NextRequest) {
       if (maxValue !== undefined) where.estValue.lte = maxValue
     }
 
+    if (minEquity !== undefined || maxEquity !== undefined) {
+      where.estEquity = {}
+      if (minEquity !== undefined) where.estEquity.gte = minEquity
+      if (maxEquity !== undefined) where.estEquity.lte = maxEquity
+    }
+
     // Use Promise.all for parallel queries
     const [totalCount, contacts] = await Promise.all([
       prisma.contact.count({ where }),
@@ -214,9 +222,22 @@ export async function GET(request: NextRequest) {
           email2: true,
           email3: true,
           propertyAddress: true,
+          contactAddress: true,
+          city: true,
+          state: true,
+          propertyCounty: true,
           propertyType: true,
+          bedrooms: true,
+          totalBathrooms: true,
+          buildingSqft: true,
+          effectiveYearBuilt: true,
           estValue: true,
           estEquity: true,
+          dnc: true,
+          dncReason: true,
+          dealStatus: true,
+          notes: true,
+          avatarUrl: true,
           createdAt: true,
           updatedAt: true,
           contact_tags: {

@@ -33,10 +33,7 @@ export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen 
 
   return (
     <div className={`h-full flex flex-col bg-card border-r ${isOpen ? "block" : "hidden"} lg:block lg:w-64`}>
-      <div className="p-6">
-        <h1 className="text-2xl md:text-3xl font-bold">Adler Capital CRM</h1>
-      </div>
-      <nav className="flex-1 px-3 py-2">
+      <nav className="flex-1 px-3 py-4">
         <ul className="space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon

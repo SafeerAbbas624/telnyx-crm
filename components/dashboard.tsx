@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback } from "react"
-import { useRouter, usePathname } from "next/navigation"
+import { useRouter, usePathname, useSearchParams } from "next/navigation"
 import Sidebar from "./sidebar"
 import MobileHeader from "./mobile-header"
 import DashboardTabs from "./dashboard-tabs"
@@ -16,6 +16,8 @@ export default function Dashboard() {
   const isMobile = useMediaQuery("(max-width: 768px)")
   const router = useRouter()
   const pathname = usePathname()
+
+  const searchParams = useSearchParams()
 
   // Guard to initialize from URL only once to avoid race conditions
   const initializedRef = useRef(false)
@@ -44,35 +46,51 @@ export default function Dashboard() {
     })
   }, [])
 
+  // Update active tab when URL search params change (e.g., from Header settings)
+  useEffect(() => {
+    if (!initializedRef.current) return
+    const section = searchParams.get('section')
+    if (section) setActiveTab(section)
+  }, [searchParams])
+
   return (
-    <div className="h-screen bg-gray-50 flex overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={handleSetActiveTab}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+      {/* Desktop header spans full width */}
+      {!isMobile && <Header />}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile header */}
-        {isMobile && <MobileHeader activeTab={activeTab} setActiveTab={handleSetActiveTab} setSidebarOpen={setSidebarOpen} />}
-        
-        {/* Desktop header */}
-        {!isMobile && <Header />}
+      {/* Body: Sidebar + Main content below header */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={handleSetActiveTab}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
 
-        {/* Dashboard content */}
-        <main className="flex-1 overflow-auto bg-background">
-          <DashboardTabs
-            activeTab={activeTab}
-            setActiveTab={handleSetActiveTab}
-            selectedContactId={selectedContactId}
-          />
-        </main>
+        {/* Main content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Mobile header (only on small screens) */}
+          {isMobile && (
+            <MobileHeader
+              activeTab={activeTab}
+              setActiveTab={handleSetActiveTab}
+              setSidebarOpen={setSidebarOpen}
+            />
+          )}
 
-        {/* Footer */}
-        <Footer />
+          {/* Dashboard content */}
+          <main className="flex-1 overflow-auto bg-background">
+            <DashboardTabs
+              activeTab={activeTab}
+              setActiveTab={handleSetActiveTab}
+              selectedContactId={selectedContactId}
+            />
+          </main>
+
+          {/* Footer */}
+          <Footer />
+        </div>
       </div>
     </div>
   )
