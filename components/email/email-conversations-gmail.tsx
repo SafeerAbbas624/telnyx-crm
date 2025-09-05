@@ -843,7 +843,7 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
         onEmailSent={() => {
           // Refresh conversations after sending email
           if (selectedAccount) {
-            fetchConversations(selectedAccount.id)
+            loadConversations()
           }
         }}
       />
