@@ -4,13 +4,19 @@ import { prisma } from '@/lib/db';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { data, event_type, occurred_at, id: webhookId } = body;
+
+    // Telnyx sends event_type inside body.data.event_type for v2 webhooks.
+    // Fall back to root-level fields just in case.
+    const data = body?.data ?? body;
+    const event_type = data?.event_type ?? body?.event_type;
+    const occurred_at = data?.occurred_at ?? body?.occurred_at;
+    const webhookId = data?.id ?? body?.id;
 
     console.log('Telnyx Call webhook received:', {
       event_type,
       webhookId,
       occurred_at,
-      callControlId: data?.payload?.call_control_id
+      callControlId: data?.payload?.call_control_id || data?.call_control_id
     });
 
     const payload = data?.payload || data;
