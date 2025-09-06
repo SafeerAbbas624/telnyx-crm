@@ -193,20 +193,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Skip value/equity filters if they seem to be default "show all" values
-    // This prevents excluding contacts with null values when using default filter ranges
-    const skipValueFilter = (minValue === 500000 && maxValue === 2500000) ||
-                           (minValue === 0 && maxValue >= 2000000)
-    const skipEquityFilter = (minEquity <= 500 && maxEquity >= 900000000) ||
-                            (minEquity === 0 && maxEquity >= 900000000)
+    // Only apply value/equity filters when there's an active search or when filters are explicitly set
+    // This prevents the default filter ranges from excluding contacts when just browsing all contacts
+    const hasActiveSearch = search && search.trim().length > 0
+    const hasExplicitFilters = dealStatus || propertyType || city || state || propertyCounty || tags
 
-    if ((minValue !== undefined || maxValue !== undefined) && !skipValueFilter) {
+    // Skip value/equity filters if they seem to be default "show all" values
+    const isDefaultValueRange = (minValue === 500000 && maxValue === 2500000) ||
+                               (minValue === 0 && maxValue >= 2000000)
+    const isDefaultEquityRange = (minEquity <= 500 && maxEquity >= 900000000) ||
+                                (minEquity === 0 && maxEquity >= 900000000)
+
+    // Only apply value filters if we have an active search/filter OR the range is not default
+    if ((minValue !== undefined || maxValue !== undefined) &&
+        (hasActiveSearch || hasExplicitFilters || !isDefaultValueRange)) {
       where.estValue = {}
       if (minValue !== undefined) where.estValue.gte = minValue
       if (maxValue !== undefined) where.estValue.lte = maxValue
     }
 
-    if ((minEquity !== undefined || maxEquity !== undefined) && !skipEquityFilter) {
+    // Only apply equity filters if we have an active search/filter OR the range is not default
+    if ((minEquity !== undefined || maxEquity !== undefined) &&
+        (hasActiveSearch || hasExplicitFilters || !isDefaultEquityRange)) {
       where.estEquity = {}
       if (minEquity !== undefined) where.estEquity.gte = minEquity
       if (maxEquity !== undefined) where.estEquity.lte = maxEquity
