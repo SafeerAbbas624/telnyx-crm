@@ -65,14 +65,22 @@ export default function ContactsSection() {
     }
   }, [contacts, filteredContacts.length])
 
-  // Real-time database search effect
+  // Real-time database search effect (only when user actually types something)
   useEffect(() => {
     console.log('🔍 Search effect triggered:', { searchTerm, debouncedSearchTerm })
-    // Trigger database search when debounced term changes
-    searchContacts(debouncedSearchTerm)
+    const term = debouncedSearchTerm.trim()
+    if (term.length === 0) {
+      // Do NOT hit the API for empty search; just show current contacts
+      if (contacts.length > 0) {
+        setFilteredContacts(contacts)
+      }
+      return
+    }
+    // Trigger database search when there is a non-empty term
+    searchContacts(term)
     // Intentionally exclude searchContacts from deps to avoid identity changes causing loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearchTerm])
+  }, [debouncedSearchTerm, contacts])
 
   // Use filtered contacts when a search or filters are active (even if zero results)
   const isFilteringActive = Boolean(currentQuery) || (currentFilters && Object.values(currentFilters).some(v => String(v).length > 0))

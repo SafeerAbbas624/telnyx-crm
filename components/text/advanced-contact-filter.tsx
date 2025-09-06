@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -235,7 +235,10 @@ export default function AdvancedContactFilter({
 
   // Debounced DB search when query changes
   const debouncedSearch = useDebounce(searchQuery, 300)
+  const hasMountedRef = useRef(false)
   useEffect(() => {
+    // Skip on first mount to avoid double initial loads (ContactsProvider already loads)
+    if (!hasMountedRef.current) { hasMountedRef.current = true; return }
     // Skip debounced search if we're in the middle of clearing filters
     if (isClearing) {
       console.log(`🔍 [ADVANCED FILTER DEBUG] Skipping debounced search - clearing in progress`)
@@ -269,6 +272,8 @@ export default function AdvancedContactFilter({
 
   // Re-run search when value/equity sliders change
   useEffect(() => {
+    // Skip initial mount; ContactsProvider initial load covers the first fetch
+    if (!hasMountedRef.current) return
     const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
       if (values.length > 0) acc[key] = values.join(',')
       return acc

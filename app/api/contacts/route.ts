@@ -58,6 +58,8 @@ interface FormattedContact {
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
 
+  console.log(`🚀 [API DEBUG] Contacts API route called: ${request.url}`)
+
   try {
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -86,7 +88,15 @@ export async function GET(request: NextRequest) {
       try {
         const cached = await redisClient.getCachedContactsPage(page, limit, filters)
         if (cached) {
-          return NextResponse.json(cached)
+          // Normalize previously mis-cached shapes (where entire response was stored under contacts)
+          let normalized = cached as any
+          if (normalized && normalized.contacts && !Array.isArray(normalized.contacts) && Array.isArray(normalized.contacts.contacts)) {
+            normalized = normalized.contacts
+          }
+          if (normalized && Array.isArray(normalized.contacts) && normalized.contacts.length > 0) {
+            return NextResponse.json({ ...normalized, source: 'cache' })
+          }
+          // If cache is empty or invalid, ignore and fall through to DB query
         }
       } catch (error) {
         console.log('⚠️ [API DEBUG] Redis cache failed, continuing without cache:', error)
@@ -289,6 +299,12 @@ export async function GET(request: NextRequest) {
 
     if (contacts.length === 0) {
       console.log(`⚠️ [API DEBUG] No contacts returned from database query - this might indicate an issue with the query or filters`)
+    } else {
+      console.log(`📋 [API DEBUG] First contact sample:`, {
+        id: contacts[0]?.id,
+        name: `${contacts[0]?.firstName} ${contacts[0]?.lastName}`,
+        phone: contacts[0]?.phone1
+      })
     }
 
     // Transform the data to match the expected frontend format
@@ -350,12 +366,14 @@ export async function GET(request: NextRequest) {
       source: 'database'
     }
 
-    // Cache the results
+    // Cache the results (do not cache empty pages)
     try {
-      await redisClient.cacheContactsPage(page, limit, filters, response)
+      await redisClient.cacheContactsPage(page, limit, filters, response.contacts, response.pagination)
     } catch (error) {
       console.log('⚠️ [API DEBUG] Redis caching failed, continuing without cache:', error)
     }
+
+    console.log(`📤 [API DEBUG] Sending response with ${response.contacts.length} contacts, pagination:`, response.pagination)
 
     return NextResponse.json(response);
   } catch (error) {

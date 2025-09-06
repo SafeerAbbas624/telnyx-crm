@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect } from "react"
+import React, { createContext, useContext, useState, useEffect, useRef } from "react"
 import type { Contact, Tag } from "@/lib/types"
 import { useSession } from "next-auth/react"
 
@@ -47,6 +47,8 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
   const [filterOptions, setFilterOptions] = useState<any>(null)
   const [currentRequest, setCurrentRequest] = useState<AbortController | null>(null)
   const [lastRequestKey, setLastRequestKey] = useState<string>('')
+  const lastRequestKeyRef = useRef<string>('')
+  const hasLoadedOnceRef = useRef<boolean>(false)
   const [currentQuery, setCurrentQuery] = useState<string>("")
   const [currentFilters, setCurrentFilters] = useState<any>({})
 
@@ -56,7 +58,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       const requestKey = JSON.stringify({ search, filters, page, limit })
 
       // Skip if same request is already in progress
-      if (requestKey === lastRequestKey && currentRequest) {
+      if (requestKey === lastRequestKeyRef.current && currentRequest) {
         console.log(`🔍 [FRONTEND DEBUG] Skipping duplicate request: ${requestKey}`)
         return
       }
@@ -69,6 +71,8 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       // Create new abort controller for this request
       const abortController = new AbortController()
       setCurrentRequest(abortController)
+      // Track active request synchronously via ref to avoid state update races
+      lastRequestKeyRef.current = requestKey
       setLastRequestKey(requestKey)
 
       setIsLoading(true)
@@ -95,6 +99,13 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Failed to fetch contacts')
       }
       const data = await response.json()
+
+      // Guard against stale responses: if a newer request started after this one, ignore this result
+      const isStale = lastRequestKeyRef.current !== requestKey
+      if (isStale) {
+        console.log(`⏭️ [FRONTEND DEBUG] Skipping stale response for requestKey=${requestKey}. Current lastRequestKey=${lastRequestKeyRef.current}`)
+        return null
+      }
 
       console.log(`✅ [FRONTEND DEBUG] API response received:`, {
         totalContacts: data.contacts?.length || 0,
@@ -123,7 +134,16 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
 
       // If it's page 1, replace contacts; otherwise append for infinite scroll
       if (page === 1) {
+        // Don't replace good data with empty data; also ignore empty after first successful load
+        if (contactsData.length === 0 && (contacts.length > 0 || hasLoadedOnceRef.current)) {
+          console.log(`⚠️ [FRONTEND DEBUG] Skipping empty response - keeping existing ${contacts.length} contacts (hasLoadedOnce=${hasLoadedOnceRef.current})`)
+          return
+        }
+
         setContacts(contactsData)
+        if (contactsData.length > 0) {
+          hasLoadedOnceRef.current = true
+        }
         console.log(`🔄 [FRONTEND DEBUG] Replaced contacts with ${contactsData?.length || 0} new contacts`)
       } else {
         setContacts(prev => {

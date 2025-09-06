@@ -125,6 +125,10 @@ class RedisClient {
   async cacheContactsPage(page: number, limit: number, filters: any, contacts: any[], pagination: any) {
     const filtersKey = JSON.stringify(filters)
     const key = this.getContactsKey(page, limit, filtersKey)
+    // Do not cache empty pages or invalid shapes
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      return
+    }
     const data = { contacts, pagination }
     await this.cacheContacts(key, data, 180) // 3 minutes cache
   }
