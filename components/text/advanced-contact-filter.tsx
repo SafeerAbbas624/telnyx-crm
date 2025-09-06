@@ -76,6 +76,7 @@ export default function AdvancedContactFilter({
   const [yearBuiltRange, setYearBuiltRange] = useState<[number, number]>([1900, 2024])
   const [equityRange, setEquityRange] = useState<[number, number]>([0, 1000000])
   const [valueRange, setValueRange] = useState<[number, number]>([0, 2000000])
+  const [isClearing, setIsClearing] = useState(false)
 
   const { toast } = useToast()
   const { filterOptions, searchContacts, contacts: contextContacts, pagination, currentQuery, currentFilters } = useContacts()
@@ -229,6 +230,12 @@ export default function AdvancedContactFilter({
   // Debounced DB search when query changes
   const debouncedSearch = useDebounce(searchQuery, 800)
   useEffect(() => {
+    // Skip debounced search if we're in the middle of clearing filters
+    if (isClearing) {
+      console.log(`🔍 [ADVANCED FILTER DEBUG] Skipping debounced search - clearing in progress`)
+      return
+    }
+
     const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
       if (values.length > 0) acc[key] = values.join(',')
       return acc
@@ -240,7 +247,7 @@ export default function AdvancedContactFilter({
 
     console.log(`🔍 [ADVANCED FILTER DEBUG] Triggering search: "${debouncedSearch}" with filters:`, filters)
     searchContacts(debouncedSearch, filters)
-  }, [debouncedSearch, selectedFilters, valueRange, equityRange])
+  }, [debouncedSearch, selectedFilters, valueRange, equityRange, isClearing])
 
 
   // Re-run search when value/equity sliders change
@@ -257,6 +264,10 @@ export default function AdvancedContactFilter({
   }, [valueRange, equityRange])
 
   const clearAllFilters = () => {
+    // Set clearing flag to prevent debounced search from interfering
+    setIsClearing(true)
+
+    // Clear all state first
     setSearchQuery("")
     setSelectedFilters({})
     setShowAdvancedFilters(false)
@@ -267,8 +278,20 @@ export default function AdvancedContactFilter({
     setValueRange([0, 5000000]) // Very wide range to include all contacts
     setEquityRange([0, 2000000000]) // Very wide range to include all contacts
 
-    // Reset to show all contacts with no filters
-    searchContacts("", {})
+    // Immediately trigger search with empty query and no filters
+    // This prevents the debounced search from running with old values
+    console.log(`🔍 [CLEAR FILTERS DEBUG] Clearing all filters and showing all contacts`)
+    searchContacts("", {
+      minValue: "0",
+      maxValue: "5000000",
+      minEquity: "0",
+      maxEquity: "2000000000"
+    })
+
+    // Reset clearing flag after a short delay to allow the search to complete
+    setTimeout(() => {
+      setIsClearing(false)
+    }, 1000)
   }
 
   // Handle search input (debounced effect triggers DB query)
