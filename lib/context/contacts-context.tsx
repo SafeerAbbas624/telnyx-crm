@@ -70,6 +70,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
 
       // Always use the general contacts API here. Team restrictions are handled in team-specific components/pages.
       console.log(`🔍 [FRONTEND DEBUG] Making search request: ${search ? `"${search}"` : 'no search'} with filters:`, filters)
+      console.log(`🔍 [FRONTEND DEBUG] Full URL: /api/contacts?${params}`)
 
       const response = await fetch(`/api/contacts?${params}`, {
         signal: abortController.signal

@@ -193,13 +193,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (minValue !== undefined || maxValue !== undefined) {
+    // Skip value/equity filters if they seem to be default "show all" values
+    // This prevents excluding contacts with null values when using default filter ranges
+    const skipValueFilter = (minValue === 500000 && maxValue === 2500000) ||
+                           (minValue === 0 && maxValue >= 2000000)
+    const skipEquityFilter = (minEquity <= 500 && maxEquity >= 900000000) ||
+                            (minEquity === 0 && maxEquity >= 900000000)
+
+    if ((minValue !== undefined || maxValue !== undefined) && !skipValueFilter) {
       where.estValue = {}
       if (minValue !== undefined) where.estValue.gte = minValue
       if (maxValue !== undefined) where.estValue.lte = maxValue
     }
 
-    if (minEquity !== undefined || maxEquity !== undefined) {
+    if ((minEquity !== undefined || maxEquity !== undefined) && !skipEquityFilter) {
       where.estEquity = {}
       if (minEquity !== undefined) where.estEquity.gte = minEquity
       if (maxEquity !== undefined) where.estEquity.lte = maxEquity
