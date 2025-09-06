@@ -258,13 +258,16 @@ export default function AdvancedContactFilter({
 
   const clearAllFilters = () => {
     setSearchQuery("")
-
     setSelectedFilters({})
     setShowAdvancedFilters(false)
     setYearBuiltRange([minYearBuilt, maxYearBuilt])
-    setValueRange([dbMinValue, dbMaxValue])
-    setEquityRange([dbMinEquity, dbMaxEquity])
-    // Reset to show all contacts
+
+    // Reset to "show all" ranges instead of database min/max ranges
+    // This ensures no contacts are filtered out by value/equity constraints
+    setValueRange([0, 5000000]) // Very wide range to include all contacts
+    setEquityRange([0, 2000000000]) // Very wide range to include all contacts
+
+    // Reset to show all contacts with no filters
     searchContacts("", {})
   }
 
@@ -639,8 +642,9 @@ export default function AdvancedContactFilter({
                     onClick={() => {
                       setSelectedFilters({})
                       setYearBuiltRange([minYearBuilt, maxYearBuilt])
-                      setValueRange([dbMinValue, dbMaxValue])
-                      setEquityRange([dbMinEquity, dbMaxEquity])
+                      // Reset to "show all" ranges instead of database min/max ranges
+                      setValueRange([0, 5000000]) // Very wide range to include all contacts
+                      setEquityRange([0, 2000000000]) // Very wide range to include all contacts
                     }}
                   >
                     Clear All Filters
