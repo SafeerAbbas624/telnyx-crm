@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
@@ -63,6 +65,17 @@ export async function POST(request: NextRequest) {
       textContent,
       blastId,
     } = body;
+
+    // Enforce team restriction: must send from assigned email account
+    const session = await getServerSession(authOptions)
+    if (session?.user?.role === 'TEAM_USER') {
+      if (!session.user.assignedEmailId || session.user.assignedEmailId !== emailAccountId) {
+        return NextResponse.json(
+          { error: 'Forbidden: Team users must send from their assigned email account' },
+          { status: 403 }
+        )
+      }
+    }
 
     // Validate required fields
     if (!emailAccountId || !toEmails || !toEmails.length || !subject || !content) {

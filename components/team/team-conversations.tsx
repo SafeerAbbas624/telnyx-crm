@@ -145,9 +145,34 @@ export default function TeamConversations() {
       })
 
       if (response.ok) {
+        // Optimistically update UI: move the conversation to top with latest message
+        const nowIso = new Date().toISOString()
+        setConversations(prev => {
+          const updated = prev.map(c => c.id === selectedConversation.id ? {
+            ...c,
+            lastMessageContent: messageContent.trim(),
+            lastMessageAt: nowIso,
+            lastMessageDirection: 'outbound',
+            messageCount: (c.messageCount || 0) + 1
+          } : c)
+          // Put the updated conversation at the top
+          const current = updated.find(c => c.id === selectedConversation.id)
+          const others = updated.filter(c => c.id !== selectedConversation.id)
+          const resorted = [current!, ...others]
+          return resorted
+        })
+        // Also update selectedConversation in state
+        setSelectedConversation(prev => prev ? {
+          ...prev,
+          lastMessageContent: messageContent.trim(),
+          lastMessageAt: nowIso,
+          lastMessageDirection: 'outbound',
+          messageCount: (prev.messageCount || 0) + 1
+        } : prev)
+
         setMessageContent("")
         loadMessages(selectedConversation.id)
-        loadConversations() // Refresh conversation list
+        loadConversations() // Refresh conversation list from server to confirm order
         toast({
           title: 'Success',
           description: 'Message sent successfully',

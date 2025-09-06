@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db';
 import { formatPhoneNumberForTelnyx, isValidE164PhoneNumber } from '@/lib/phone-utils';
 
@@ -30,8 +32,22 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const body = await request.json();
     const { fromNumber, toNumber, contactId } = body;
+
+    // Team restriction: team users must call from their assigned number
+    if (session?.user?.role === 'TEAM_USER') {
+      const assigned = session.user.assignedPhoneNumber || ''
+      const formattedAssigned = formatPhoneNumberForTelnyx(assigned)
+      const formattedFromCandidate = formatPhoneNumberForTelnyx(fromNumber)
+      if (!formattedAssigned || !formattedFromCandidate || formattedFromCandidate !== formattedAssigned) {
+        return NextResponse.json(
+          { error: 'Forbidden: Team users must call from their assigned phone number' },
+          { status: 403 }
+        )
+      }
+    }
 
     if (!TELNYX_API_KEY) {
       return NextResponse.json(
