@@ -58,10 +58,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
     }
 
-    // Determine target phone number
-    const targetPhone = phoneNumber || contact.phone1
-    if (!targetPhone) {
+    // Determine target phone number (contact's number)
+    const toNumber = phoneNumber || contact.phone1
+    if (!toNumber) {
       return NextResponse.json({ error: 'No phone number available for contact' }, { status: 400 })
+    }
+
+    // Enforce team restriction: must send from assigned number
+    const fromNumber = session.user.assignedPhoneNumber
+    if (!fromNumber) {
+      return NextResponse.json({ error: 'No assigned phone number. Contact your admin.' }, { status: 403 })
     }
 
     // Get or create conversation
@@ -77,15 +83,27 @@ export async function POST(request: NextRequest) {
       conversation = await prisma.conversation.create({
         data: {
           contact_id: contactId,
-          phone_number: targetPhone,
+          phone_number: toNumber,
           last_message_at: new Date(),
           created_at: new Date()
         }
       })
     }
 
-    // For now, we'll create the message record but won't actually send via Telnyx
-    // In a real implementation, you'd integrate with Telnyx API here
+    // Send via Telnyx using assigned fromNumber
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const sendResp = await fetch(`${baseUrl}/api/telnyx/sms/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromNumber, toNumber, message: message.trim(), contactId })
+    })
+
+    if (!sendResp.ok) {
+      const err = await sendResp.json().catch(() => ({ error: 'Failed to send SMS' }))
+      return NextResponse.json(err, { status: sendResp.status })
+    }
+
+    // Create a local message record for immediate UI feedback
     const newMessage = await prisma.message.create({
       data: {
         contact_id: contactId,
@@ -94,17 +112,22 @@ export async function POST(request: NextRequest) {
         direction: 'outbound',
         content: message.trim(),
         timestamp: new Date(),
-        status: 'sent', // In real implementation, this would be 'pending' initially
+        status: 'sent',
         message_type: 'sms',
-        phone_number: targetPhone,
+        phone_number: toNumber,
         created_at: new Date()
       }
     })
 
-    // Update conversation last message time
+    // Update conversation summary
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { last_message_at: new Date() }
+      data: {
+        last_message_at: new Date(),
+        last_message_content: message.trim(),
+        last_message_direction: 'outbound',
+        last_sender_number: fromNumber
+      }
     })
 
     // Return the created message
