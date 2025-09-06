@@ -30,7 +30,7 @@ export default function SimpleContactFilter({
   const { filterOptions, searchContacts, contacts, pagination, fetchContacts } = useContacts()
 
   // Debounce search to prevent too many requests
-  const debouncedSearchQuery = useDebounce(searchQuery, 800)
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
   // Get dynamic filter options from database
   const getDynamicFilterOptions = () => {

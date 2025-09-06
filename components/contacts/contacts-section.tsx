@@ -45,8 +45,8 @@ export default function ContactsSection() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
 
-  // Debounce search - wait longer for user to finish typing
-  const debouncedSearchTerm = useDebounce(searchTerm, 800) // 800ms wait
+  // Debounce search - responsive search timing
+  const debouncedSearchTerm = useDebounce(searchTerm, 300) // 300ms wait
 
   // Initialize filtered contacts with all contacts when they're first loaded
   useEffect(() => {

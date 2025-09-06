@@ -27,7 +27,7 @@ export default function BasicContactFilter({
   const { contacts, pagination, goToPage, searchContacts, currentQuery, currentFilters } = useContacts()
   
   // Debounce search to prevent too many requests
-  const debouncedSearchQuery = useDebounce(searchQuery, 800)
+  const debouncedSearchQuery = useDebounce(searchQuery, 300)
 
   // Trigger search only when debounced value changes
   useEffect(() => {

@@ -228,7 +228,7 @@ export default function AdvancedContactFilter({
   }, [dbMinValue, dbMaxValue, dbMinEquity, dbMaxEquity])
 
   // Debounced DB search when query changes
-  const debouncedSearch = useDebounce(searchQuery, 800)
+  const debouncedSearch = useDebounce(searchQuery, 300)
   useEffect(() => {
     // Skip debounced search if we're in the middle of clearing filters
     if (isClearing) {
