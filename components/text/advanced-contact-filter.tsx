@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Slider } from "@/components/ui/slider"
 import { Search, X, Filter, Users, Check } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useDebounce } from "@/hooks/use-debounce"
 import { formatPhoneNumberForDisplay, getBestPhoneNumber } from "@/lib/phone-utils"
 import { useContacts } from "@/lib/context/contacts-context"
 import type { Contact } from "@/lib/types"
@@ -225,6 +226,21 @@ export default function AdvancedContactFilter({
     setEquityRange([dbMinEquity, dbMaxEquity])
   }, [dbMinValue, dbMaxValue, dbMinEquity, dbMaxEquity])
 
+  // Debounced DB search when query changes
+  const debouncedSearch = useDebounce(searchQuery, 800)
+  useEffect(() => {
+    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
+      if (values.length > 0) acc[key] = values.join(',')
+      return acc
+    }, {} as any)
+    filters.minValue = String(valueRange[0])
+    filters.maxValue = String(valueRange[1])
+    filters.minEquity = String(equityRange[0])
+    filters.maxEquity = String(equityRange[1])
+    searchContacts(debouncedSearch, filters)
+  }, [debouncedSearch, selectedFilters, valueRange, equityRange])
+
+
   // Re-run search when value/equity sliders change
   useEffect(() => {
     const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
@@ -250,24 +266,9 @@ export default function AdvancedContactFilter({
     searchContacts("", {})
   }
 
-  // Handle search with database-wide search
+  // Handle search input (debounced effect triggers DB query)
   const handleSearch = (query: string) => {
     setSearchQuery(query)
-    // Use database-wide search instead of filtering current page
-    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
-      if (values.length > 0) {
-        acc[key] = values.join(',')
-      }
-      return acc
-    }, {} as any)
-
-    // include slider ranges
-    filters.minValue = String(valueRange[0])
-    filters.maxValue = String(valueRange[1])
-    filters.minEquity = String(equityRange[0])
-    filters.maxEquity = String(equityRange[1])
-
-    searchContacts(query, filters)
   }
 
   // Handle filter changes with database search
@@ -397,7 +398,7 @@ export default function AdvancedContactFilter({
             placeholder="Search contacts by name, email, phone, address..."
             className="pl-8"
             value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
+            onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 
