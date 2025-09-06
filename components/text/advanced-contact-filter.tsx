@@ -240,10 +240,21 @@ export default function AdvancedContactFilter({
       if (values.length > 0) acc[key] = values.join(',')
       return acc
     }, {} as any)
-    filters.minValue = String(valueRange[0])
-    filters.maxValue = String(valueRange[1])
-    filters.minEquity = String(equityRange[0])
-    filters.maxEquity = String(equityRange[1])
+
+    // Only include value/equity filters if they're different from default "show all" ranges
+    // Default ranges that should not be sent as filters:
+    const isDefaultValueRange = valueRange[0] === 0 && valueRange[1] >= 5000000
+    const isDefaultEquityRange = equityRange[0] === 0 && equityRange[1] >= 2000000000
+
+    if (!isDefaultValueRange) {
+      filters.minValue = String(valueRange[0])
+      filters.maxValue = String(valueRange[1])
+    }
+
+    if (!isDefaultEquityRange) {
+      filters.minEquity = String(equityRange[0])
+      filters.maxEquity = String(equityRange[1])
+    }
 
     console.log(`🔍 [ADVANCED FILTER DEBUG] Triggering search: "${debouncedSearch}" with filters:`, filters)
     searchContacts(debouncedSearch, filters)
@@ -280,13 +291,9 @@ export default function AdvancedContactFilter({
 
     // Immediately trigger search with empty query and no filters
     // This prevents the debounced search from running with old values
+    // Don't send any value/equity filters since we're using default "show all" ranges
     console.log(`🔍 [CLEAR FILTERS DEBUG] Clearing all filters and showing all contacts`)
-    searchContacts("", {
-      minValue: "0",
-      maxValue: "5000000",
-      minEquity: "0",
-      maxEquity: "2000000000"
-    })
+    searchContacts("", {})
 
     // Reset clearing flag after a short delay to allow the search to complete
     setTimeout(() => {
@@ -320,10 +327,19 @@ export default function AdvancedContactFilter({
       return acc
     }, {} as any)
 
-    filters.minValue = String(valueRange[0])
-    filters.maxValue = String(valueRange[1])
-    filters.minEquity = String(equityRange[0])
-    filters.maxEquity = String(equityRange[1])
+    // Only include value/equity filters if they're different from default "show all" ranges
+    const isDefaultValueRange = valueRange[0] === 0 && valueRange[1] >= 5000000
+    const isDefaultEquityRange = equityRange[0] === 0 && equityRange[1] >= 2000000000
+
+    if (!isDefaultValueRange) {
+      filters.minValue = String(valueRange[0])
+      filters.maxValue = String(valueRange[1])
+    }
+
+    if (!isDefaultEquityRange) {
+      filters.minEquity = String(equityRange[0])
+      filters.maxEquity = String(equityRange[1])
+    }
 
     searchContacts(searchQuery, filters)
   }
