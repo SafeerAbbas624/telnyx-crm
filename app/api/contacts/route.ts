@@ -283,6 +283,10 @@ export async function GET(request: NextRequest) {
 
     console.log(`✅ [API DEBUG] Database query completed: ${totalCount} total, ${contacts.length} returned for "${search}" in ${Date.now() - startTime}ms`)
 
+    if (contacts.length === 0) {
+      console.log(`⚠️ [API DEBUG] No contacts returned from database query - this might indicate an issue with the query or filters`)
+    }
+
     // Transform the data to match the expected frontend format
     const formattedContacts = contacts.map((contact) => ({
       id: contact.id,
@@ -347,7 +351,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Error fetching contacts:', error);
+    console.error('❌ [API DEBUG] Error fetching contacts:', error);
+    console.error('❌ [API DEBUG] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.error('❌ [API DEBUG] Request params:', { search, page, limit, dealStatus, propertyType, city, state });
     return NextResponse.json(
       { error: 'Failed to fetch contacts' },
       { status: 500 }
