@@ -38,11 +38,14 @@ class RedisClient {
   }
 
   async connect() {
-    // Temporarily disabled for debugging
-    return
-    // if (!this.isConnected) {
-    //   await this.client.connect()
-    // }
+    try {
+      if (!this.isConnected) {
+        await this.client.connect()
+      }
+    } catch (error) {
+      console.error('Redis connection error:', error)
+      // Don't throw error, just log it so the app continues to work without Redis
+    }
   }
 
   // Cache keys for different data types

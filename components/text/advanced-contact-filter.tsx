@@ -237,6 +237,8 @@ export default function AdvancedContactFilter({
     filters.maxValue = String(valueRange[1])
     filters.minEquity = String(equityRange[0])
     filters.maxEquity = String(equityRange[1])
+
+    console.log(`🔍 [ADVANCED FILTER DEBUG] Triggering search: "${debouncedSearch}" with filters:`, filters)
     searchContacts(debouncedSearch, filters)
   }, [debouncedSearch, selectedFilters, valueRange, equityRange])
 

@@ -69,6 +69,8 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       })
 
       // Always use the general contacts API here. Team restrictions are handled in team-specific components/pages.
+      console.log(`🔍 [FRONTEND DEBUG] Making search request: ${search ? `"${search}"` : 'no search'} with filters:`, filters)
+
       const response = await fetch(`/api/contacts?${params}`, {
         signal: abortController.signal
       })
@@ -77,21 +79,46 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       setCurrentQuery(search)
       setCurrentFilters(filters)
       if (!response.ok) {
+        console.error(`❌ [FRONTEND DEBUG] API request failed: ${response.status} ${response.statusText}`)
         throw new Error('Failed to fetch contacts')
       }
       const data = await response.json()
 
-      // Handle nested API response structure: data.contacts.contacts
-      const contactsData = data.contacts?.contacts || data.contacts || data
-      const paginationData = data.contacts?.pagination || data.pagination || null
+      console.log(`✅ [FRONTEND DEBUG] API response received:`, {
+        totalContacts: data.contacts?.length || 0,
+        totalCount: data.pagination?.totalCount || 0,
+        source: data.source,
+        hasContacts: !!data.contacts,
+        hasPagination: !!data.pagination,
+        rawDataStructure: Object.keys(data)
+      })
+
+      // The API returns { contacts: [...], pagination: {...} }
+      // So we should use data.contacts directly, not data.contacts.contacts
+      const contactsData = Array.isArray(data.contacts) ? data.contacts : []
+      const paginationData = data.pagination || null
+
+      console.log(`📊 [FRONTEND DEBUG] Extracted data:`, {
+        contactsCount: contactsData.length,
+        contactsIsArray: Array.isArray(contactsData),
+        paginationExists: !!paginationData,
+        firstContactName: contactsData[0] ? `${contactsData[0].firstName} ${contactsData[0].lastName}` : 'none'
+      })
 
 
+
+      console.log(`📊 [FRONTEND DEBUG] Processing ${contactsData?.length || 0} contacts for page ${page}`)
 
       // If it's page 1, replace contacts; otherwise append for infinite scroll
       if (page === 1) {
         setContacts(contactsData)
+        console.log(`🔄 [FRONTEND DEBUG] Replaced contacts with ${contactsData?.length || 0} new contacts`)
       } else {
-        setContacts(prev => [...prev, ...contactsData])
+        setContacts(prev => {
+          const newContacts = [...prev, ...contactsData]
+          console.log(`➕ [FRONTEND DEBUG] Appended ${contactsData?.length || 0} contacts, total now: ${newContacts.length}`)
+          return newContacts
+        })
       }
 
       // Update pagination info
