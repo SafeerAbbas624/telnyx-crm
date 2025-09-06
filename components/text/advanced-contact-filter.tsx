@@ -221,11 +221,17 @@ export default function AdvancedContactFilter({
     }
   }, [contacts.length, minYearBuilt, maxYearBuilt])
 
-  // Initialize DB-backed sliders when filter options load
+  // Initialize sliders with "show all" ranges instead of restrictive database ranges
+  // This prevents default filters from excluding contacts when component loads
   useEffect(() => {
-    setValueRange([dbMinValue, dbMaxValue])
-    setEquityRange([dbMinEquity, dbMaxEquity])
-  }, [dbMinValue, dbMaxValue, dbMinEquity, dbMaxEquity])
+    // Only set ranges if they haven't been set yet (avoid overriding user changes)
+    if (valueRange[0] === 0 && valueRange[1] === 2000000) {
+      setValueRange([0, 5000000]) // Wide "show all" range
+    }
+    if (equityRange[0] === 0 && equityRange[1] === 1000000) {
+      setEquityRange([0, 2000000000]) // Wide "show all" range
+    }
+  }, [dbMinValue, dbMaxValue, dbMinEquity, dbMaxEquity, valueRange, equityRange])
 
   // Debounced DB search when query changes
   const debouncedSearch = useDebounce(searchQuery, 300)
