@@ -4,6 +4,8 @@ import Redis from 'ioredis'
 class RedisClient {
   private client: Redis
   private isConnected: boolean = false
+  private isConnecting = false
+  private connectionPromise: Promise<void> | null = null
 
   constructor() {
     this.client = new Redis({
@@ -22,28 +24,57 @@ class RedisClient {
     })
 
     this.client.on('connect', () => {
-      console.log('✅ Redis connected')
       this.isConnected = true
+      this.isConnecting = false
     })
 
     this.client.on('error', (err) => {
       console.error('❌ Redis error:', err)
       this.isConnected = false
+      this.isConnecting = false
+      this.connectionPromise = null
     })
 
     this.client.on('close', () => {
       console.log('🔌 Redis connection closed')
       this.isConnected = false
+      this.isConnecting = false
+      this.connectionPromise = null
     })
   }
 
   async connect() {
     try {
-      if (!this.isConnected) {
-        await this.client.connect()
+      // If already connected, return immediately
+      if (this.isConnected) {
+        return
       }
+
+      // If already connecting, wait for the existing connection attempt
+      if (this.isConnecting && this.connectionPromise) {
+        await this.connectionPromise
+        return
+      }
+
+      // Check if client is already in connecting state
+      if (this.client.status === 'connecting' || this.client.status === 'connected') {
+        this.isConnected = this.client.status === 'connected'
+        return
+      }
+
+      // Start new connection attempt
+      this.isConnecting = true
+      this.connectionPromise = this.client.connect()
+
+      await this.connectionPromise
+      this.isConnected = true
+      this.isConnecting = false
+      console.log('✅ Redis connected')
+
     } catch (error) {
-      console.error('Redis connection error:', error)
+      this.isConnecting = false
+      this.connectionPromise = null
+      console.error('❌ Redis connection error:', error)
       // Don't throw error, just log it so the app continues to work without Redis
     }
   }

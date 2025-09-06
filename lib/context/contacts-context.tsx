@@ -46,11 +46,21 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
   } | null>(null)
   const [filterOptions, setFilterOptions] = useState<any>(null)
   const [currentRequest, setCurrentRequest] = useState<AbortController | null>(null)
+  const [lastRequestKey, setLastRequestKey] = useState<string>('')
   const [currentQuery, setCurrentQuery] = useState<string>("")
   const [currentFilters, setCurrentFilters] = useState<any>({})
 
   const fetchContacts = async (page = 1, limit = 50, search = '', filters = {}) => {
     try {
+      // Create request key for deduplication
+      const requestKey = JSON.stringify({ search, filters, page, limit })
+
+      // Skip if same request is already in progress
+      if (requestKey === lastRequestKey && currentRequest) {
+        console.log(`🔍 [FRONTEND DEBUG] Skipping duplicate request: ${requestKey}`)
+        return
+      }
+
       // Cancel previous request if it exists
       if (currentRequest) {
         currentRequest.abort()
@@ -59,6 +69,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       // Create new abort controller for this request
       const abortController = new AbortController()
       setCurrentRequest(abortController)
+      setLastRequestKey(requestKey)
 
       setIsLoading(true)
       const params = new URLSearchParams({

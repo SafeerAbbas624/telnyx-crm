@@ -23,19 +23,15 @@ interface ContactsListProps {
   onBulkDelete?: (contactIds: string[]) => void
 }
 
-// Real communication data fetched from APIs
+// DISABLED: Real communication data fetched from APIs (causing 150+ API calls per page load)
+// This was making 3 API calls per contact (calls, messages, emails) which is excessive
 const getLastCommunications = async (contactId: string) => {
   try {
-    // Fetch real data from APIs
-    const [callsResponse, messagesResponse, emailsResponse] = await Promise.allSettled([
-      fetch(`/api/calls?contactId=${contactId}&limit=1`).then(res => res.ok ? res.json() : []),
-      fetch(`/api/messages?contactId=${contactId}&limit=1`).then(res => res.ok ? res.json() : []),
-      fetch(`/api/emails?contactId=${contactId}&limit=1`).then(res => res.ok ? res.json() : [])
-    ])
-
-    const calls = callsResponse.status === 'fulfilled' ? callsResponse.value : []
-    const messages = messagesResponse.status === 'fulfilled' ? messagesResponse.value : []
-    const emails = emailsResponse.status === 'fulfilled' ? emailsResponse.value : []
+    // Return empty data to avoid excessive API calls
+    // Timeline data will be loaded only when user clicks on contact details
+    const calls: any[] = []
+    const messages: any[] = []
+    const emails: any[] = []
 
     return {
       lastCall: calls.length > 0 ? {

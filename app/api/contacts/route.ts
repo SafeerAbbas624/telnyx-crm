@@ -83,9 +83,13 @@ export async function GET(request: NextRequest) {
 
     // Try cache first for non-search queries
     if (!search) {
-      const cached = await redisClient.getCachedContactsPage(page, limit, filters)
-      if (cached) {
-        return NextResponse.json(cached)
+      try {
+        const cached = await redisClient.getCachedContactsPage(page, limit, filters)
+        if (cached) {
+          return NextResponse.json(cached)
+        }
+      } catch (error) {
+        console.log('⚠️ [API DEBUG] Redis cache failed, continuing without cache:', error)
       }
     }
 
@@ -347,7 +351,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Cache the results
-    await redisClient.cacheContactsPage(page, limit, filters, response)
+    try {
+      await redisClient.cacheContactsPage(page, limit, filters, response)
+    } catch (error) {
+      console.log('⚠️ [API DEBUG] Redis caching failed, continuing without cache:', error)
+    }
 
     return NextResponse.json(response);
   } catch (error) {
