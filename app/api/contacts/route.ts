@@ -75,6 +75,10 @@ export async function GET(request: NextRequest) {
 
     const filters = { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue, minEquity, maxEquity }
 
+    // Enhanced logging for debugging
+    console.log(`🔍 [API DEBUG] Contacts API called - Search: "${search || 'none'}" | Page: ${page} | Limit: ${limit}`)
+    console.log(`🔍 [API DEBUG] All params:`, { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue, minEquity, maxEquity })
+
     // Try cache first for non-search queries
     if (!search) {
       const cached = await redisClient.getCachedContactsPage(page, limit, filters)
@@ -274,6 +278,8 @@ export async function GET(request: NextRequest) {
         take: limit,
       })
     ]);
+
+    console.log(`✅ [API DEBUG] Database query completed: ${totalCount} total, ${contacts.length} returned for "${search}" in ${Date.now() - startTime}ms`)
 
     // Transform the data to match the expected frontend format
     const formattedContacts = contacts.map((contact) => ({
