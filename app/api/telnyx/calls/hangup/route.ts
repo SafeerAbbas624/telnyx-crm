@@ -9,6 +9,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { telnyxCallId } = body
 
+    console.log('[TELNYX CALLS][HANGUP][INIT]', { telnyxCallId, ts: new Date().toISOString() })
+
     if (!TELNYX_API_KEY) {
       return NextResponse.json(
         { error: 'Telnyx API key not configured' },
@@ -36,6 +38,12 @@ export async function POST(request: NextRequest) {
 
     const telnyxData = await telnyxResponse.json().catch(() => ({}))
 
+    console.log('[TELNYX CALLS][HANGUP][RESPONSE]', {
+      status: telnyxResponse.status,
+      telnyxRequestId: telnyxResponse.headers.get('x-telnyx-request-id') || undefined,
+      telnyxCallId,
+    })
+
     if (!telnyxResponse.ok) {
       const firstError = Array.isArray((telnyxData as any)?.errors) ? (telnyxData as any).errors[0] : undefined
       const errorMessage = firstError?.detail || firstError?.title || 'Failed to hang up call via Telnyx'
@@ -48,10 +56,11 @@ export async function POST(request: NextRequest) {
     // Optimistically update DB (webhook will finalize)
     try {
       if (prisma.telnyxCall) {
-        await prisma.telnyxCall.updateMany({
+        const result = await prisma.telnyxCall.updateMany({
           where: { telnyxCallId },
           data: { status: 'hangup', endedAt: new Date() }
         })
+        console.log('[TELNYX CALLS][HANGUP][DB]', { updatedCount: result.count, telnyxCallId })
       }
     } catch (e) {
       console.warn('Warning: failed to update call status after hangup:', e)

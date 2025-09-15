@@ -36,17 +36,34 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { fromNumber, toNumber, contactId } = body;
 
+    console.log('[TELNYX CALLS][INIT] Outbound call request', {
+      userId: session?.user?.id,
+      role: session?.user?.role,
+      fromNumber,
+      toNumber,
+      contactId,
+      ts: new Date().toISOString(),
+    })
+
     // Team restriction: team users must call from their assigned number
     if (session?.user?.role === 'TEAM_USER') {
       const assigned = session.user.assignedPhoneNumber || ''
       const formattedAssigned = formatPhoneNumberForTelnyx(assigned)
       const formattedFromCandidate = formatPhoneNumberForTelnyx(fromNumber)
       if (!formattedAssigned || !formattedFromCandidate || formattedFromCandidate !== formattedAssigned) {
+        console.warn('[TELNYX CALLS][GUARD] Team user attempted call from non-assigned number', {
+          userId: session.user.id,
+          assigned,
+          fromNumber,
+          formattedAssigned,
+          formattedFromCandidate,
+        })
         return NextResponse.json(
           { error: 'Forbidden: Team users must call from their assigned phone number' },
           { status: 403 }
         )
       }
+      console.log('[TELNYX CALLS][GUARD] Team user from-number validated', { userId: session.user.id, fromNumber })
     }
 
     if (!TELNYX_API_KEY) {
@@ -117,6 +134,8 @@ export async function POST(request: NextRequest) {
       ? `${appUrl}/api/telnyx/webhooks/calls`
       : (process.env.TELNYX_PROD_WEBHOOK_URL || 'https://adlercapitalcrm.com/api/telnyx/webhooks/calls')
 
+    console.log('[TELNYX CALLS][CONFIG] Using webhook URL', { appUrl, webhookUrl })
+
     // Initiate call via Telnyx Call Control API
     const telnyxResponse = await fetch(TELNYX_CALLS_API_URL, {
       method: 'POST',
@@ -138,6 +157,15 @@ export async function POST(request: NextRequest) {
     });
 
     const telnyxData = await telnyxResponse.json();
+
+    console.log('[TELNYX CALLS][RESPONSE] Telnyx dial response', {
+      status: telnyxResponse.status,
+      telnyxRequestId: telnyxResponse.headers.get('x-telnyx-request-id') || undefined,
+      callControlId: telnyxData?.data?.call_control_id,
+    })
+
+    // Note on audio path
+    console.warn('[TELNYX CALLS][AUDIO] No agent/browser media leg is configured by this endpoint. To talk, you must bridge to an agent phone or use WebRTC.')
 
     if (!telnyxResponse.ok) {
       const pretty = (() => { try { return JSON.stringify(telnyxData, null, 2) } catch { return String(telnyxData) } })()
@@ -178,6 +206,7 @@ export async function POST(request: NextRequest) {
           status: 'initiated',
         },
       });
+      console.log('[TELNYX CALLS][DB] Saved telnyxCall', { id: savedCall?.id, telnyxCallId: savedCall?.telnyxCallId })
 
       // Update phone number usage stats
       if (prisma.telnyxPhoneNumber) {

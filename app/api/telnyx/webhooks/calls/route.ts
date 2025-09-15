@@ -12,12 +12,26 @@ export async function POST(request: NextRequest) {
     const occurred_at = data?.occurred_at ?? body?.occurred_at;
     const webhookId = data?.id ?? body?.id;
 
-    console.log('Telnyx Call webhook received:', {
+    const callControlId = data?.payload?.call_control_id || data?.call_control_id
+    const direction = data?.payload?.call_direction || data?.call_direction
+    const from = data?.payload?.from || data?.from || data?.payload?.sip_from
+    const to = data?.payload?.to || data?.to || data?.payload?.sip_to
+    const legId = data?.payload?.leg_id || data?.leg_id
+    const sessionId = data?.payload?.call_session_id || data?.call_session_id
+    const sipCode = data?.payload?.sip_response_code || data?.sip_response_code
+
+    console.log('[TELNYX WEBHOOK][CALL]', {
       event_type,
       webhookId,
       occurred_at,
-      callControlId: data?.payload?.call_control_id || data?.call_control_id
-    });
+      callControlId,
+      direction,
+      from,
+      to,
+      legId,
+      sessionId,
+      sipCode,
+    })
 
     const payload = data?.payload || data;
 
@@ -58,11 +72,23 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+
+// Healthcheck endpoints so Telnyx can validate the webhook URL when toggling features like call cost
+export async function GET() {
+  return NextResponse.json({ ok: true, service: 'telnyx-calls-webhook', ts: new Date().toISOString() })
+}
+
+export async function HEAD() {
+  return new NextResponse(null, { status: 204 })
+}
+
 }
 
 async function handleCallInitiated(data: any) {
   try {
     if (!prisma.telnyxCall) return;
+
+    console.log('[TELNYX WEBHOOK][CALL] -> initiated', { callControlId: data.call_control_id })
 
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
@@ -79,6 +105,7 @@ async function handleCallInitiated(data: any) {
 
 async function handleCallRinging(data: any) {
   try {
+    console.log('[TELNYX WEBHOOK][CALL] -> ringing', { callControlId: data.call_control_id })
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
       data: {
@@ -94,11 +121,17 @@ async function handleCallRinging(data: any) {
 
 async function handleCallAnswered(data: any) {
   try {
+    console.log('[TELNYX WEBHOOK][CALL] -> answered', { callControlId: data.call_control_id })
+
+    // Prefer occurred_at (moment of answer) for talk time; fall back to start_time
+    const answeredAtStr = data?.occurred_at || data?.answered_at || data?.start_time
+    const answeredAt = answeredAtStr ? new Date(answeredAtStr) : new Date()
+
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
       data: {
         status: 'answered',
-        answeredAt: new Date(),
+        answeredAt,
         webhookData: data,
         updatedAt: new Date(),
       },
@@ -110,6 +143,7 @@ async function handleCallAnswered(data: any) {
 
 async function handleCallBridged(data: any) {
   try {
+    console.log('[TELNYX WEBHOOK][CALL] -> bridged', { callControlId: data.call_control_id })
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
       data: {
@@ -127,14 +161,35 @@ async function handleCallHangup(data: any) {
   try {
     if (!prisma.telnyxCall) return;
 
-    const duration = data.call_duration_secs || 0;
+    // Prefer Telnyx-provided values; fall back to computing from timestamps
+    const endStr = data?.end_time || data?.occurred_at
+    const endedAt = endStr ? new Date(endStr) : new Date()
+
+    let duration = (typeof data?.call_duration_secs === 'number') ? data.call_duration_secs : 0
+
+    // If Telnyx didn't provide duration, compute from answered/start to end
+    if (!duration || duration <= 0) {
+      const call = await prisma.telnyxCall.findFirst({ where: { telnyxCallId: data.call_control_id } })
+      const startStr = call?.answeredAt?.toISOString() || data?.start_time || call?.createdAt?.toISOString()
+      if (startStr && endedAt) {
+        const start = new Date(startStr)
+        const seconds = Math.max(0, Math.round((endedAt.getTime() - start.getTime()) / 1000))
+        duration = seconds
+      }
+    }
+
+    console.log('[TELNYX WEBHOOK][CALL] -> hangup', {
+      callControlId: data.call_control_id,
+      duration,
+      cause: data.hangup_cause,
+    })
 
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
       data: {
         status: 'hangup',
         duration,
-        endedAt: new Date(),
+        endedAt,
         hangupCause: data.hangup_cause,
         webhookData: data,
         updatedAt: new Date(),
@@ -148,13 +203,15 @@ async function handleCallHangup(data: any) {
       });
 
       if (call) {
+        const amt = parseFloat(data.cost.amount)
+        const currency = data.cost.currency || 'USD'
         await prisma.telnyxBilling.create({
           data: {
             phoneNumber: call.fromNumber,
             recordType: 'call',
             recordId: data.call_control_id,
-            cost: parseFloat(data.cost.amount),
-            currency: data.cost.currency || 'USD',
+            cost: amt,
+            currency,
             billingDate: new Date(),
             description: `Call to ${call.toNumber} (${duration}s)`,
             metadata: data,
@@ -165,22 +222,52 @@ async function handleCallHangup(data: any) {
         if (prisma.telnyxPhoneNumber) {
           await prisma.telnyxPhoneNumber.updateMany({
             where: { phoneNumber: call.fromNumber },
-            data: {
-              totalCost: { increment: parseFloat(data.cost.amount) },
-            },
+            data: { totalCost: { increment: amt } },
           });
         }
 
         // Update call record with cost
         await prisma.telnyxCall.updateMany({
           where: { telnyxCallId: data.call_control_id },
-          data: {
-            cost: parseFloat(data.cost.amount),
-          },
+          data: { cost: amt },
         });
-
-
-
+      }
+    } else if (prisma.telnyxBilling) {
+      // Fallback: estimate cost if TELNYX_VOICE_RATE_PER_MIN is set
+      const rateStr = process.env.TELNYX_VOICE_RATE_PER_MIN
+      const rate = rateStr ? parseFloat(rateStr) : undefined
+      if (rate && duration > 0) {
+        const call = await prisma.telnyxCall.findFirst({
+          where: { telnyxCallId: data.call_control_id },
+        })
+        if (call) {
+          const billedMinutes = Math.max(1, Math.ceil(duration / 60))
+          const amt = billedMinutes * rate
+          const currency = 'USD'
+          await prisma.telnyxBilling.create({
+            data: {
+              phoneNumber: call.fromNumber,
+              recordType: 'call',
+              recordId: data.call_control_id,
+              cost: amt,
+              currency,
+              billingDate: new Date(),
+              description: `Call to ${call.toNumber} (${duration}s) [estimated @ ${rate}/min]`,
+              metadata: { estimated: true, ratePerMin: rate, source: 'fallback' },
+            },
+          })
+          // Update phone number total cost incrementally
+          if (prisma.telnyxPhoneNumber) {
+            await prisma.telnyxPhoneNumber.updateMany({
+              where: { phoneNumber: call.fromNumber },
+              data: { totalCost: { increment: amt } },
+            })
+          }
+          await prisma.telnyxCall.updateMany({
+            where: { telnyxCallId: data.call_control_id },
+            data: { cost: amt },
+          })
+        }
       }
     }
   } catch (error) {
@@ -262,6 +349,8 @@ async function handleCallCost(data: any) {
 async function handleRecordingSaved(data: any) {
   try {
     if (!prisma.telnyxCall) return;
+
+    console.log('[TELNYX WEBHOOK][CALL] -> recording.saved', { callControlId: data.call_control_id, mp3: data.recording_urls?.mp3 || data.recording_url })
 
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },

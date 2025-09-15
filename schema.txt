@@ -1,0 +1,49 @@
+"table_name"	"table_schema"
+"activities"	"public"
+"assistants"	"public"
+"calls"	"public"
+"contact_tags"	"public"
+"contacts"	"public"
+"conversations"	"public"
+"deal_stage_history"	"public"
+"deal_tags"	"public"
+"deals"	"public"
+"documents"	"public"
+"emails"	"public"
+"import_history"	"public"
+"messages"	"public"
+"phone_numbers"	"public"
+"tags"	"public"
+"vapi_calls"	"public"
+
+
+
+"column_name"	"data_type"	"is_nullable"	"column_default"	"character_maximum_length"	"numeric_precision"	"numeric_scale"	"ordinal_position"
+"id"	"uuid"	"NO"					1
+"first_name"	"text"	"YES"					2
+"last_name"	"text"	"YES"					3
+"llc_name"	"text"	"YES"					4
+"phone1"	"text"	"YES"					5
+"phone2"	"text"	"YES"					6
+"phone3"	"text"	"YES"					7
+"email1"	"text"	"YES"					8
+"email2"	"text"	"YES"					9
+"email3"	"text"	"YES"					10
+"property_address"	"text"	"YES"					11
+"city"	"text"	"YES"					12
+"state"	"text"	"YES"					13
+"property_county"	"text"	"YES"					14
+"property_type"	"text"	"YES"					15
+"bedrooms"	"integer"	"YES"			32	0	16
+"total_bathrooms"	"numeric"	"YES"			4	2	17
+"building_sqft"	"integer"	"YES"			32	0	18
+"effective_year_built"	"integer"	"YES"			32	0	19
+"est_value"	"numeric"	"YES"			15	2	20
+"est_equity"	"numeric"	"YES"			15	2	21
+"dnc"	"boolean"	"YES"	"false"				22
+"dnc_reason"	"text"	"YES"					23
+"deal_status"	"USER-DEFINED"	"YES"	"'lead'::""DealStatus"""				24
+"notes"	"text"	"YES"					25
+"avatar_url"	"text"	"YES"					26
+"created_at"	"timestamp with time zone"	"NO"	"CURRENT_TIMESTAMP"				27
+"updated_at"	"timestamp with time zone"	"YES"					28

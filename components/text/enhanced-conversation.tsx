@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast"
 import { formatDistanceToNow } from "date-fns"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
+import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
 
 interface Message {
@@ -43,6 +44,7 @@ interface EnhancedConversationProps {
 
 export default function EnhancedConversation({ contact, onBack }: EnhancedConversationProps) {
   const { data: session } = useSession()
+  const { openCall } = useCallUI()
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [selectedSenderNumber, setSelectedSenderNumber] = useState<string>("")
@@ -187,39 +189,53 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
 
   const handleCall = async () => {
     if (!selectedSenderNumber) {
-      toast({
-        title: "Cannot make call",
-        description: "Please select a sender number",
-        variant: "destructive",
-      })
+      toast({ title: "Cannot make call", description: "Please select a sender number", variant: "destructive" })
+      return
+    }
+
+    const toNumber = contact.phone1 || contact.phone2 || contact.phone3
+    if (!toNumber) {
+      toast({ title: "No phone", description: "This contact has no phone number.", variant: "destructive" })
       return
     }
 
     try {
+      // Try WebRTC first
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+        await rtcClient.ensureRegistered()
+        const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber: selectedSenderNumber })
+        openCall({
+          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+          fromNumber: selectedSenderNumber,
+          toNumber,
+          mode: 'webrtc',
+          webrtcSessionId: sessionId,
+        })
+        toast({ title: 'Calling (WebRTC)', description: `Calling ${contact.firstName} ${contact.lastName}` })
+        return
+      } catch (webrtcErr) {
+        console.warn('WebRTC attempt failed, falling back to Call Control:', webrtcErr)
+      }
+
+      // Fallback to Call Control dial
       const response = await fetch('/api/telnyx/calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fromNumber: selectedSenderNumber,
-          toNumber: contact.phone1 || contact.phone2 || contact.phone3,
-          contactId: contact.id,
-        }),
+        body: JSON.stringify({ fromNumber: selectedSenderNumber, toNumber, contactId: contact.id }),
       })
-
-      if (response.ok) {
-        toast({
-          title: "Call initiated",
-          description: `Calling ${contact.firstName} ${contact.lastName}`,
-        })
-      } else {
-        throw new Error('Failed to initiate call')
-      }
+      if (!response.ok) throw new Error('Failed to initiate call')
+      const data = await response.json()
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber: selectedSenderNumber,
+        toNumber,
+        mode: 'call_control',
+        telnyxCallId: data.telnyxCallId,
+      })
+      toast({ title: 'Call initiated', description: `Calling ${contact.firstName} ${contact.lastName}` })
     } catch (error) {
-      toast({
-        title: "Error making call",
-        description: "Failed to initiate the call. Please try again.",
-        variant: "destructive",
-      })
+      toast({ title: "Error making call", description: "Failed to initiate the call. Please try again.", variant: "destructive" })
     }
   }
 

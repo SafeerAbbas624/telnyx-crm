@@ -116,14 +116,28 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Derive duration if missing using timestamps (answeredAt/endedAt)
+      let duration = (typeof call.duration === 'number') ? call.duration : 0
+      if (!duration || duration <= 0) {
+        const answered = call.answeredAt ? new Date(call.answeredAt).getTime() : null
+        const ended = call.endedAt ? new Date(call.endedAt).getTime() : null
+        if (answered && ended && ended >= answered) {
+          duration = Math.round((ended - answered) / 1000)
+        } else if (call.createdAt && ended && ended >= new Date(call.createdAt).getTime()) {
+          duration = Math.round((ended - new Date(call.createdAt).getTime()) / 1000)
+        }
+      }
+
       return {
         id: call.id,
         telnyxCallId: call.telnyxCallId,
         direction: call.direction,
         status: call.status,
-        duration: call.duration,
+        duration,
         timestamp: call.createdAt,
         createdAt: call.createdAt,
+        answeredAt: call.answeredAt,
+        endedAt: call.endedAt,
         startTime: call.answeredAt || call.createdAt,
         notes: call.hangupCause ? `Call ended: ${call.hangupCause}` : null,
         fromNumber: call.fromNumber,

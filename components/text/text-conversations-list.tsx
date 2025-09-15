@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Search, Plus, LogOut, Phone, PhoneOff } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
 
 interface TextConversationsListProps {
@@ -30,55 +31,66 @@ export default function TextConversationsList({
   const [activeCall, setActiveCall] = useState<{ contactId: string; duration: number } | null>(null)
   const [callTimerId, setCallTimerId] = useState<NodeJS.Timeout | null>(null)
   const { toast } = useToast()
+  const { openCall } = useCallUI()
 
-  const handleStartCall = (contactId: string, e: React.MouseEvent) => {
+  const handleStartCall = async (contactId: string, e: React.MouseEvent) => {
     e.stopPropagation()
+    try {
+      const contact = contacts.find(c => c.id === contactId)
+      if (!contact) return
+      const toNumber = (contact as any).phone1 || (contact as any).phone2 || (contact as any).phone3 || (contact as any).phone
+      if (!toNumber) {
+        toast({ title: "No phone", description: "This contact has no phone number.", variant: "destructive" })
+        return
+      }
+      const numbersRes = await fetch('/api/telnyx/phone-numbers')
+      if (!numbersRes.ok) throw new Error('Failed to load phone numbers')
+      const numbersData = await numbersRes.json()
+      const fromNumber = (numbersData.phoneNumbers?.[0]?.phoneNumber) || numbersData?.[0]?.phoneNumber
+      if (!fromNumber) throw new Error('No Telnyx phone numbers available')
 
-    // End any existing call
-    if (activeCall) {
-      handleEndCall(e)
-    }
+      // Try WebRTC first
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+        await rtcClient.ensureRegistered()
+        const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber })
+        openCall({
+          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+          fromNumber,
+          toNumber,
+          mode: 'webrtc',
+          webrtcSessionId: sessionId,
+        })
+        toast({ title: 'Calling (WebRTC)', description: `Calling ${contact.firstName} ${contact.lastName}` })
+        return
+      } catch (webrtcErr) {
+        console.warn('WebRTC attempt failed, falling back to Call Control:', webrtcErr)
+      }
 
-    // Start new call
-    setActiveCall({
-      contactId,
-      duration: 0,
-    })
-
-    // Start timer
-    const timerId = setInterval(() => {
-      setActiveCall((prev) => {
-        if (!prev) return null
-        return {
-          ...prev,
-          duration: prev.duration + 1,
-        }
+      const callRes = await fetch('/api/telnyx/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromNumber, toNumber, contactId })
       })
-    }, 1000)
-
-    setCallTimerId(timerId)
-
-    toast({
-      title: "Call started",
-      description: "Call has been initiated",
-    })
+      if (!callRes.ok) throw new Error('Failed to initiate call')
+      const data = await callRes.json()
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber,
+        toNumber,
+        mode: 'call_control',
+        telnyxCallId: data.telnyxCallId,
+      })
+      toast({ title: 'Call started', description: `Calling ${contact.firstName} ${contact.lastName}` })
+    } catch (err: any) {
+      toast({ title: 'Error', description: err?.message || 'Failed to start call', variant: 'destructive' })
+    }
   }
 
-  const handleEndCall = (e: React.MouseEvent) => {
+  const handleEndCall = async (e: React.MouseEvent) => {
     e.stopPropagation()
-
-    if (callTimerId) {
-      clearInterval(callTimerId)
-      setCallTimerId(null)
-    }
-
-    const duration = activeCall?.duration || 0
-    setActiveCall(null)
-
-    toast({
-      title: "Call ended",
-      description: `Call duration: ${formatDuration(duration)}`,
-    })
+    // This list UI no longer ends calls directly; actions are in the global popup.
+    toast({ title: 'Open call popup', description: 'Use the call popup to end the call.' })
   }
 
   const formatDuration = (seconds: number) => {

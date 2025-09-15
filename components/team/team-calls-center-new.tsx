@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
+import { useCallUI } from "@/lib/context/call-ui-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -59,6 +60,15 @@ export default function TeamCallsCenter() {
   const [isDialing, setIsDialing] = useState(false)
   const [activeCall, setActiveCall] = useState<TelnyxCall | null>(null)
   const [showActivityDialog, setShowActivityDialog] = useState(false)
+  const { openCall } = useCallUI()
+  const [isSearching, setIsSearching] = useState(false)
+
+  // Paged calls for selected contact (infinite scroll)
+  const [selectedCalls, setSelectedCalls] = useState<TelnyxCall[]>([])
+  const [callsOffset, setCallsOffset] = useState(0)
+  const [callsHasMore, setCallsHasMore] = useState(true)
+  const [isLoadingMoreCalls, setIsLoadingMoreCalls] = useState(false)
+  const CALLS_LIMIT = 25
 
   useEffect(() => {
     loadData()
@@ -130,6 +140,49 @@ export default function TeamCallsCenter() {
     }
   }
 
+  // Fetch paged calls for the selected contact
+  const fetchSelectedCalls = async (reset: boolean = false) => {
+    if (!selectedContact) return
+    try {
+      setIsLoadingMoreCalls(true)
+      const offset = reset ? 0 : callsOffset
+      const params = new URLSearchParams({
+        contactIds: selectedContact.id,
+        limit: String(CALLS_LIMIT),
+        offset: String(offset),
+      })
+      const res = await fetch(`/api/team/calls?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        const newCalls: TelnyxCall[] = data.calls || []
+        const merged = reset ? newCalls : [...selectedCalls, ...newCalls]
+        const uniqMap = new Map(merged.map((c) => [c.id, c]))
+        const uniq = Array.from(uniqMap.values())
+        setSelectedCalls(uniq)
+        setCallsOffset(offset + newCalls.length)
+        setCallsHasMore(newCalls.length === CALLS_LIMIT)
+      }
+    } catch (e) {
+      console.error('Failed to fetch team calls page:', e)
+    } finally {
+      setIsLoadingMoreCalls(false)
+    }
+  }
+
+  // Reset and load when contact changes
+  useEffect(() => {
+    if (!selectedContact) {
+      setSelectedCalls([])
+      setCallsOffset(0)
+      setCallsHasMore(true)
+      return
+    }
+    setSelectedCalls([])
+    setCallsOffset(0)
+    setCallsHasMore(true)
+    fetchSelectedCalls(true)
+  }, [selectedContact?.id])
+
   const filteredContacts = assignedContacts.filter((contact: Contact) => {
     if (!searchQuery) return true
     const searchLower = searchQuery.toLowerCase()
@@ -164,6 +217,27 @@ export default function TeamCallsCenter() {
 
     try {
       setIsDialing(true)
+
+      // Try WebRTC first (opens the same in-progress popup as admin)
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+        await rtcClient.ensureRegistered()
+        const { sessionId } = await rtcClient.startCall({ toNumber: phoneToCall, fromNumber: selectedPhoneNumber.number })
+
+        toast({ title: 'Calling (WebRTC)', description: `${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}` })
+        openCall({
+          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+          fromNumber: selectedPhoneNumber.number,
+          toNumber: phoneToCall,
+          mode: 'webrtc',
+          webrtcSessionId: sessionId,
+        })
+        return
+      } catch (webrtcErr) {
+        console.warn('WebRTC call failed, falling back to Call Control:', webrtcErr)
+      }
+
+      // Fallback: Call Control API
       const response = await fetch('/api/telnyx/calls', {
         method: 'POST',
         headers: {
@@ -186,9 +260,15 @@ export default function TeamCallsCenter() {
         title: 'Call Initiated',
         description: `Calling ${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}`,
       })
-      // Open quick activity dialog while in progress
-      setShowActivityDialog(true)
 
+      // Open the shared call UI popup in Call Control mode
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber: selectedPhoneNumber.number,
+        toNumber: phoneToCall,
+        mode: 'call_control',
+        telnyxCallId: callData.telnyxCallId,
+      })
 
       // Refresh calls list
       loadData()
@@ -260,6 +340,18 @@ export default function TeamCallsCenter() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+
+	  // Derive duration if missing using timestamps
+	  const computeDuration = (call: CallRecord) => {
+	    if (typeof call.duration === 'number' && call.duration > 0) return call.duration
+	    const answered = call.answeredAt ? new Date(call.answeredAt).getTime() : null
+	    const ended = call.endedAt ? new Date(call.endedAt).getTime() : null
+	    if (answered && ended && ended >= answered) return Math.round((ended - answered) / 1000)
+	    const created = (call as any).createdAt ? new Date((call as any).createdAt).getTime() : null
+	    if (created && ended && ended >= created) return Math.round((ended - created) / 1000)
+	    return 0
+	  }
+
   const getContactById = (contactId: string) => {
     return contacts.find(c => c.id === contactId)
   }
@@ -314,9 +406,10 @@ export default function TeamCallsCenter() {
               <Input
                 placeholder="Search contacts..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); setIsSearching(true); setTimeout(() => setIsSearching(false), 200) }}
                 className="pl-10"
               />
+              {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
             </div>
 
             <ScrollArea className="h-[calc(100vh-200px)]">
@@ -405,21 +498,6 @@ export default function TeamCallsCenter() {
                           trigger={
                             <Button variant="outline" size="default" title="Assign Contact to Team">
                               <User className="h-4 w-4" />
-                      {/* Active Call Banner */}
-                      {recentCalls.some(c => ['initiated','ringing','answered','bridged'].includes(c.status)) && (
-                        <div className="flex items-center gap-3 px-3 py-2 rounded-md bg-amber-50 border border-amber-200">
-                          <div className="flex items-center gap-2 text-amber-800 text-sm">
-                            <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                            <span>Active call in progress</span>
-                          </div>
-                          <div className="ml-auto flex items-center gap-2">
-                            <Button type="button" onClick={hangupActiveCall} size="sm" variant="destructive">
-                              <PhoneOff className="h-4 w-4 mr-1" /> Hang Up
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-
                             </Button>
                           }
                         />
@@ -485,10 +563,28 @@ export default function TeamCallsCenter() {
                   <CardTitle>Recent Calls</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-64">
+                  {(() => {
+                    const calls = selectedCalls
+                    const last = calls[0]
+                    if (!last) return null
+                    return (
+                      <div className="mb-3 text-xs text-muted-foreground">
+                        Last call: {format(new Date(last.createdAt), 'MMM d, yyyy h:mm a')} • {formatDuration(computeDuration(last as any))} • {last.direction === 'outbound' ? 'From' : 'To'} {formatPhoneNumberForDisplay(last.fromNumber)} -> {formatPhoneNumberForDisplay(last.toNumber)} {last.hangupCause ? `• ${last.hangupCause}` : ''}
+                      </div>
+                    )
+                  })()}
+                  {false && (<ScrollArea className="h-64">
                     <div className="space-y-2">
                       {recentCalls
-                        .filter(call => call.contactId === selectedContact.id)
+                        .filter((call: any) => {
+                          if (!selectedContact) return false
+                          if ((call as any).contactId && (call as any).contactId === selectedContact.id) return true
+                          if ((call as any).contact && (call as any).contact.id === selectedContact.id) return true
+                          const nums = [selectedContact.phone1, selectedContact.phone2, selectedContact.phone3].filter(Boolean)
+                          return nums.includes((call as any).toNumber) || nums.includes((call as any).fromNumber)
+                        })
+                        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                        .slice(0, 10)
                         .map((call) => (
                           <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
                             <div className="flex items-center gap-3">
@@ -506,18 +602,23 @@ export default function TeamCallsCenter() {
                                 <p className="text-xs text-muted-foreground">
                                   {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
                                 </p>
+                                <p className="hidden">
+                                  {formatPhoneNumberForDisplay(call.fromNumber)}   {formatPhoneNumberForDisplay(call.toNumber)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                                </p>
+
                               </div>
                             </div>
                             <div className="text-right">
                               <Badge className={getStatusColor(call.status)}>
                                 {call.status}
                               </Badge>
-                              {call.duration > 0 && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  <Clock className="h-3 w-3 inline mr-1" />
-                                  {formatDuration(call.duration)}
-                                </p>
-                              )}
+                              <p className="text-xs text-muted-foreground mt-1">
+                                <Clock className="h-3 w-3 inline mr-1" />
+                                {formatDuration(computeDuration(call as any))}
+                              </p>
                               {call.cost && (
                                 <p className="text-xs text-muted-foreground">
                                   <DollarSign className="h-3 w-3 inline mr-1" />
@@ -534,6 +635,79 @@ export default function TeamCallsCenter() {
                         ))}
                     </div>
                   </ScrollArea>
+                  )}
+
+                  {isLoadingMoreCalls && selectedCalls.length === 0 && (
+                    <div className="space-y-2">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="animate-pulse p-3 border rounded-md">
+                          <div className="h-3 bg-muted rounded w-1/3 mb-2" />
+                          <div className="h-3 bg-muted rounded w-1/4" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div
+                    className="h-64 overflow-auto"
+                    onScroll={(e) => {
+                      const el = e.currentTarget
+                      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24 && callsHasMore && !isLoadingMoreCalls) {
+                        fetchSelectedCalls(false)
+                      }
+                    }}
+                  >
+                    <div className="space-y-2">
+                      {selectedCalls.map((call) => (
+                        <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full ${call.direction === 'outbound' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                              {call.direction === 'outbound' ? (
+                                <PhoneCall className="h-4 w-4 text-blue-600" />
+                              ) : (
+                                <Phone className="h-4 w-4 text-green-600" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">
+                                {call.direction === 'outbound' ? 'Outbound' : 'Inbound'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge className={getStatusColor(call.status)}>
+                              {call.status}
+                            </Badge>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              <Clock className="h-3 w-3 inline mr-1" />
+                              {formatDuration(computeDuration(call as any))}
+                            </p>
+                            {call.cost && (
+                              <p className="text-xs text-muted-foreground">
+                                <DollarSign className="h-3 w-3 inline mr-1" />
+                                ${call.cost.toFixed(4)}
+                              </p>
+                            )}
+                            {call.recordingUrl && (
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 mt-1">
+                                <Play className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {isLoadingMoreCalls && selectedCalls.length > 0 && (
+                        <div className="py-2 text-xs text-muted-foreground text-center">Loading more…</div>
+                      )}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </div>

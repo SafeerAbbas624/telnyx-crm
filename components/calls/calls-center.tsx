@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,7 +13,7 @@ import { useContacts } from "@/lib/context/contacts-context"
 import { getBestPhoneNumber, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
-import SimpleAddActivityDialog from "@/components/activities/simple-add-activity-dialog"
+import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
 import { format } from "date-fns"
 
@@ -49,6 +49,8 @@ export default function CallsCenter() {
   const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [isSearching, setIsSearching] = useState(false)
+  const contactsCacheRef = useRef<Map<string, any>>(new Map())
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
 
   // Server-side contacts pagination
@@ -74,8 +76,31 @@ export default function CallsCenter() {
   const [activeCall, setActiveCall] = useState<TelnyxCall | null>(null)
   const [isHangingUp, setIsHangingUp] = useState(false)
   const [showActivityDialog, setShowActivityDialog] = useState(false)
+  const { openCall } = useCallUI()
+
+  // Calls pagination for selected contact (infinite scroll)
+  const [selectedCalls, setSelectedCalls] = useState<TelnyxCall[]>([])
+  const [callsOffset, setCallsOffset] = useState(0)
+  const [callsHasMore, setCallsHasMore] = useState(true)
+  const [isLoadingMoreCalls, setIsLoadingMoreCalls] = useState(false)
+  const CALLS_LIMIT = 25
 
   const ACTIVE_STATUSES = new Set(['initiated','ringing','answered','bridged'])
+
+	  // Progressive local filtering for perceived "live" search on the contacts list
+	  const displayContacts = React.useMemo(() => {
+	    const q = searchQuery.trim().toLowerCase()
+	    if (!q) return contactsResults
+	    return contactsResults.filter((c: any) => {
+	      const name = `${c.firstName || ''} ${c.lastName || ''}`.toLowerCase()
+	      return (
+	        name.includes(q) ||
+	        (c.phone1 || '').toLowerCase().includes(q) ||
+	        (c.propertyAddress || '').toLowerCase().includes(q)
+	      )
+	    })
+	  }, [contactsResults, searchQuery])
+
 
   useEffect(() => {
     loadData()
@@ -108,27 +133,72 @@ export default function CallsCenter() {
     }
   }, [hasActiveCall, showActivityDialog])
 
+  // Load calls for selected contact (initial + pagination)
+  const fetchSelectedCalls = async (reset = false) => {
+    if (!selectedContact) return
+    try {
+      setIsLoadingMoreCalls(true)
+      const offset = reset ? 0 : callsOffset
+      const params = new URLSearchParams({ contactId: selectedContact.id, limit: String(CALLS_LIMIT), offset: String(offset) })
+      const res = await fetch(`/api/calls?${params}`)
+      if (res.ok) {
+        const data: TelnyxCall[] = await res.json()
+        const merged = reset ? data : [...selectedCalls, ...data]
+        // de-duplicate by id
+        const uniqMap = new Map(merged.map(c => [c.id, c]))
+        const uniq = Array.from(uniqMap.values())
+        setSelectedCalls(uniq)
+        setCallsOffset(offset + data.length)
+        setCallsHasMore(data.length === CALLS_LIMIT)
+      }
+    } finally {
+      setIsLoadingMoreCalls(false)
+    }
+  }
+
+  useEffect(() => {
+    // when changing selection, reset and load first page
+    if (selectedContact) {
+      setSelectedCalls([])
+      setCallsOffset(0)
+      setCallsHasMore(true)
+      fetchSelectedCalls(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedContact?.id])
+
   // Debounce search to avoid spamming API
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 400)
+    const id = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 150)
     return () => clearTimeout(id)
   }, [searchQuery])
 
   // Fetch contacts from database with pagination + search
   useEffect(() => {
     const controller = new AbortController()
-    const fetchContacts = async () => {
+    const fetchContacts = async () => { setIsSearching(true)
       setIsLoadingContacts(true)
       try {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) })
         if (debouncedSearch) params.set('search', debouncedSearch)
 
+        const cacheKey = `p=${page}|l=${limit}|q=${debouncedSearch}`
+        const cached = contactsCacheRef.current.get(cacheKey)
+        if (cached) {
+          setContactsResults(cached.results)
+          setTotalPages(cached.totalPages)
+        }
+
         // Use appropriate endpoint based on user role
         const res = await fetch(`/api/contacts?${params}`, { signal: controller.signal })
         if (res.ok) {
           const data = await res.json()
-          setContactsResults(Array.isArray(data.contacts) ? data.contacts : [])
-          setTotalPages(data.pagination?.totalPages || 1)
+          const results = Array.isArray(data.contacts) ? data.contacts : []
+          const total = data.pagination?.totalPages || 1
+          setContactsResults(results)
+          setTotalPages(total)
+          const cacheKey = `p=${page}|l=${limit}|q=${debouncedSearch}`
+          contactsCacheRef.current.set(cacheKey, { results, totalPages: total })
         } else {
           console.error('Failed to fetch contacts:', res.status, res.statusText)
           setContactsResults([])
@@ -142,6 +212,7 @@ export default function CallsCenter() {
         }
       } finally {
         setIsLoadingContacts(false)
+        setIsSearching(false)
       }
     }
     fetchContacts()
@@ -185,31 +256,42 @@ export default function CallsCenter() {
 
   const makeCall = async (contact: Contact) => {
     if (!selectedPhoneNumber) {
-      toast({
-        title: 'Error',
-        description: 'Please select a phone number to call from',
-        variant: 'destructive',
-      })
+      toast({ title: 'Error', description: 'Please select a phone number to call from', variant: 'destructive' })
       return
     }
 
     const phoneToCall = getBestPhoneNumber(contact)
     if (!phoneToCall) {
-      toast({
-        title: 'Error',
-        description: 'Contact has no valid phone number',
-        variant: 'destructive',
-      })
+      toast({ title: 'Error', description: 'Contact has no valid phone number', variant: 'destructive' })
       return
     }
 
     try {
       setIsDialing(true)
+
+      // Try WebRTC first
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+        await rtcClient.ensureRegistered()
+        const { sessionId } = await rtcClient.startCall({ toNumber: phoneToCall, fromNumber: selectedPhoneNumber.phoneNumber })
+
+        toast({ title: 'Calling (WebRTC)', description: `${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}` })
+        openCall({
+          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+          fromNumber: selectedPhoneNumber.phoneNumber,
+          toNumber: phoneToCall,
+          mode: 'webrtc',
+          webrtcSessionId: sessionId,
+        })
+        return
+      } catch (webrtcErr) {
+        console.warn('WebRTC call failed, falling back to Call Control:', webrtcErr)
+      }
+
+      // Fallback to existing Call Control dial
       const response = await fetch('/api/telnyx/calls', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fromNumber: selectedPhoneNumber.phoneNumber,
           toNumber: phoneToCall,
@@ -221,25 +303,21 @@ export default function CallsCenter() {
         const error = await response.json()
         throw new Error(error.error || 'Failed to initiate call')
       }
-
       const callData = await response.json()
-      toast({
-        title: 'Call Initiated',
-        description: `Calling ${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}`,
+
+      toast({ title: 'Call Initiated', description: `Calling ${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}` })
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber: selectedPhoneNumber.phoneNumber,
+        toNumber: phoneToCall,
+        mode: 'call_control',
+        telnyxCallId: callData.telnyxCallId,
       })
 
-      // Open quick activity dialog to log the call while it is in progress
-      setShowActivityDialog(true)
-
-      // Refresh calls list
       loadData()
     } catch (error) {
       console.error('Error making call:', error)
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to make call',
-        variant: 'destructive',
-      })
+      toast({ title: 'Error', description: error instanceof Error ? error.message : 'Failed to make call', variant: 'destructive' })
     } finally {
       setIsDialing(false)
     }
@@ -267,6 +345,18 @@ export default function CallsCenter() {
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
+
+	  // Derive duration if missing using timestamps
+	  const computeDuration = (call: TelnyxCall) => {
+	    if (typeof call.duration === 'number' && call.duration > 0) return call.duration
+	    const answered = call.answeredAt ? new Date(call.answeredAt).getTime() : null
+	    const ended = call.endedAt ? new Date(call.endedAt).getTime() : null
+	    if (answered && ended && ended >= answered) return Math.round((ended - answered) / 1000)
+	    const created = call.createdAt ? new Date(call.createdAt).getTime() : null
+	    if (created && ended && ended >= created) return Math.round((ended - created) / 1000)
+	    return 0
+	  }
+
   const hangupActiveCall = async () => {
     if (isHangingUp) return
     try {
@@ -310,36 +400,9 @@ export default function CallsCenter() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Activity popup */}
-      {selectedContact && (
-        <SimpleAddActivityDialog
-          open={showActivityDialog}
-          onOpenChange={setShowActivityDialog}
-          contactId={selectedContact.id}
-          contactName={`${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim()}
-          onActivityAdded={() => {
-            loadData()
-            toast({ title: 'Activity added', description: 'Call activity saved.' })
-          }}
-        />
-      )}
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-xl font-semibold mb-4">Calls Center</h2>
 
-        {/* Active Call Banner */}
-        {recentCalls.some(c => ACTIVE_STATUSES.has(c.status)) && (
-          <div className="flex items-center gap-3 px-3 py-2 mb-3 rounded-md bg-amber-50 border border-amber-200">
-            <div className="flex items-center gap-2 text-amber-800 text-sm">
-              <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-              <span>Active call in progress</span>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <Button type="button" onClick={hangupActiveCall} size="sm" variant="destructive">
-                <PhoneOff className="h-4 w-4 mr-1" /> Hang Up
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* Phone Number Selection */}
         <div className="mb-4">
@@ -381,6 +444,7 @@ export default function CallsCenter() {
                 onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                 className="pl-10"
               />
+              {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
             </div>
 
             <ScrollArea className="h-[calc(100vh-200px)]">
@@ -388,7 +452,7 @@ export default function CallsCenter() {
                 {isLoadingContacts && (
                   <div className="text-sm text-muted-foreground p-3">Loading contacts...</div>
                 )}
-                {!isLoadingContacts && contactsResults.map((contact) => (
+                {!isLoadingContacts && displayContacts.map((contact) => (
                   <Card
                     key={contact.id}
                     className={`cursor-pointer transition-colors hover:bg-muted/50 ${
@@ -555,10 +619,41 @@ export default function CallsCenter() {
                   <CardTitle>Recent Calls</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-64">
-                    <div className="space-y-2">
-                      {recentCalls
-                        .filter(call => call.contactId === selectedContact.id)
+                  {(() => {
+                    const calls = selectedCalls
+                    const last = calls[0]
+                    if (!last) return null
+                    return (
+                      <div className="mb-3 text-xs text-muted-foreground">
+                        Last call: {format(new Date(last.createdAt), 'MMM d, yyyy h:mm a')} • {formatDuration(computeDuration(last))} • {last.direction === 'outbound' ? 'From' : 'To'} {formatPhoneNumberForDisplay(last.fromNumber)} -> {formatPhoneNumberForDisplay(last.toNumber)} {last.hangupCause ? `• ${last.hangupCause}` : ''}
+                      </div>
+                    )
+                  })()}
+
+	                  {isLoadingMoreCalls && selectedCalls.length === 0 && (
+	                    <div className="space-y-2">
+	                      {[...Array(4)].map((_, i) => (
+	                        <div key={i} className="animate-pulse p-3 border rounded-md">
+	                          <div className="h-3 bg-muted rounded w-1/3 mb-2" />
+	                          <div className="h-3 bg-muted rounded w-1/4" />
+	                        </div>
+	                      ))}
+	                    </div>
+	                  )}
+
+
+                  {false && (<ScrollArea className="h-64">
+                    <div
+                      className="space-y-2"
+                      onScroll={(e) => {
+                        const container = (e.currentTarget.parentElement as HTMLElement) || null
+                        if (!container) return
+                        if (container.scrollTop + container.clientHeight >= container.scrollHeight - 24 && callsHasMore && !isLoadingMoreCalls) {
+                          fetchSelectedCalls(false)
+                        }
+                      }}
+                    >
+                      {selectedCalls
                         .map((call) => (
                           <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
                             <div className="flex items-center gap-3">
@@ -576,18 +671,19 @@ export default function CallsCenter() {
                                 <p className="text-xs text-muted-foreground">
                                   {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
                                 </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatPhoneNumberForDisplay(call.fromNumber)}                   → {formatPhoneNumberForDisplay(call.toNumber)}
+                                </p>
                               </div>
                             </div>
                             <div className="text-right">
                               <Badge className={getStatusColor(call.status)}>
                                 {call.status}
                               </Badge>
-                              {call.duration > 0 && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  <Clock className="h-3 w-3 inline mr-1" />
-                                  {formatDuration(call.duration)}
-                                </p>
-                              )}
+                              <p className="text-xs text-muted-foreground mt-1">
+                                <Clock className="h-3 w-3 inline mr-1" />
+                                {formatDuration(computeDuration(call))}
+                              </p>
                               {call.cost && (
                                 <p className="text-xs text-muted-foreground">
                                   <DollarSign className="h-3 w-3 inline mr-1" />
@@ -603,8 +699,78 @@ export default function CallsCenter() {
                           </div>
                         ))}
                     </div>
-                  </ScrollArea>
+                  </ScrollArea>)}
+                  <div
+                    className="h-64 overflow-auto"
+                    onScroll={(e) => {
+                      const el = e.currentTarget
+                      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24 && callsHasMore && !isLoadingMoreCalls) {
+                        fetchSelectedCalls(false)
+                      }
+                    }}
+                  >
+                    <div className="space-y-2">
+                      {selectedCalls.map((call) => (
+                        <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full ${call.direction === 'outbound' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                              {call.direction === 'outbound' ? (
+                                <PhoneCall className="h-4 w-4 text-blue-600" />
+                              ) : (
+                                <Phone className="h-4 w-4 text-green-600" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm">
+                                {call.direction === 'outbound' ? 'Outbound' : 'Inbound'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
+                              </p>
+                              {/*
+                              <p className="text-xs text-muted-foreground">
+                                {formatPhoneNumberForDisplay(call.fromNumber)} 	 a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  a d  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  d a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a  a → {formatPhoneNumberForDisplay(call.toNumber)}
+                              </p>
+                              */}
+                              <p className="text-xs text-muted-foreground">
+                                {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge className={getStatusColor(call.status)}>
+                              {call.status}
+                            </Badge>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              <Clock className="h-3 w-3 inline mr-1" />
+                              {formatDuration(computeDuration(call))}
+                            </p>
+                            {call.cost && (
+                              <p className="text-xs text-muted-foreground">
+                                <DollarSign className="h-3 w-3 inline mr-1" />
+                                ${call.cost.toFixed(4)}
+
+
+
+
+                              </p>
+                            )}
+                            {call.recordingUrl && (
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 mt-1">
+                                <Play className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </CardContent>
+
+	                    {isLoadingMoreCalls && selectedCalls.length > 0 && (
+	                      <div className="py-2 text-xs text-muted-foreground text-center">Loading more…</div>
+	                    )}
+
               </Card>
             </div>
           ) : (

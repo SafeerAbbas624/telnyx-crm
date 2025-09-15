@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, PlusCircle, Mic } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
-import AddActivityDialog from "@/components/activities/add-activity-dialog"
+import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Call } from "@/lib/types"
 
 interface ContactCallsProps {
@@ -36,6 +36,7 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
   const [error, setError] = useState<string | null>(null)
   const [showActivityDialog, setShowActivityDialog] = useState(false)
   const { toast } = useToast()
+  const { openCall } = useCallUI()
 
   useEffect(() => {
     const fetchCalls = async () => {
@@ -111,17 +112,30 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
       // Use the first available phone number
       const fromNumber = phoneNumbers[0].phoneNumber
 
-      // Start the call using Telnyx API
+      // Try WebRTC first
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+        await rtcClient.ensureRegistered()
+        const { sessionId } = await rtcClient.startCall({ toNumber: phoneNumber, fromNumber })
+
+        openCall({
+          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+          fromNumber,
+          toNumber: phoneNumber,
+          mode: 'webrtc',
+          webrtcSessionId: sessionId,
+        })
+        toast({ title: 'Call Started (WebRTC)', description: `Calling ${contact.firstName} ${contact.lastName}` })
+        return
+      } catch (webrtcErr) {
+        console.warn('WebRTC attempt failed, falling back to Call Control:', webrtcErr)
+      }
+
+      // Fallback: Start the call using Telnyx Call Control API
       const callResponse = await fetch('/api/telnyx/calls', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fromNumber: fromNumber,
-          toNumber: phoneNumber,
-          contactId: contactId,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromNumber, toNumber: phoneNumber, contactId }),
       })
 
       if (!callResponse.ok) {
@@ -129,13 +143,17 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
         throw new Error(error.error || 'Failed to initiate call')
       }
 
-      // Show activity dialog to log the call
-      setShowActivityDialog(true)
+      const callData = await callResponse.json()
 
-      toast({
-        title: "Call Started",
-        description: `Calling ${contact.firstName} ${contact.lastName} via Telnyx`,
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber,
+        toNumber: phoneNumber,
+        mode: 'call_control',
+        telnyxCallId: callData.telnyxCallId,
       })
+
+      toast({ title: 'Call Started', description: `Calling ${contact.firstName} ${contact.lastName} via Telnyx` })
 
     } catch (error) {
       console.error('Error starting call:', error)
@@ -212,13 +230,6 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
       </CardContent>
     </Card>
 
-    {/* Activity Dialog for logging call notes */}
-    <AddActivityDialog
-      open={showActivityDialog}
-      onOpenChange={setShowActivityDialog}
-      contactId={contactId}
-      onActivityAdded={handleActivityAdded}
-    />
   </>
   )
 }

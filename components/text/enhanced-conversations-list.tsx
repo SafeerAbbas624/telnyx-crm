@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -56,7 +56,10 @@ export default function EnhancedConversationsList({
   const [conversations, setConversations] = useState<ConversationData[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showNewMessageModal, setShowNewMessageModal] = useState(false)
-  const debouncedSearchQuery = useDebounce(searchQuery, 300)
+  const debouncedSearchQuery = useDebounce(searchQuery, 150)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const cacheRef = useRef<Map<string, any>>(new Map())
+  const [isSearching, setIsSearching] = useState(false)
 
   // Load conversations with live search
   useEffect(() => {
@@ -71,7 +74,7 @@ export default function EnhancedConversationsList({
     return () => clearInterval(interval)
   }, [debouncedSearchQuery])
 
-  const loadConversations = async () => {
+  const loadConversations = async () => { setIsSearching(true)
     setIsLoading(true)
     try {
       const params = new URLSearchParams()
@@ -79,15 +82,29 @@ export default function EnhancedConversationsList({
         params.set('search', debouncedSearchQuery.trim())
       }
       
-      const response = await fetch(`/api/conversations?${params}`)
-      if (response.ok) {
+      if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+
+      const cacheKey = params.toString()
+      const cached = cacheRef.current.get(cacheKey)
+      if (cached) {
+        setConversations(cached.conversations || [])
+      }
+
+      const response = await fetch(`/api/conversations?${params}`, { signal: controller.signal })
+      if (response.ok && !controller.signal.aborted) {
         const data = await response.json()
-        setConversations(data.conversations || [])
+        if (!controller.signal.aborted) {
+          setConversations(data.conversations || [])
+          cacheRef.current.set(cacheKey, { conversations: data.conversations || [] })
+        }
       }
     } catch (error) {
       console.error('Error loading conversations:', error)
     } finally {
       setIsLoading(false)
+      setIsSearching(false)
     }
   }
 
@@ -191,6 +208,7 @@ export default function EnhancedConversationsList({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
           </div>
           <Button
             size="icon"

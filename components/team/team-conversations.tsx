@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useDebounce } from "@/hooks/use-debounce"
 import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,6 +54,10 @@ export default function TeamConversations() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const debouncedSearch = useDebounce(searchQuery, 150)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const cacheRef = useRef<Map<string, any>>(new Map())
+  const [isSearching, setIsSearching] = useState(false)
   const [messageContent, setMessageContent] = useState("")
   const [isLoading, setIsLoading] = useState(true)
   const [isSending, setIsSending] = useState(false)
@@ -71,7 +76,7 @@ export default function TeamConversations() {
 
   useEffect(() => {
     loadConversations()
-  }, [searchQuery])
+  }, [debouncedSearch])
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -90,22 +95,34 @@ export default function TeamConversations() {
     }
   }, [selectedConversation])
 
-  const loadConversations = async () => {
+  const loadConversations = async () => { setIsSearching(true)
     try {
       const params = new URLSearchParams()
-      if (searchQuery.trim()) {
-        params.set('search', searchQuery.trim())
+      if (debouncedSearch.trim()) {
+        params.set('search', debouncedSearch.trim())
       }
-      
-      const response = await fetch(`/api/team/conversations?${params}`)
+
+      if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+
+      const cacheKey = params.toString()
+      const cached = cacheRef.current.get(cacheKey)
+      if (cached) {
+        setConversations(cached.conversations || [])
+      }
+
+      const response = await fetch(`/api/team/conversations?${params}`, { signal: controller.signal })
       if (response.ok) {
         const data = await response.json()
         setConversations(data.conversations || [])
+        cacheRef.current.set(cacheKey, { conversations: data.conversations || [] })
       }
     } catch (error) {
       console.error('Error loading conversations:', error)
     } finally {
       setIsLoading(false)
+      setIsSearching(false)
     }
   }
 
@@ -252,6 +269,8 @@ export default function TeamConversations() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+            {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
+
           </div>
         </div>
 

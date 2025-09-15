@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -49,10 +49,15 @@ export default function OptimizedContactsList({
   const [stateFilter, setStateFilter] = useState('')
   const [pagination, setPagination] = useState<PaginationInfo | null>(null)
 
-  const debouncedSearch = useDebounce(searchQuery, 300)
+  const debouncedSearch = useDebounce(searchQuery, 150)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const lastRemoteContactsRef = useRef<Contact[]>([])
+  const cacheRef = useRef<Map<string, any>>(new Map())
+  const [isSearching, setIsSearching] = useState(false)
 
   const loadContacts = useCallback(async (page = 1, append = false) => {
     try {
+      setIsSearching(true)
       if (page === 1) {
         setLoading(true)
         setError(null)
@@ -70,26 +75,46 @@ export default function OptimizedContactsList({
         ...(stateFilter && { state: stateFilter }),
       })
 
-      const response = await fetch(`/api/contacts?${params}`)
+      const cacheKey = params.toString()
+      const cached = cacheRef.current.get(cacheKey)
+      if (cached && page === 1 && !append) {
+        setContacts(cached.contacts || [])
+        setPagination(cached.pagination)
+      }
+
+      // Abort any in-flight request before starting a new one
+      if (fetchAbortRef.current) {
+        try { fetchAbortRef.current.abort() } catch {}
+      }
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+
+      const response = await fetch(`/api/contacts?${params}`, { signal: controller.signal })
       if (!response.ok) {
         throw new Error('Failed to fetch contacts')
       }
 
       const data = await response.json()
-      
+      if (controller.signal.aborted) return
+
+      lastRemoteContactsRef.current = data.contacts || []
+
       if (append && page > 1) {
         setContacts(prev => [...prev, ...(data.contacts || [])])
       } else {
         setContacts(data.contacts || [])
       }
-      
+
       setPagination(data.pagination)
+
+      cacheRef.current.set(cacheKey, { contacts: data.contacts || [], pagination: data.pagination })
     } catch (err) {
       console.error('Error loading contacts:', err)
       setError(err instanceof Error ? err.message : 'Failed to load contacts')
     } finally {
       setLoading(false)
       setLoadingMore(false)
+      setIsSearching(false)
     }
   }, [debouncedSearch, dealStatusFilter, propertyTypeFilter, cityFilter, stateFilter])
 
@@ -115,6 +140,7 @@ export default function OptimizedContactsList({
   const clearFilters = () => {
     setSearchQuery('')
     setDealStatusFilter('')
+
     setPropertyTypeFilter('')
     setCityFilter('')
     setStateFilter('')
@@ -140,6 +166,30 @@ export default function OptimizedContactsList({
     )
   }
 
+
+  // Progressive client-side filtering for instant feedback
+  useEffect(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) {
+      if (lastRemoteContactsRef.current.length) {
+          {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
+
+        setContacts(lastRemoteContactsRef.current)
+      }
+      return
+    }
+    const base = lastRemoteContactsRef.current.length ? lastRemoteContactsRef.current : contacts
+    const quick = base.filter((c: any) => {
+      const name = `${c.firstName || ''} ${c.lastName || ''}`.toLowerCase()
+      return (
+        name.includes(q) ||
+        (c.phone1 || '').toLowerCase().includes(q) ||
+        (c.propertyAddress || '').toLowerCase().includes(q)
+      )
+    })
+    setContacts(quick)
+  }, [searchQuery])
+
   if (error) {
     return (
       <div className="text-center py-8">
@@ -163,8 +213,10 @@ export default function OptimizedContactsList({
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10"
           />
+          {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
+
         </div>
-        
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Select value={dealStatusFilter} onValueChange={setDealStatusFilter}>
             <SelectTrigger>
@@ -220,8 +272,8 @@ export default function OptimizedContactsList({
       {/* Contacts List */}
       <div className="space-y-2">
         {contacts.map((contact) => (
-          <Card 
-            key={contact.id} 
+          <Card
+            key={contact.id}
             className="hover:shadow-md transition-shadow cursor-pointer"
             onClick={() => handleContactClick(contact)}
           >
@@ -232,7 +284,7 @@ export default function OptimizedContactsList({
                     {contact.firstName?.[0]}{contact.lastName?.[0]}
                   </AvatarFallback>
                 </Avatar>
-                
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold truncate">
@@ -253,7 +305,7 @@ export default function OptimizedContactsList({
                       </div>
                     )}
                   </div>
-                  
+
                   <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
                     {contact.phone && (
                       <div className="flex items-center gap-1">
@@ -284,8 +336,8 @@ export default function OptimizedContactsList({
       {/* Load More Button */}
       {pagination && pagination.hasMore && (
         <div className="text-center py-4">
-          <Button 
-            onClick={loadMore} 
+          <Button
+            onClick={loadMore}
             disabled={loadingMore}
             variant="outline"
           >

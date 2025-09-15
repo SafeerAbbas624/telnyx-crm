@@ -66,7 +66,7 @@ const ContactItem = ({ index, style, data }: ContactItemProps) => {
 
   return (
     <div style={style} className="p-1">
-      <Card 
+      <Card
         className="hover:shadow-md transition-shadow cursor-pointer"
         onClick={handleContactClick}
       >
@@ -83,13 +83,13 @@ const ContactItem = ({ index, style, data }: ContactItemProps) => {
                 className="rounded"
               />
             )}
-            
+
             <Avatar className="h-10 w-10">
               <AvatarFallback className="text-sm">
                 {contact.firstName?.[0]}{contact.lastName?.[0]}
               </AvatarFallback>
             </Avatar>
-            
+
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold truncate text-sm">
@@ -110,7 +110,7 @@ const ContactItem = ({ index, style, data }: ContactItemProps) => {
                   </div>
                 )}
               </div>
-              
+
               <div className="flex items-center gap-3 mt-1 text-xs text-gray-600">
                 {contact.phone && (
                   <div className="flex items-center gap-1">
@@ -165,10 +165,15 @@ export default function VirtualContactsList({
   const [currentPage, setCurrentPage] = useState(1)
 
   const listRef = useRef<any>(null)
-  const debouncedSearch = useDebounce(searchQuery, 300)
+  const debouncedSearch = useDebounce(searchQuery, 150)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const lastRemoteContactsRef = useRef<Contact[]>([])
+  const cacheRef = useRef<Map<string, any>>(new Map())
+  const [isSearching, setIsSearching] = useState(false)
 
   const loadContacts = useCallback(async (page = 1, append = false) => {
     try {
+      setIsSearching(true)
       if (page === 1) {
         setLoading(true)
         setError(null)
@@ -186,34 +191,78 @@ export default function VirtualContactsList({
         ...(cityFilter && { city: cityFilter }),
         ...(stateFilter && { state: stateFilter }),
         ...(minValueFilter && { minValue: minValueFilter }),
-        ...(maxValueFilter && { maxValue: maxValueFilter }),
+        ...(maxValueFilter && { maxValueFilter: maxValueFilter }),
       })
 
-      const response = await fetch(`/api/contacts?${params}`)
+      const cacheKey = params.toString()
+      const cached = cacheRef.current.get(cacheKey)
+      if (cached && page === 1 && !append) {
+        setContacts(cached.contacts || [])
+        setPagination(cached.pagination)
+        setHasMore(cached.pagination?.hasMore || false)
+      }
+
+      // Abort any in-flight request before starting a new one
+      if (fetchAbortRef.current) {
+        try { fetchAbortRef.current.abort() } catch {}
+      }
+      const controller = new AbortController()
+      fetchAbortRef.current = controller
+
+      const response = await fetch(`/api/contacts?${params}`,{ signal: controller.signal })
       if (!response.ok) {
         throw new Error('Failed to fetch contacts')
       }
 
       const data = await response.json()
-      
+      // Ignore if this request was aborted in the meantime
+      if (controller.signal.aborted) return
+
+      lastRemoteContactsRef.current = data.contacts || []
+
       if (append && page > 1) {
         setContacts(prev => [...prev, ...(data.contacts || [])])
       } else {
         setContacts(data.contacts || [])
         setCurrentPage(1)
       }
-      
+
       setPagination(data.pagination)
       setHasMore(data.pagination?.hasMore || false)
       setCurrentPage(page)
+
+      cacheRef.current.set(cacheKey, { contacts: data.contacts || [], pagination: data.pagination })
     } catch (err) {
       console.error('Error loading contacts:', err)
       setError(err instanceof Error ? err.message : 'Failed to load contacts')
     } finally {
       setLoading(false)
       setLoadingMore(false)
+      setIsSearching(false)
     }
+
   }, [debouncedSearch, dealStatusFilter, propertyTypeFilter, cityFilter, stateFilter, minValueFilter, maxValueFilter])
+
+  // Progressive client-side filtering for instant feedback
+  useEffect(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) {
+      if (lastRemoteContactsRef.current.length) {
+        setContacts(lastRemoteContactsRef.current)
+      }
+      return
+    }
+    const base = lastRemoteContactsRef.current.length ? lastRemoteContactsRef.current : contacts
+    const quick = base.filter((c: any) => {
+      const name = `${c.firstName || ''} ${c.lastName || ''}`.toLowerCase()
+      return (
+        name.includes(q) ||
+        (c.phone1 || '').toLowerCase().includes(q) ||
+        (c.propertyAddress || '').toLowerCase().includes(q)
+      )
+    })
+    setContacts(quick)
+  }, [searchQuery])
 
   // Load contacts when filters change
   useEffect(() => {
@@ -225,7 +274,7 @@ export default function VirtualContactsList({
     if (scrollUpdateWasRequested) return
 
     const scrollPercentage = scrollOffset / (scrollHeight - clientHeight)
-    
+
     // Load more when 80% scrolled and not already loading
     if (scrollPercentage > 0.8 && hasMore && !loadingMore && !loading) {
       loadContacts(currentPage + 1, true)
@@ -259,6 +308,8 @@ export default function VirtualContactsList({
             <div key={i} className="h-20 bg-gray-200 animate-pulse rounded" />
           ))}
         </div>
+            {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
+
       </div>
     )
   }
@@ -287,6 +338,8 @@ export default function VirtualContactsList({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
             />
+            {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
+
           </div>
           <Button
             variant="outline"
@@ -297,7 +350,7 @@ export default function VirtualContactsList({
             Filters
           </Button>
         </div>
-        
+
         {showFilters && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 p-4 bg-gray-50 rounded-lg">
             <Select value={dealStatusFilter} onValueChange={setDealStatusFilter}>
