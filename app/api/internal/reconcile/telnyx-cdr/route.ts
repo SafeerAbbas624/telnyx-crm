@@ -6,7 +6,7 @@ import { prisma } from '@/lib/db'
 //
 // Usage:
 // - GET  /api/internal/reconcile/telnyx-cdr -> health/status
-// - POST /api/internal/reconcile/telnyx-cdr -> process up to N pending jobs
+// - POST /api/internal/reconcile/telnyx-cdr[?force=1] -> process up to N pending jobs (force ignores nextRunAt)
 //
 // Configure env:
 // - TELNYX_API_KEY=<secret>
@@ -18,8 +18,18 @@ const TELNYX_API_BASE = 'https://api.telnyx.com/v2'
 const MAX_JOBS_PER_RUN = 10
 
 export async function GET() {
-  const pending = await prisma.telnyxCdrReconcileJob?.count({ where: { status: 'pending' } })
-  return NextResponse.json({ ok: true, pending: pending ?? 0, ts: new Date().toISOString() })
+  const counts = await prisma.$transaction([
+    prisma.telnyxCdrReconcileJob.count({ where: { status: 'pending' } }),
+    prisma.telnyxCdrReconcileJob.count({ where: { status: 'running' } }),
+    prisma.telnyxCdrReconcileJob.count({ where: { status: 'failed' } }),
+  ])
+  return NextResponse.json({
+    ok: true,
+    pending: counts[0],
+    running: counts[1],
+    failed: counts[2],
+    ts: new Date().toISOString(),
+  })
 }
 
 export async function POST(request: NextRequest) {
@@ -29,10 +39,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing TELNYX_API_KEY' }, { status: 500 })
     }
 
-    // fetch due jobs
+    const url = new URL(request.url)
+    const force = !!(url.searchParams.get('force') || '')
+
+    // fetch due jobs (or all pending if force)
     const now = new Date()
+    const where = force
+      ? { status: 'pending' as const }
+      : { status: 'pending' as const, nextRunAt: { lte: now } }
+
     const jobs = await prisma.telnyxCdrReconcileJob.findMany({
-      where: { status: 'pending', nextRunAt: { lte: now } },
+      where,
       orderBy: { nextRunAt: 'asc' },
       take: MAX_JOBS_PER_RUN,
     })
