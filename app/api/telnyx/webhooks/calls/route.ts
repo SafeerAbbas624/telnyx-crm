@@ -82,7 +82,7 @@ export async function HEAD() {
   return new NextResponse(null, { status: 204 })
 }
 
-}
+
 
 async function handleCallInitiated(data: any) {
   try {
