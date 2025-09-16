@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
+// Healthcheck endpoints so Telnyx can validate the webhook URL when toggling features like call cost
+export async function GET() {
+  return NextResponse.json({ ok: true, service: 'telnyx-calls-webhook', ts: new Date().toISOString() })
+}
+
+export async function HEAD() {
+  return new NextResponse(null, { status: 204 })
+}
+
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -73,14 +83,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-// Healthcheck endpoints so Telnyx can validate the webhook URL when toggling features like call cost
-export async function GET() {
-  return NextResponse.json({ ok: true, service: 'telnyx-calls-webhook', ts: new Date().toISOString() })
 }
 
-export async function HEAD() {
-  return new NextResponse(null, { status: 204 })
-}
+
 
 
 
