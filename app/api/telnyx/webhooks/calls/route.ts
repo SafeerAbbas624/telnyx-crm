@@ -166,21 +166,32 @@ async function handleCallHangup(data: any) {
   try {
     if (!prisma.telnyxCall) return;
 
-    // Prefer Telnyx-provided values; fall back to computing from timestamps
+    // Prefer session time (start_time -> end_time). Fall back to answered/created when needed.
     const endStr = data?.end_time || data?.occurred_at
     const endedAt = endStr ? new Date(endStr) : new Date()
 
-    let duration = (typeof data?.call_duration_secs === 'number') ? data.call_duration_secs : 0
+    let duration = 0
 
-    // If Telnyx didn't provide duration, compute from answered/start to end
+    // 1) Session time if both timestamps present in webhook payload
+    const sessionStartStr = data?.start_time
+    if (sessionStartStr && endedAt) {
+      const sessionStart = new Date(sessionStartStr)
+      duration = Math.max(0, Math.round((endedAt.getTime() - sessionStart.getTime()) / 1000))
+    }
+
+    // 2) Fallbacks
     if (!duration || duration <= 0) {
       const call = await prisma.telnyxCall.findFirst({ where: { telnyxCallId: data.call_control_id } })
-      const startStr = call?.answeredAt?.toISOString() || data?.start_time || call?.createdAt?.toISOString()
-      if (startStr && endedAt) {
-        const start = new Date(startStr)
-        const seconds = Math.max(0, Math.round((endedAt.getTime() - start.getTime()) / 1000))
-        duration = seconds
+      const fallbackStartStr = call?.createdAt?.toISOString() || call?.answeredAt?.toISOString() || data?.start_time
+      if (fallbackStartStr && endedAt) {
+        const start = new Date(fallbackStartStr)
+        duration = Math.max(0, Math.round((endedAt.getTime() - start.getTime()) / 1000))
       }
+    }
+
+    // 3) As a last resort, if Telnyx provided talk time seconds, keep that to avoid 0
+    if ((!duration || duration <= 0) && (typeof data?.call_duration_secs === 'number')) {
+      duration = data.call_duration_secs
     }
 
     console.log('[TELNYX WEBHOOK][CALL] -> hangup', {
