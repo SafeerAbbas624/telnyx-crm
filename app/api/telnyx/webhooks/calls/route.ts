@@ -95,13 +95,15 @@ async function handleCallInitiated(data: any) {
 
     console.log('[TELNYX WEBHOOK][CALL] -> initiated', { callControlId: data.call_control_id })
 
+    const updateInitiated: any = {
+      status: 'initiated',
+      webhookData: data,
+      updatedAt: new Date(),
+      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+    }
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
-      data: {
-        status: 'initiated',
-        webhookData: data,
-        updatedAt: new Date(),
-      },
+      data: updateInitiated,
     });
   } catch (error) {
     console.error('Error handling call initiated:', error);
@@ -111,13 +113,15 @@ async function handleCallInitiated(data: any) {
 async function handleCallRinging(data: any) {
   try {
     console.log('[TELNYX WEBHOOK][CALL] -> ringing', { callControlId: data.call_control_id })
+    const updateRinging: any = {
+      status: 'ringing',
+      webhookData: data,
+      updatedAt: new Date(),
+      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+    }
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
-      data: {
-        status: 'ringing',
-        webhookData: data,
-        updatedAt: new Date(),
-      },
+      data: updateRinging,
     });
   } catch (error) {
     console.error('Error handling call ringing:', error);
@@ -132,14 +136,16 @@ async function handleCallAnswered(data: any) {
     const answeredAtStr = data?.occurred_at || data?.answered_at || data?.start_time
     const answeredAt = answeredAtStr ? new Date(answeredAtStr) : new Date()
 
+    const updateAnswered: any = {
+      status: 'answered',
+      answeredAt,
+      webhookData: data,
+      updatedAt: new Date(),
+      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+    }
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
-      data: {
-        status: 'answered',
-        answeredAt,
-        webhookData: data,
-        updatedAt: new Date(),
-      },
+      data: updateAnswered,
     });
   } catch (error) {
     console.error('Error handling call answered:', error);
@@ -149,13 +155,15 @@ async function handleCallAnswered(data: any) {
 async function handleCallBridged(data: any) {
   try {
     console.log('[TELNYX WEBHOOK][CALL] -> bridged', { callControlId: data.call_control_id })
+    const updateBridged: any = {
+      status: 'bridged',
+      webhookData: data,
+      updatedAt: new Date(),
+      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+    }
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
-      data: {
-        status: 'bridged',
-        webhookData: data,
-        updatedAt: new Date(),
-      },
+      data: updateBridged,
     });
   } catch (error) {
     console.error('Error handling call bridged:', error);
@@ -200,17 +208,41 @@ async function handleCallHangup(data: any) {
       cause: data.hangup_cause,
     })
 
+    const updateHangup: any = {
+      status: 'hangup',
+      duration,
+      endedAt,
+      hangupCause: data.hangup_cause,
+      webhookData: data,
+      updatedAt: new Date(),
+      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+    }
     await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
-      data: {
-        status: 'hangup',
-        duration,
-        endedAt,
-        hangupCause: data.hangup_cause,
-        webhookData: data,
-        updatedAt: new Date(),
-      },
+      data: updateHangup,
     });
+
+    // Enqueue CDR reconciliation (retry will handle delayed CDR availability)
+    try {
+      // schedule for ~30 seconds later
+      const nextRun = new Date(Date.now() + 30_000)
+      // Avoid duplicate jobs for the same call by allowing multiple but processor will be idempotent,
+      // or we could upsert if you prefer.
+      // Here we just create a new pending job.
+      // @ts-ignore - type available after prisma generate
+      await prisma.telnyxCdrReconcileJob?.create({
+        data: {
+          telnyxCallId: data.call_control_id,
+          telnyxSessionId: data.call_session_id ?? null,
+          status: 'pending',
+          attempts: 0,
+          nextRunAt: nextRun,
+        },
+      })
+    } catch (e) {
+      console.error('Failed to enqueue Telnyx CDR reconcile job', e)
+    }
+
 
     // Update billing if cost is available
     if (data.cost && data.cost.amount && prisma.telnyxBilling) {

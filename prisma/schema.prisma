@@ -506,6 +506,7 @@ model TelnyxMessage {
 model TelnyxCall {
   id                String         @id @default(uuid()) @db.Uuid
   telnyxCallId      String?        @unique @map("telnyx_call_id")
+  telnyxSessionId   String?        @unique @map("telnyx_session_id")
   contactId         String         @map("contact_id") @db.Uuid
   initiatedBy       String?        @map("initiated_by") @db.Uuid
   fromNumber        String         @map("from_number")
@@ -525,6 +526,7 @@ model TelnyxCall {
   // Relations
   initiatedByUser   User?          @relation("UserCalls", fields: [initiatedBy], references: [id], onDelete: SetNull)
 
+  @@index([telnyxSessionId])
   @@index([contactId, createdAt(sort: Desc)], name: "idx_telnyx_calls_contact_created")
   @@index([fromNumber], name: "idx_telnyx_calls_from")
   @@index([toNumber], name: "idx_telnyx_calls_to")
@@ -545,6 +547,30 @@ model TelnyxBilling {
   createdAt         DateTime @default(now()) @map("created_at")
 
   @@map("telnyx_billing")
+}
+
+model TelnyxCdrReconcileJob {
+  id              String             @id @default(uuid()) @db.Uuid
+  telnyxCallId    String?            @map("telnyx_call_id")
+  telnyxSessionId String?            @map("telnyx_session_id")
+  status          ReconcileStatus    @default(pending)
+  attempts        Int                @default(0)
+  nextRunAt       DateTime           @db.Timestamptz(6)
+  lastError       String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([status, nextRunAt])
+  @@index([telnyxSessionId])
+  @@index([telnyxCallId])
+  @@map("telnyx_cdr_reconcile_jobs")
+}
+
+enum ReconcileStatus {
+  pending
+  running
+  completed
+  failed
 }
 
 model TextBlast {
