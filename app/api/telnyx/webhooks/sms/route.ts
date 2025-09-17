@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { formatPhoneNumberForTelnyx } from '@/lib/phone-utils';
+import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
 import { broadcast } from '@/lib/server-events';
 import crypto from 'crypto'
 
@@ -225,8 +225,7 @@ async function handleMessageReceived(data: any) {
 
     // Normalize numbers
     const fromFormatted = formatPhoneNumberForTelnyx(fromRaw) || fromRaw
-    const fromDigits = (fromRaw || '').replace(/\D/g, '')
-    const last10 = fromDigits.length >= 10 ? fromDigits.slice(-10) : fromDigits
+    const last10 = last10Digits(fromRaw)
 
     // Robust contact lookup: try exacts and last-10 match
     const orClauses: any[] = []
@@ -243,6 +242,25 @@ async function handleMessageReceived(data: any) {
     }
 
     let contact = await prisma.contact.findFirst({ where: { OR: orClauses } })
+
+    // Fallback: DB-side digits-only comparison to avoid bidi/formatting mismatches
+    if (!contact && last10 && prisma.$queryRaw) {
+      try {
+        const rows: Array<{ id: string }> = await prisma.$queryRaw`
+          SELECT id
+          FROM contacts
+          WHERE regexp_replace(COALESCE(phone1, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+             OR regexp_replace(COALESCE(phone2, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+             OR regexp_replace(COALESCE(phone3, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+          LIMIT 1
+        `
+        if (rows && rows.length > 0) {
+          contact = await prisma.contact.findUnique({ where: { id: rows[0].id } })
+        }
+      } catch (e) {
+        console.warn('Digits-only fallback lookup failed:', e)
+      }
+    }
 
     // Auto-create contact for unknown inbound
     let createdNewContact = false

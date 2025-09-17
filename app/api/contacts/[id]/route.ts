@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
+import { formatPhoneNumberForTelnyx } from '@/lib/phone-utils';
 
 interface ContactUpdateData {
   firstName?: string;
@@ -173,9 +174,9 @@ export async function PATCH(
     if (body.firstName !== undefined) updateData.firstName = body.firstName;
     if (body.lastName !== undefined) updateData.lastName = body.lastName;
     if (body.llcName !== undefined) updateData.llcName = body.llcName;
-    if (body.phone1 !== undefined) updateData.phone1 = body.phone1;
-    if (body.phone2 !== undefined) updateData.phone2 = body.phone2;
-    if (body.phone3 !== undefined) updateData.phone3 = body.phone3;
+    if (body.phone1 !== undefined) updateData.phone1 = formatPhoneNumberForTelnyx(body.phone1 || '') || null;
+    if (body.phone2 !== undefined) updateData.phone2 = formatPhoneNumberForTelnyx(body.phone2 || '') || null;
+    if (body.phone3 !== undefined) updateData.phone3 = formatPhoneNumberForTelnyx(body.phone3 || '') || null;
     if (body.email1 !== undefined) updateData.email1 = body.email1;
     if (body.email2 !== undefined) updateData.email2 = body.email2;
     if (body.email3 !== undefined) updateData.email3 = body.email3;

@@ -4,6 +4,7 @@ import { parse } from 'csv-parse/sync';
 import { v4 as uuidv4 } from 'uuid';
 import type { Contact, ImportHistory, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
 
 interface CsvRecord {
   [key: string]: string | undefined;
@@ -48,22 +49,38 @@ function splitFullName(fullName: string | undefined): { firstName: string; lastN
   return { firstName, lastName };
 }
 
-// Check if a contact already exists in the database
-// Modified logic: Check name + phone, if exists and property address is different, add property to same contact
-async function findExistingContact(phone: string, firstName: string, lastName: string, propertyAddress?: string) {
-  if (!phone) return null;
+// Check if a contact already exists in the database by phone (normalized)
+async function findExistingContactByPhone(phone: string) {
+  const normalized = formatPhoneNumberForTelnyx(phone || '')
+  const last10 = last10Digits(phone)
 
-  const existingContact = await prisma.contact.findFirst({
-    where: {
-      phone1: phone.trim(),
-      firstName: { equals: firstName?.trim(), mode: 'insensitive' },
-      lastName: { equals: lastName?.trim(), mode: 'insensitive' },
-    },
-  });
+  // Try exact match across phone1..3
+  if (normalized) {
+    const byExact = await prisma.contact.findFirst({
+      where: { OR: [{ phone1: normalized }, { phone2: normalized }, { phone3: normalized }] }
+    })
+    if (byExact) return byExact
+  }
 
-  // If contact exists and property address is different, we'll update the existing contact
-  // This allows one person to have multiple properties
-  return existingContact;
+  // Fallback: DB-side digits-only ends-with (handles messy stored formats)
+  if (last10 && prisma.$queryRaw) {
+    try {
+      const rows: Array<{ id: string }> = await prisma.$queryRaw`
+        SELECT id FROM contacts
+        WHERE regexp_replace(COALESCE(phone1, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+           OR regexp_replace(COALESCE(phone2, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+           OR regexp_replace(COALESCE(phone3, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+        LIMIT 1`
+      if (rows && rows.length > 0) {
+        const found = await prisma.contact.findUnique({ where: { id: rows[0].id } })
+        if (found) return found
+      }
+    } catch (e) {
+      console.warn('Digits-only import lookup failed:', e)
+    }
+  }
+
+  return null
 }
 
 export async function POST(request: Request) {
@@ -131,7 +148,13 @@ export async function POST(request: Request) {
       
       try {
                 const { firstName, lastName } = splitFullName(record[invertedMapping.fullName]);
-        const phone1 = record[invertedMapping.phone1] || '';
+        const rawPhone1 = record[invertedMapping.phone1] || '';
+        const rawPhone2 = record[invertedMapping.phone2] || '';
+        const rawPhone3 = record[invertedMapping.phone3] || '';
+
+        const phone1 = formatPhoneNumberForTelnyx(rawPhone1) || '';
+        const phone2 = formatPhoneNumberForTelnyx(rawPhone2) || null;
+        const phone3 = formatPhoneNumberForTelnyx(rawPhone3) || null;
 
         if (!phone1) {
           result.missingPhoneCount++;
@@ -140,7 +163,7 @@ export async function POST(request: Request) {
         }
 
         const propertyAddress = record[invertedMapping.propertyStreet] || record[invertedMapping.propertyAddress] || null;
-        const existingContact = await findExistingContact(phone1, firstName, lastName, propertyAddress);
+        const existingContact = await findExistingContactByPhone(phone1);
 
         if (existingContact) {
           // Check if property address is different
@@ -191,8 +214,8 @@ export async function POST(request: Request) {
             firstName,
             lastName,
             phone1,
-            phone2: record[invertedMapping.phone2] || null,
-            phone3: record[invertedMapping.phone3] || null,
+            phone2,
+            phone3,
             email1: record[invertedMapping.email1] || null,
             email2: record[invertedMapping.email2] || null,
             email3: record[invertedMapping.email3] || null,

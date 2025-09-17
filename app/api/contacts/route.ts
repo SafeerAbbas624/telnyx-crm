@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { redisClient } from '@/lib/cache/redis-client';
 import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
+import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
 
 interface Contact {
   id: string;
@@ -392,13 +393,38 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
+    // Normalize phone numbers to E.164
+    const phone1 = formatPhoneNumberForTelnyx(body.phone1 || '') || null
+    const phone2 = formatPhoneNumberForTelnyx(body.phone2 || '') || null
+    const phone3 = formatPhoneNumberForTelnyx(body.phone3 || '') || null
+
+    // De-dup by phone: if any provided phone matches an existing contact (digits-only ends-with), update it instead of creating new
+    const candidatesLast10 = [phone1, phone2, phone3].map(p => last10Digits(p || '')).filter(Boolean) as string[]
+    let existing: any = null
+    if (candidatesLast10.length > 0 && prisma.$queryRaw) {
+      try {
+        const last10 = candidatesLast10[0] // prioritize primary
+        const rows: Array<{ id: string }> = await prisma.$queryRaw`
+          SELECT id FROM contacts
+          WHERE regexp_replace(COALESCE(phone1, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+             OR regexp_replace(COALESCE(phone2, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+             OR regexp_replace(COALESCE(phone3, ''), '\\D', '', 'g') LIKE ${'%' + last10}
+          LIMIT 1`
+        if (rows && rows.length > 0) {
+          existing = await prisma.contact.findUnique({ where: { id: rows[0].id } })
+        }
+      } catch (e) {
+        console.warn('Digits-only POST /contacts lookup failed:', e)
+      }
+    }
+
     const contactData = {
       firstName: body.firstName || null,
       lastName: body.lastName || null,
       llcName: body.llcName || null,
-      phone1: body.phone1 || null,
-      phone2: body.phone2 || null,
-      phone3: body.phone3 || null,
+      phone1,
+      phone2,
+      phone3,
       email1: body.email1 || null,
       email2: body.email2 || null,
       email3: body.email3 || null,
@@ -420,22 +446,9 @@ export async function POST(request: NextRequest) {
       avatarUrl: body.avatarUrl || null,
     };
 
-    const newContact = await prisma.contact.create({
-      data: contactData,
-      include: {
-        contact_tags: {
-          include: {
-            tag: {
-              select: {
-                id: true,
-                name: true,
-                color: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const newContact = existing
+      ? await prisma.contact.update({ where: { id: existing.id }, data: contactData, include: { contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } } } })
+      : await prisma.contact.create({ data: contactData, include: { contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } } } })
 
     // Transform the data to match the expected frontend format
     const formattedContact = {
