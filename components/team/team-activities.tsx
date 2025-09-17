@@ -12,18 +12,20 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { 
-  Plus, 
-  Calendar, 
-  Clock, 
-  CheckCircle, 
-  User, 
-  Phone, 
-  Mail, 
+import {
+  Plus,
+  Calendar,
+  Clock,
+  CheckCircle,
+  User,
+  Phone,
+  Mail,
   MessageSquare,
   Edit,
   Trash2
 } from "lucide-react"
+import ContactName from "@/components/contacts/contact-name"
+
 import { format, isPast, isToday, isBefore, addDays, addMonths } from "date-fns"
 
 interface Activity {
@@ -632,63 +634,89 @@ export default function TeamActivities() {
             filteredActivities.map((activity) => {
               const ActivityIcon = getActivityIcon(activity.type)
               return (
-                <Card key={activity.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => handleActivityClick(activity)}>
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-4">
-                        <div className={`p-2 rounded-lg bg-gray-100`}>
-                          <ActivityIcon className={`h-5 w-5 ${getActivityColor(activity.type)}`} />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h3 className="font-medium">{activity.title}</h3>
-                            <Badge variant={getPriorityColor(activity.priority)}>
-                              {activity.priority}
-                            </Badge>
-                            <Badge variant={activity.status === 'completed' ? 'default' : 'secondary'}>
-                              {activity.status}
-                            </Badge>
+                <div key={activity.id} className="border rounded-lg hover:bg-gray-50 transition-colors">
+                  {/* Contact Information - Top Section */}
+                  {activity.contact && (
+                    <div className="p-3 bg-gray-50 border-b">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-shrink-0">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                                {activity.contact.firstName?.[0] || ''}{activity.contact.lastName?.[0] || ''}
+                              </AvatarFallback>
+                            </Avatar>
                           </div>
-                          {activity.description && (
-                            <p className="text-sm text-muted-foreground mb-2">
-                              {activity.description}
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              <ContactName contact={{...activity.contact} as any} clickMode="popup" stopPropagation />
                             </p>
-                          )}
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {activity.contact.firstName} {activity.contact.lastName}
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              {activity.contact.phone1 && (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="h-3 w-3" />
+                                  {activity.contact.phone1}
+                                </span>
+                              )}
                             </div>
-                            {activity.dueDate && (
-                              <div className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {format(new Date(activity.dueDate), 'MMM d, h:mm a')}
-                              </div>
-                            )}
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {activity.status !== 'completed' && (
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-2">
+                          {activity.status !== 'completed' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-8 p-0"
+                              onClick={(e) => { e.stopPropagation(); handleCompleteActivity(activity.id) }}
+                              title="Mark as completed"
+                            >
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                            </Button>
+                          )}
                           <Button
-                            variant="ghost"
                             size="sm"
-                            onClick={() => handleCompleteActivity(activity.id)}
+                            variant="outline"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteActivity(activity.id) }}
+                            title="Delete task"
                           >
-                            <CheckCircle className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 text-red-600" />
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteActivity(activity.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        </div>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  )}
+
+                  {/* Task Details - Bottom Section */}
+                  <div className="p-4 cursor-pointer" onClick={() => handleActivityClick(activity)}>
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0 mt-1">
+                        <ActivityIcon className={`h-4 w-4 ${getActivityColor(activity.type)}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900">{activity.title}</p>
+                        {activity.description && (
+                          <p className="text-sm text-gray-500 mt-1">{activity.description}</p>
+                        )}
+
+                        <div className="flex items-center gap-2 mt-2">
+                          <Badge
+                            variant={activity.status === 'completed' ? 'default' : 'secondary'}
+                            className="text-xs"
+                          >
+                            {activity.status}
+                          </Badge>
+                          {activity.dueDate && (
+                            <span className="text-xs text-gray-400">
+                              📅 {format(new Date(activity.dueDate), 'MMM d, yyyy h:mm a')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )
             })
           )}

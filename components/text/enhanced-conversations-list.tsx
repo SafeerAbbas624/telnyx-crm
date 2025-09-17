@@ -9,9 +9,13 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Search, Plus, MessageCircle, Phone } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { formatDistanceToNow } from "date-fns"
+import { useToast } from "@/hooks/use-toast"
+import { useNotifications } from "@/lib/context/notifications-context"
 import { useContacts } from "@/lib/context/contacts-context"
 import NewTextMessageModal from "./new-text-message-modal"
 import type { Contact } from "@/lib/types"
+import ContactName from "@/components/contacts/contact-name"
+
 
 interface ConversationData {
   id: string
@@ -60,6 +64,8 @@ export default function EnhancedConversationsList({
   const fetchAbortRef = useRef<AbortController | null>(null)
   const cacheRef = useRef<Map<string, any>>(new Map())
   const [isSearching, setIsSearching] = useState(false)
+  const { toast } = useToast()
+  const { add: addNotification } = useNotifications()
 
   // Load conversations with live search
   useEffect(() => {
@@ -74,6 +80,86 @@ export default function EnhancedConversationsList({
     return () => clearInterval(interval)
   }, [debouncedSearchQuery])
 
+  // Real-time updates via SSE
+  useEffect(() => {
+    const es = new EventSource('/api/events')
+
+    const onInboundSms = (evt: MessageEvent) => {
+      try {
+        const msg = JSON.parse(evt.data || '{}')
+        const name = msg?.contactName || 'Unknown'
+        const preview = (msg?.text || '').toString().slice(0, 60)
+        const contactId: string | undefined = msg?.contactId
+        const globalActive = (typeof window !== 'undefined' && (window as any).__GLOBAL_SSE_ACTIVE)
+        if (!globalActive) {
+          addNotification({ kind: 'sms', contactId, contactName: name, preview })
+          toast({
+            title: `New message from ${name}`,
+            description: preview || 'New SMS received',
+            className: 'cursor-pointer',
+            onClick: () => {
+              if (contactId) {
+                try {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  url.searchParams.set('section', 'messaging')
+                  url.searchParams.set('contactId', contactId)
+                  window.location.assign(url.toString())
+                } catch {}
+              }
+            }
+          })
+        }
+      } catch {}
+      loadConversations()
+    }
+
+    const onInboundEmail = (evt: MessageEvent) => {
+      try {
+        const em = JSON.parse(evt.data || '{}')
+        const name = em?.contactName || em?.fromEmail || 'Unknown'
+        const preview = (em?.subject || em?.preview || '').toString().slice(0, 80)
+        const contactId: string | undefined = em?.contactId
+        const globalActive = (typeof window !== 'undefined' && (window as any).__GLOBAL_SSE_ACTIVE)
+        if (!globalActive) {
+          addNotification({ kind: 'email', contactId, contactName: name, preview, fromEmail: em?.fromEmail })
+          toast({
+            title: `New email from ${name}`,
+            description: preview || 'New email received',
+            className: 'cursor-pointer',
+            onClick: () => {
+              if (contactId) {
+                try {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  url.searchParams.set('section', 'email')
+                  url.searchParams.set('contactId', contactId)
+                  window.location.assign(url.toString())
+                } catch {}
+              }
+            }
+          })
+        }
+      } catch {}
+      // Optionally fetch email conversations list elsewhere
+    }
+
+    const onConvUpdate = () => loadConversations()
+
+    es.addEventListener('inbound_sms', onInboundSms as any)
+    es.addEventListener('conversation_updated', onConvUpdate as any)
+    es.addEventListener('inbound_email', onInboundEmail as any)
+
+    es.onerror = () => { /* auto-reconnect by browser */ }
+
+    return () => {
+      es.removeEventListener('inbound_sms', onInboundSms as any)
+      es.removeEventListener('conversation_updated', onConvUpdate as any)
+      es.removeEventListener('inbound_email', onInboundEmail as any)
+      es.close()
+    }
+  }, [])
+
   const loadConversations = async () => { setIsSearching(true)
     setIsLoading(true)
     try {
@@ -81,7 +167,7 @@ export default function EnhancedConversationsList({
       if (debouncedSearchQuery.trim()) {
         params.set('search', debouncedSearchQuery.trim())
       }
-      
+
       if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
       const controller = new AbortController()
       fetchAbortRef.current = controller
@@ -186,11 +272,11 @@ export default function EnhancedConversationsList({
       // Unread conversations first
       if (a.hasUnread && !b.hasUnread) return -1
       if (!a.hasUnread && b.hasUnread) return 1
-      
+
       // Then by most recent message
       const aTime = a.lastMessage?.createdAt || a.last_message_at || ""
       const bTime = b.lastMessage?.createdAt || b.last_message_at || ""
-      
+
       return new Date(bTime).getTime() - new Date(aTime).getTime()
     })
   }, [conversations])
@@ -219,7 +305,7 @@ export default function EnhancedConversationsList({
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-        
+
         {isLoading && (
           <div className="text-sm text-muted-foreground">Searching...</div>
         )}
@@ -230,7 +316,7 @@ export default function EnhancedConversationsList({
           {sortedConversations.map((conversation) => {
             const preview = getMessagePreview(conversation)
             const isSelected = selectedContactId === conversation.contact.id
-            
+
             return (
               <div
                 key={conversation.id}
@@ -264,10 +350,8 @@ export default function EnhancedConversationsList({
                   <div className="flex-1 min-w-0 overflow-hidden">
                     {/* Header row with name and time */}
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className={`font-medium truncate pr-2 ${
-                        conversation.hasUnread ? "font-semibold" : ""
-                      }`}>
-                        {conversation.contact.firstName} {conversation.contact.lastName}
+                      <h3 className={`font-medium truncate pr-2 ${conversation.hasUnread ? "font-semibold" : ""}`}>
+                        <ContactName contact={{...conversation.contact} as any} clickMode="popup" />
                       </h3>
                       <div className="flex-shrink-0">
                         {preview.time && (
@@ -324,14 +408,14 @@ export default function EnhancedConversationsList({
               </div>
             )
           })}
-          
+
           {sortedConversations.length === 0 && !isLoading && (
             <div className="p-8 text-center text-muted-foreground">
               <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p className="font-medium mb-2">No conversations found</p>
               <p className="text-sm">
-                {searchQuery.trim() 
-                  ? "Try adjusting your search terms" 
+                {searchQuery.trim()
+                  ? "Try adjusting your search terms"
                   : "Start a conversation by sending a message"
                 }
               </p>

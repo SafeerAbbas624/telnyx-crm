@@ -17,7 +17,9 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  LogOut
+  LogOut,
+  Bell,
+  Mail as MailIcon
 } from "lucide-react"
 import TeamActivities from "./team-activities"
 import TeamConversations from "./team-conversations"
@@ -25,6 +27,8 @@ import { TeamEmailConversationsGmail } from "./team-email-conversations-gmail-ne
 import TeamCallsCenter from "./team-calls-center-new"
 import TeamContacts from "./team-contacts"
 import { useToast } from "@/hooks/use-toast"
+import { useNotifications } from "@/lib/context/notifications-context"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 interface DashboardStats {
   assignedContacts: number
@@ -40,6 +44,8 @@ interface DashboardStats {
 export default function TeamDashboard() {
   const { data: session } = useSession()
   const { toast } = useToast()
+  const { items, unreadCount, markAllRead, clear } = useNotifications()
+  const [tabValue, setTabValue] = useState<string>('activities')
   const [stats, setStats] = useState<DashboardStats>({
     assignedContacts: 0,
     totalActivities: 0,
@@ -56,6 +62,18 @@ export default function TeamDashboard() {
   useEffect(() => {
     loadDashboardStats()
     loadEmailAccounts()
+    try {
+      const desiredTab = localStorage.getItem('openTeamTab')
+      if (desiredTab === 'conversations' || desiredTab === 'emails' || desiredTab === 'calls' || desiredTab === 'contacts' || desiredTab === 'activities') {
+        setTabValue(desiredTab)
+        localStorage.removeItem('openTeamTab')
+      }
+      // If a deep-link was set without the tab key, infer it
+      if (!desiredTab) {
+        if (localStorage.getItem('openConvContactId')) setTabValue('conversations')
+        if (localStorage.getItem('openEmailContactId')) setTabValue('emails')
+      }
+    } catch {}
   }, [])
 
   const loadEmailAccounts = async () => {
@@ -193,6 +211,67 @@ export default function TeamDashboard() {
                 {session.user.assignedEmail.emailAddress}
               </Badge>
             )}
+
+            {/* Notifications bell */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="relative">
+                  <Bell className="h-5 w-5" />
+                  {unreadCount > 0 && (
+                    <Badge
+                      variant="destructive"
+                      className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+                    >
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-96">
+                <DropdownMenuLabel className="flex items-center justify-between">
+                  <span>Notifications</span>
+                  <div className="flex gap-2">
+                    <Button variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Button>
+                    <Button variant="ghost" size="sm" onClick={clear}>Clear</Button>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {items.length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground">No notifications</div>
+                ) : (
+                  items.slice(0, 10).map((n) => (
+                    <DropdownMenuItem key={n.id} className="cursor-pointer" onClick={() => {
+                      try {
+                        if (n.kind === 'sms') {
+                          if (n.contactId) localStorage.setItem('openConvContactId', n.contactId)
+                          localStorage.setItem('openTeamTab', 'conversations')
+                        } else {
+                          if (n.contactId) localStorage.setItem('openEmailContactId', n.contactId)
+                          localStorage.setItem('openTeamTab', 'emails')
+                        }
+                        window.location.assign('/team-dashboard')
+                      } catch {}
+                    }}>
+                      <div className="flex items-start gap-3 py-1">
+                        {n.kind === 'sms' ? (
+                          <MessageSquare className="h-4 w-4 mt-1 text-blue-600" />
+                        ) : (
+                          <MailIcon className="h-4 w-4 mt-1 text-emerald-600" />
+                        )}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium truncate">{n.contactName || n.fromEmail || 'Unknown'}</p>
+                            {!n.read && <Badge variant="destructive">New</Badge>}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{n.preview || ''}</p>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <Button
               variant="outline"
               size="sm"
@@ -229,7 +308,7 @@ export default function TeamDashboard() {
 
       {/* Main Content Tabs */}
       <div className="flex-1 overflow-hidden">
-        <Tabs defaultValue="activities" className="h-full flex flex-col">
+        <Tabs value={tabValue} onValueChange={setTabValue} className="h-full flex flex-col">
           <div className="px-4 pt-4 flex-shrink-0">
             <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="activities" className="flex items-center gap-2">

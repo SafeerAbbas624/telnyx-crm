@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+import ContactName from "@/components/contacts/contact-name"
+
 interface ContactsListProps {
   contacts: Contact[]
   onContactSelect: (contact: Contact) => void
@@ -115,7 +117,7 @@ const ContactCard: React.FC<{
 
       // For now, just open the phone dialer
       window.open(`tel:${phoneNumber}`, '_self')
-      
+
       // Show the activity dialog
       setCallTitle(`Call with ${contact.firstName} ${contact.lastName}`)
       setCallDescription('')
@@ -168,7 +170,7 @@ const ContactCard: React.FC<{
       setCallTitle('')
       setCallDescription('')
       setShowCallDialog(false)
-      
+
       // Refresh communications
       const comms = await getLastCommunications(contact.id)
       setCommunications(comms)
@@ -258,7 +260,7 @@ const ContactCard: React.FC<{
               <div className={`flex justify-between items-start mb-3 ${onSelectionChange ? 'ml-8' : ''}`}>
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold text-primary truncate group-hover:underline">
-                    {`${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unnamed Contact'}
+                    <ContactName contact={contact} className="truncate" clickMode="none" stopPropagation={false} />
                   </h3>
                   <div className="flex items-center gap-4 mt-1">
                     <p className="text-sm text-muted-foreground">{contact.phone1}</p>
@@ -276,7 +278,7 @@ const ContactCard: React.FC<{
             </button>
           </CardContent>
         </Card>
-        
+
         {/* Action Buttons */}
         <div className="absolute top-2 right-2 flex opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-in-out z-10">
           <Button

@@ -11,8 +11,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
+import { useNotifications } from "@/lib/context/notifications-context"
 import { Search, Send, MessageSquare, Phone, Plus } from "lucide-react"
 import SimpleAddActivityDialog from "@/components/activities/simple-add-activity-dialog"
+import ContactName from "@/components/contacts/contact-name"
+
 import { formatDistanceToNow } from "date-fns"
 
 interface Conversation {
@@ -50,12 +53,16 @@ interface Message {
 export default function TeamConversations() {
   const { data: session } = useSession()
   const { toast } = useToast()
+  const { add: addNotification } = useNotifications()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const debouncedSearch = useDebounce(searchQuery, 150)
   const fetchAbortRef = useRef<AbortController | null>(null)
+  const conversationsRef = useRef<Conversation[]>([])
+  useEffect(() => { conversationsRef.current = conversations }, [conversations])
+
   const cacheRef = useRef<Map<string, any>>(new Map())
   const [isSearching, setIsSearching] = useState(false)
   const [messageContent, setMessageContent] = useState("")
@@ -92,6 +99,101 @@ export default function TeamConversations() {
   useEffect(() => {
     if (selectedConversation) {
       loadMessages(selectedConversation.id)
+    }
+  }, [selectedConversation])
+
+  // If redirected here via toast click, auto-open the intended conversation
+  useEffect(() => {
+    const id = typeof window !== 'undefined' ? localStorage.getItem('openConvContactId') : null
+    if (!id) return
+    ;(async () => {
+      try {
+        await loadConversations()
+        const target = conversationsRef.current.find(c => c.contact.id === id)
+        if (target) setSelectedConversation(target)
+      } finally {
+        try { localStorage.removeItem('openConvContactId') } catch {}
+      }
+    })()
+  }, [])
+
+  // Real-time updates via SSE
+  useEffect(() => {
+    const es = new EventSource('/api/events')
+
+    const checkAccess = async (contactId?: string) => {
+      if (!contactId) return false
+      try {
+        const res = await fetch(`/api/contacts/${contactId}`)
+        return res.ok
+      } catch { return false }
+    }
+
+    const onInboundSms = async (evt: MessageEvent) => {
+      let msg: any = null
+      try { msg = JSON.parse(evt.data || '{}') } catch {}
+      loadConversations()
+      if (selectedConversation && msg?.contactId === selectedConversation.contact.id) {
+        loadMessages(selectedConversation.id)
+      }
+      if (await checkAccess(msg?.contactId)) {
+        const name = msg?.contactName || 'Unknown'
+        const preview = (msg?.text || '').toString().slice(0, 60)
+        const contactId: string | undefined = msg?.contactId
+        const globalActive = (typeof window !== 'undefined' && (window as any).__GLOBAL_SSE_ACTIVE)
+        if (!globalActive) {
+          addNotification({ kind: 'sms', contactId, contactName: name, preview })
+          toast({
+            title: `New message from ${name}`,
+            description: preview || 'New SMS received',
+            className: 'cursor-pointer',
+            onClick: () => {
+              if (contactId) {
+                try { localStorage.setItem('openConvContactId', contactId) } catch {}
+                try { window.location.assign('/team-dashboard') } catch {}
+              }
+            }
+          })
+        }
+      }
+    }
+
+    const onInboundEmail = async (evt: MessageEvent) => {
+      let em: any = null
+      try { em = JSON.parse(evt.data || '{}') } catch {}
+      if (await checkAccess(em?.contactId)) {
+        const name = em?.contactName || em?.fromEmail || 'Unknown'
+        const preview = (em?.subject || em?.preview || '').toString().slice(0, 80)
+        const contactId: string | undefined = em?.contactId
+        const globalActive = (typeof window !== 'undefined' && (window as any).__GLOBAL_SSE_ACTIVE)
+        if (!globalActive) {
+          addNotification({ kind: 'email', contactId, contactName: name, preview, fromEmail: em?.fromEmail })
+          toast({
+            title: `New email from ${name}`,
+            description: preview || 'New email received',
+            className: 'cursor-pointer',
+            onClick: () => {
+              if (contactId) {
+                try { localStorage.setItem('openEmailContactId', contactId) } catch {}
+                try { window.location.assign('/team-dashboard') } catch {}
+              }
+            }
+          })
+        }
+      }
+    }
+
+    const onConvUpdate = () => loadConversations()
+
+    es.addEventListener('inbound_sms', onInboundSms as any)
+    es.addEventListener('conversation_updated', onConvUpdate as any)
+    es.addEventListener('inbound_email', onInboundEmail as any)
+
+    return () => {
+      es.removeEventListener('inbound_sms', onInboundSms as any)
+      es.removeEventListener('conversation_updated', onConvUpdate as any)
+      es.removeEventListener('inbound_email', onInboundEmail as any)
+      es.close()
     }
   }, [selectedConversation])
 
@@ -280,13 +382,13 @@ export default function TeamConversations() {
             {conversations.map((conversation) => {
               const preview = getMessagePreview(conversation)
               const isSelected = selectedConversation?.id === conversation.id
-              
+
               return (
                 <div
                   key={conversation.id}
                   className={`p-4 cursor-pointer transition-colors ${
-                    isSelected 
-                      ? "bg-blue-50 border-l-3 border-blue-500" 
+                    isSelected
+                      ? "bg-blue-50 border-l-3 border-blue-500"
                       : "hover:bg-gray-50"
                   }`}
                   onClick={() => setSelectedConversation(conversation)}
@@ -307,13 +409,11 @@ export default function TeamConversations() {
                         </div>
                       )}
                     </div>
-                    
+
                     <div className="flex-1 min-w-0 overflow-hidden">
                       <div className="flex items-center justify-between mb-1">
-                        <h3 className={`font-medium truncate pr-2 ${
-                          conversation.hasUnread ? "font-semibold" : ""
-                        }`}>
-                          {conversation.contact.firstName} {conversation.contact.lastName}
+                        <h3 className={`font-medium truncate pr-2 ${conversation.hasUnread ? "font-semibold" : ""}`}>
+                          <ContactName contact={{...conversation.contact} as any} clickMode="popup" />
                         </h3>
                         {preview.time && (
                           <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -321,7 +421,7 @@ export default function TeamConversations() {
                           </span>
                         )}
                       </div>
-                      
+
                       <div className="flex items-center gap-1 mb-2">
                         <Phone className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                         <span className="text-xs text-muted-foreground truncate">
@@ -336,11 +436,11 @@ export default function TeamConversations() {
                           </>
                         )}
                       </div>
-                      
+
                       <div className="flex items-center justify-between">
                         <span className={`text-sm truncate ${
-                          conversation.hasUnread && preview.isInbound 
-                            ? "font-medium text-gray-900" 
+                          conversation.hasUnread && preview.isInbound
+                            ? "font-medium text-gray-900"
                             : "text-muted-foreground"
                         }`}>
                           {preview.isInbound ? "" : "You: "}{preview.content}
@@ -354,14 +454,14 @@ export default function TeamConversations() {
                 </div>
               )
             })}
-            
+
             {conversations.length === 0 && (
               <div className="p-8 text-center text-muted-foreground">
                 <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p className="font-medium mb-2">No conversations found</p>
                 <p className="text-sm">
-                  {searchQuery.trim() 
-                    ? "Try adjusting your search terms" 
+                  {searchQuery.trim()
+                    ? "Try adjusting your search terms"
                     : "Conversations with your assigned contacts will appear here"
                   }
                 </p>
@@ -389,7 +489,7 @@ export default function TeamConversations() {
                     </Avatar>
                     <div>
                       <h2 className="font-semibold">
-                        {selectedConversation.contact.firstName} {selectedConversation.contact.lastName}
+                        <ContactName contact={{...selectedConversation.contact} as any} clickMode="popup" />
                       </h2>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Phone className="h-3 w-3" />
@@ -430,8 +530,8 @@ export default function TeamConversations() {
                       >
                         <p className="text-sm">{message.content}</p>
                         <p className={`text-xs mt-1 ${
-                          message.direction === 'outbound' 
-                            ? 'text-primary-foreground/70' 
+                          message.direction === 'outbound'
+                            ? 'text-primary-foreground/70'
                             : 'text-gray-500'
                         }`}>
                           {formatDistanceToNow(new Date(message.timestamp), { addSuffix: true })}
@@ -439,7 +539,7 @@ export default function TeamConversations() {
                       </div>
                     </div>
                   ))}
-                  
+
                   {messages.length === 0 && (
                     <div className="text-center py-8 text-muted-foreground">
                       <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />

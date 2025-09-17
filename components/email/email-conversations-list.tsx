@@ -10,6 +10,8 @@ import { Search, Plus, Mail, AtSign } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { formatDistanceToNow } from "date-fns"
 import type { Contact } from "@/lib/types"
+import ContactName from "@/components/contacts/contact-name"
+
 
 interface EmailConversationsListProps {
   selectedContactId?: string
@@ -76,7 +78,7 @@ export default function EmailConversationsList({
       if (debouncedSearchQuery.trim()) {
         params.set('search', debouncedSearchQuery.trim())
       }
-      
+
       if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
       const controller = new AbortController()
       fetchAbortRef.current = controller
@@ -137,7 +139,7 @@ export default function EmailConversationsList({
       createdAt: conversation.last_message_at || new Date().toISOString(),
     }
 
-    const time = lastMessage.createdAt 
+    const time = lastMessage.createdAt
       ? formatDistanceToNow(new Date(lastMessage.createdAt), { addSuffix: true })
       : ''
 
@@ -154,11 +156,11 @@ export default function EmailConversationsList({
       // Unread conversations first
       if (a.hasUnread && !b.hasUnread) return -1
       if (!a.hasUnread && b.hasUnread) return 1
-      
+
       // Then by most recent message
       const aTime = a.lastMessage?.createdAt || a.last_message_at || ""
       const bTime = b.lastMessage?.createdAt || b.last_message_at || ""
-      
+
       return new Date(bTime).getTime() - new Date(aTime).getTime()
     })
   }, [conversations])
@@ -182,7 +184,7 @@ export default function EmailConversationsList({
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-        
+
         {isLoading && (
           <div className="text-sm text-muted-foreground">Searching...</div>
         )}
@@ -193,13 +195,13 @@ export default function EmailConversationsList({
           {sortedConversations.map((conversation) => {
             const preview = getMessagePreview(conversation)
             const isSelected = selectedContactId === conversation.contact.id
-            
+
             return (
               <div
                 key={conversation.id}
                 className={`p-4 cursor-pointer transition-colors ${
-                  isSelected 
-                    ? "bg-blue-50 border-l-3 border-blue-500" 
+                  isSelected
+                    ? "bg-blue-50 border-l-3 border-blue-500"
                     : "hover:bg-gray-50"
                 }`}
                 onClick={() => handleContactSelect(conversation)}
@@ -223,14 +225,12 @@ export default function EmailConversationsList({
                       <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 rounded-full border-2 border-white" />
                     )}
                   </div>
-                  
+
                   <div className="flex-1 min-w-0 overflow-hidden">
                     {/* Header row with name and time */}
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className={`font-medium truncate pr-2 ${
-                        conversation.hasUnread ? "font-semibold" : ""
-                      }`}>
-                        {conversation.contact.firstName} {conversation.contact.lastName}
+                      <h3 className={`font-medium truncate pr-2 ${conversation.hasUnread ? "font-semibold" : ""}`}>
+                        <ContactName contact={{...conversation.contact} as any} clickMode="popup" />
                       </h3>
                       <div className="flex-shrink-0">
                         {preview.time && (
@@ -240,7 +240,7 @@ export default function EmailConversationsList({
                         )}
                       </div>
                     </div>
-                    
+
                     {/* Email address row */}
                     <div className="flex items-center gap-1 mb-2">
                       <AtSign className="h-3 w-3 text-muted-foreground flex-shrink-0" />
@@ -256,7 +256,7 @@ export default function EmailConversationsList({
                         </>
                       )}
                     </div>
-                    
+
                     {/* Subject preview row */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1 flex-1 min-w-0">
@@ -268,14 +268,14 @@ export default function EmailConversationsList({
                           </div>
                         )}
                         <span className={`text-sm truncate ${
-                          conversation.hasUnread && preview.isInbound 
-                            ? "font-medium text-gray-900" 
+                          conversation.hasUnread && preview.isInbound
+                            ? "font-medium text-gray-900"
                             : "text-muted-foreground"
                         }`}>
                           {preview.subject}
                         </span>
                       </div>
-                      
+
                       <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                         <Badge variant="outline" className="text-xs">
                           {conversation.message_count}
@@ -287,14 +287,14 @@ export default function EmailConversationsList({
               </div>
             )
           })}
-          
+
           {sortedConversations.length === 0 && !isLoading && (
             <div className="p-8 text-center text-muted-foreground">
               <Mail className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p className="font-medium mb-2">No email conversations found</p>
               <p className="text-sm">
-                {searchQuery.trim() 
-                  ? "Try adjusting your search terms" 
+                {searchQuery.trim()
+                  ? "Try adjusting your search terms"
                   : "Start a conversation by sending an email"
                 }
               </p>

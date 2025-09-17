@@ -1,16 +1,17 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import React, { useEffect, useMemo, useCallback, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Search, Plus, LogOut, Phone, PhoneOff } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
+import { useNotifications } from "@/lib/context/notifications-context"
 import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
+
+import ContactName from "@/components/contacts/contact-name"
 
 interface TextConversationsListProps {
   contacts: Contact[]
@@ -31,6 +32,7 @@ export default function TextConversationsList({
   const [activeCall, setActiveCall] = useState<{ contactId: string; duration: number } | null>(null)
   const [callTimerId, setCallTimerId] = useState<NodeJS.Timeout | null>(null)
   const { toast } = useToast()
+  const { add: addNotification } = useNotifications()
   const { openCall } = useCallUI()
 
   const handleStartCall = async (contactId: string, e: React.MouseEvent) => {
@@ -92,6 +94,75 @@ export default function TextConversationsList({
     // This list UI no longer ends calls directly; actions are in the global popup.
     toast({ title: 'Open call popup', description: 'Use the call popup to end the call.' })
   }
+  // Real-time notifications via SSE (admin/global)
+  useEffect(() => {
+    const es = new EventSource('/api/events')
+    const onInboundSms = (evt: MessageEvent) => {
+      try {
+        const msg = JSON.parse(evt.data || '{}')
+        const name = msg?.contactName || 'Unknown'
+        const preview = (msg?.text || '').toString().slice(0, 60)
+        const contactId: string | undefined = msg?.contactId
+        const globalActive = (typeof window !== 'undefined' && (window as any).__GLOBAL_SSE_ACTIVE)
+        if (!globalActive) {
+          addNotification({ kind: 'sms', contactId, contactName: name, preview })
+          toast({
+            title: `New message from ${name}`,
+            description: preview || 'New SMS received',
+            className: 'cursor-pointer',
+            onClick: () => {
+              if (contactId) {
+                const contact = contacts.find(c => c.id === contactId)
+                if (contact) onSelectContact(contact)
+                try {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  url.searchParams.set('section', 'messaging')
+                  url.searchParams.set('contactId', contactId)
+                  window.location.assign(url.toString())
+                } catch {}
+              }
+            }
+          })
+        }
+      } catch {}
+    }
+    const onInboundEmail = (evt: MessageEvent) => {
+      try {
+        const em = JSON.parse(evt.data || '{}')
+        const name = em?.contactName || em?.fromEmail || 'Unknown'
+        const preview = (em?.subject || em?.preview || '').toString().slice(0, 80)
+        const contactId: string | undefined = em?.contactId
+        const globalActive = (typeof window !== 'undefined' && (window as any).__GLOBAL_SSE_ACTIVE)
+        if (!globalActive) {
+          addNotification({ kind: 'email', contactId, contactName: name, preview, fromEmail: em?.fromEmail })
+          toast({
+            title: `New email from ${name}`,
+            description: preview || 'New email received',
+            className: 'cursor-pointer',
+            onClick: () => {
+              if (contactId) {
+                try {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  url.searchParams.set('section', 'email')
+                  url.searchParams.set('contactId', contactId)
+                  window.location.assign(url.toString())
+                } catch {}
+              }
+            }
+          })
+        }
+      } catch {}
+    }
+    es.addEventListener('inbound_sms', onInboundSms as any)
+    es.addEventListener('inbound_email', onInboundEmail as any)
+    return () => {
+      es.removeEventListener('inbound_sms', onInboundSms as any)
+      es.removeEventListener('inbound_email', onInboundEmail as any)
+      es.close()
+    }
+  }, [])
 
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60)
@@ -144,7 +215,7 @@ export default function TextConversationsList({
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center">
                       <h3 className="font-medium truncate">
-                        {contact.firstName} {contact.lastName}
+                        <ContactName contact={contact} clickMode="popup" />
                       </h3>
                       <div className="flex items-center gap-1">
                         {activeCall && activeCall.contactId === contact.id ? (

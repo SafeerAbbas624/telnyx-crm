@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { formatPhoneNumberForTelnyx } from '@/lib/phone-utils';
+import { broadcast } from '@/lib/server-events';
 import crypto from 'crypto'
 
 function rawToPemEd25519PublicKey(rawBase64: string): string {
@@ -218,16 +220,58 @@ async function handleMessageDeliveryFailed(data: any) {
 
 async function handleMessageReceived(data: any) {
   try {
-    // Find contact by phone number
-    const contact = await prisma.contact.findFirst({
-      where: {
-        OR: [
-          { phone1: data.from?.phone_number || data.from },
-          { phone2: data.from?.phone_number || data.from },
-          { phone3: data.from?.phone_number || data.from },
-        ],
-      },
-    });
+    const fromRaw: string = data.from?.phone_number || data.from
+    const toRaw: string = data.to?.[0]?.phone_number || data.to
+
+    // Normalize numbers
+    const fromFormatted = formatPhoneNumberForTelnyx(fromRaw) || fromRaw
+    const fromDigits = (fromRaw || '').replace(/\D/g, '')
+    const last10 = fromDigits.length >= 10 ? fromDigits.slice(-10) : fromDigits
+
+    // Robust contact lookup: try exacts and last-10 match
+    const orClauses: any[] = []
+    const candidates = Array.from(new Set([fromRaw, fromFormatted].filter(Boolean))) as string[]
+    for (const c of candidates) {
+      orClauses.push({ phone1: c }, { phone2: c }, { phone3: c })
+    }
+    if (last10) {
+      orClauses.push(
+        { phone1: { endsWith: last10 } },
+        { phone2: { endsWith: last10 } },
+        { phone3: { endsWith: last10 } },
+      )
+    }
+
+    let contact = await prisma.contact.findFirst({ where: { OR: orClauses } })
+
+    // Auto-create contact for unknown inbound
+    let createdNewContact = false
+    if (!contact) {
+      const last4 = last10 ? last10.slice(-4) : (fromDigits || '0000').slice(-4)
+      contact = await prisma.contact.create({
+        data: {
+          firstName: 'Unknown',
+          lastName: last4 || (fromFormatted || fromRaw),
+          phone1: fromFormatted,
+          dealStatus: 'lead',
+        }
+      })
+      createdNewContact = true
+
+      // Tag as inbound (optional)
+      try {
+        const inboundTag = await prisma.tag.upsert({
+          where: { name: 'inbound' },
+          update: {},
+          create: { name: 'inbound' },
+        })
+        await prisma.contactTag.create({
+          data: { contact_id: contact.id, tag_id: inboundTag.id }
+        })
+      } catch (e) {
+        console.warn('Failed to tag inbound contact:', e)
+      }
+    }
 
     // Save received message (skip if models not available)
     if (prisma.telnyxMessage) {
@@ -235,8 +279,8 @@ async function handleMessageReceived(data: any) {
         data: {
           telnyxMessageId: data.id,
           contactId: contact?.id || null,
-          fromNumber: data.from?.phone_number || data.from,
-          toNumber: data.to?.[0]?.phone_number || data.to,
+          fromNumber: fromFormatted,
+          toNumber: toRaw,
           direction: 'inbound',
           content: data.text,
           status: 'received',
@@ -244,7 +288,7 @@ async function handleMessageReceived(data: any) {
           webhookData: data,
           cost: data.cost?.amount ? parseFloat(data.cost.amount) : undefined,
         },
-      });
+      })
     }
 
     // Record inbound SMS cost if present
@@ -252,19 +296,19 @@ async function handleMessageReceived(data: any) {
       const inboundCost = parseFloat(data.cost.amount)
       await prisma.telnyxBilling.create({
         data: {
-          phoneNumber: data.to?.[0]?.phone_number || data.to,
+          phoneNumber: toRaw,
           recordType: 'sms',
           recordId: data.id,
           cost: inboundCost,
           currency: data.cost.currency || 'USD',
           billingDate: new Date(),
-          description: `Inbound SMS from ${data.from?.phone_number || data.from}`,
+          description: `Inbound SMS from ${fromFormatted}`,
           metadata: data,
         },
       })
       if (prisma.telnyxPhoneNumber) {
         await prisma.telnyxPhoneNumber.updateMany({
-          where: { phoneNumber: data.to?.[0]?.phone_number || data.to },
+          where: { phoneNumber: toRaw },
           data: { totalCost: { increment: inboundCost } }
         })
       }
@@ -273,21 +317,22 @@ async function handleMessageReceived(data: any) {
     // Update phone number usage stats (skip if models not available)
     if (prisma.telnyxPhoneNumber) {
       await prisma.telnyxPhoneNumber.updateMany({
-        where: { phoneNumber: data.to?.[0]?.phone_number || data.to },
+        where: { phoneNumber: toRaw },
         data: {
           totalSmsCount: { increment: 1 },
           lastUsedAt: new Date(),
         },
-      });
+      })
     }
 
-    // Update or create conversation
+    // Upsert conversation for this contact (now we always have one)
     if (contact && prisma.conversation) {
+      const convPhone = fromFormatted || fromRaw
       await prisma.conversation.upsert({
         where: {
           contact_id_phone_number: {
             contact_id: contact.id,
-            phone_number: data.from?.phone_number || data.from,
+            phone_number: convPhone,
           }
         },
         update: {
@@ -300,7 +345,7 @@ async function handleMessageReceived(data: any) {
         },
         create: {
           contact_id: contact.id,
-          phone_number: data.from?.phone_number || data.from,
+          phone_number: convPhone,
           channel: 'sms',
           last_message_content: data.text,
           last_message_at: new Date(),
@@ -310,18 +355,33 @@ async function handleMessageReceived(data: any) {
           status: 'active',
           priority: 'normal',
         }
-      });
+      })
     }
 
-    // TODO: Emit real-time event via WebSocket for live updates
-    console.log('New SMS received:', {
-      from: data.from?.phone_number || data.from,
-      to: data.to?.[0]?.phone_number || data.to,
-      text: data.text,
-      contactId: contact?.id,
-    });
+    // Emit real-time event via SSE for live updates
+    try {
+      broadcast('inbound_sms', {
+        from: fromFormatted,
+        to: toRaw,
+        text: data.text,
+        contactId: contact?.id,
+        contactName: contact ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || fromFormatted : undefined,
+        createdNewContact,
+        occurredAt: new Date().toISOString(),
+      })
+      // Also emit a conversation-level update signal
+      if (contact?.id) {
+        broadcast('conversation_updated', {
+          contactId: contact.id,
+          phoneNumber: fromFormatted,
+          direction: 'inbound',
+        })
+      }
+    } catch (e) {
+      console.warn('Failed to broadcast inbound event:', e)
+    }
   } catch (error) {
-    console.error('Error handling message received:', error);
+    console.error('Error handling message received:', error)
   }
 }
 

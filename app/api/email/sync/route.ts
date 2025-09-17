@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { broadcast } from '@/lib/server-events';
 import crypto from 'crypto';
 
 // Dynamic import for imap-simple to avoid Next.js build issues
@@ -693,8 +694,22 @@ export async function POST(request: NextRequest) {
 
             // Store email in database
             const storedEmail = await storeEmailInDatabase(email, account.id, contact);
-            
+
             if (storedEmail) {
+              try {
+                const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.email1 || email.from
+                const preview = (email.textContent || email.content || '').replace(/<[^>]*>/g, '').slice(0, 80)
+                broadcast('inbound_email', {
+                  contactId: contact.id,
+                  contactName,
+                  subject: email.subject,
+                  preview,
+                  fromEmail: email.from,
+                  receivedAt: email.receivedAt instanceof Date ? email.receivedAt.toISOString() : new Date().toISOString(),
+                })
+              } catch (e) {
+                console.warn('Failed to broadcast inbound_email:', e)
+              }
               totalSynced++;
             }
           } catch (error) {

@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import AddContactDialog from "@/components/contacts/add-contact-dialog"
 import { useActivities } from "@/lib/context/activities-context"
 
+import ContactName from "@/components/contacts/contact-name"
+
 interface DashboardStats {
   // Contact stats
   totalContacts: number;
@@ -103,7 +105,7 @@ export function DashboardOverview() {
 
   // Use activities context to refresh contact activities
   const { refreshActivities } = useActivities()
-  
+
   const addActivity = async (activity: Omit<Activity, 'id' | 'createdAt' | 'status' | 'contactId'> & { contactId: string }) => {
     try {
       const response = await fetch('/api/activities', {
@@ -711,7 +713,7 @@ export function DashboardOverview() {
                                     </div>
                                     <div>
                                       <p className="text-sm font-medium text-gray-900">
-                                        {contact.firstName} {contact.lastName}
+                                        <ContactName contact={contact as any} clickMode="popup" />
                                       </p>
                                       <div className="flex items-center gap-4 text-xs text-gray-500">
                                         {contact.propertyAddress && (

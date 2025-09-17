@@ -11,6 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { Search, User, Phone, Mail, MapPin, Building, Eye } from "lucide-react"
 
+import { Sheet, SheetContent } from "@/components/ui/sheet"
+import ContactName from "@/components/contacts/contact-name"
+
+import ContactDetails from "@/components/contacts/contact-details"
+
 interface Contact {
   id: string
   firstName: string
@@ -37,7 +42,7 @@ interface Contact {
 export default function TeamContacts() {
   const { data: session } = useSession()
   const { toast } = useToast()
-  
+
   const [contacts, setContacts] = useState<Contact[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -135,7 +140,7 @@ export default function TeamContacts() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
@@ -149,7 +154,7 @@ export default function TeamContacts() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-2">
@@ -206,12 +211,12 @@ export default function TeamContacts() {
                           {contact.firstName?.[0]}{contact.lastName?.[0]}
                         </AvatarFallback>
                       </Avatar>
-                      
+
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-2">
                           <div>
                             <p className="font-semibold text-base">
-                              {contact.firstName} {contact.lastName}
+                              <ContactName contact={contact as any} clickMode="none" stopPropagation={false} />
                             </p>
                             {contact.llcName && (
                               <p className="text-sm text-muted-foreground">
@@ -224,14 +229,14 @@ export default function TeamContacts() {
                             variant="outline"
                             onClick={(e) => {
                               e.stopPropagation()
-                              window.location.href = `/contacts/${contact.id}`
+                              setSelectedContact(contact)
                             }}
                           >
                             <Eye className="h-4 w-4 mr-1" />
                             View
                           </Button>
                         </div>
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                           {contact.phone1 && (
                             <div className="flex items-center gap-2">
@@ -239,14 +244,14 @@ export default function TeamContacts() {
                               <span>{contact.phone1}</span>
                             </div>
                           )}
-                          
+
                           {contact.email1 && (
                             <div className="flex items-center gap-2">
                               <Mail className="h-4 w-4 text-muted-foreground" />
                               <span className="truncate">{contact.email1}</span>
                             </div>
                           )}
-                          
+
                           {contact.propertyAddress && (
                             <div className="flex items-center gap-2 md:col-span-2">
                               <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -258,7 +263,7 @@ export default function TeamContacts() {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="flex items-center gap-2 mt-3">
                           {contact.propertyType && (
                             <Badge variant="outline" className="text-xs">
@@ -292,7 +297,7 @@ export default function TeamContacts() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold">
-                {selectedContact.firstName} {selectedContact.lastName}
+                <ContactName contact={selectedContact as any} clickMode="none" stopPropagation={false} />
               </h3>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => {
@@ -303,7 +308,7 @@ export default function TeamContacts() {
                 </Button>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div>
@@ -329,7 +334,7 @@ export default function TeamContacts() {
                     )}
                   </div>
                 </div>
-                
+
                 {selectedContact.propertyAddress && (
                   <div>
                     <h4 className="font-medium mb-2">Property Address</h4>
@@ -349,7 +354,7 @@ export default function TeamContacts() {
                   </div>
                 )}
               </div>
-              
+
               <div className="space-y-4">
                 {(selectedContact.propertyType || selectedContact.estValue || selectedContact.estEquity) && (
                   <div>
@@ -367,7 +372,7 @@ export default function TeamContacts() {
                     </div>
                   </div>
                 )}
-                
+
                 <div>
                   <h4 className="font-medium mb-2">Additional Information</h4>
                   <div className="space-y-2 text-sm">
@@ -377,6 +382,19 @@ export default function TeamContacts() {
                 </div>
               </div>
             </div>
+      {/* Contact Details Drawer */}
+      <Sheet modal={false} open={!!selectedContact} onOpenChange={(open) => { if (!open) setSelectedContact(null) }}>
+        <SheetContent
+          side="right"
+          className="w-[80vw] sm:max-w-[900px] lg:max-w-[1100px] p-0"
+          overlayClassName="bg-transparent backdrop-blur-0 pointer-events-none"
+        >
+          {selectedContact && (
+            <ContactDetails contact={selectedContact as any} onBack={() => setSelectedContact(null)} />
+          )}
+        </SheetContent>
+      </Sheet>
+
           </CardContent>
         </Card>
       )}

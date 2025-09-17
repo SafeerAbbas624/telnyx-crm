@@ -26,6 +26,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+import { Sheet, SheetContent } from "@/components/ui/sheet"
+
 export default function ContactsSection() {
   const { data: session } = useSession()
   const { contacts, addContact, updateContact, deleteContact, isLoading, error, pagination, loadMoreContacts, goToPage, searchContacts, filterOptions, currentQuery, currentFilters } = useContacts()
@@ -196,9 +198,6 @@ export default function ContactsSection() {
 
   const hasActiveFilters = selectedContacts.length > 0
 
-  if (selectedContact) {
-    return <ContactDetails contact={selectedContact} onBack={handleBackToList} />
-  }
 
   return (
     <div className="min-h-full bg-white">
@@ -417,6 +416,20 @@ export default function ContactsSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Contact Details Drawer */}
+      <Sheet modal={false} open={!!selectedContact} onOpenChange={(open) => { if (!open) setSelectedContact(null) }}>
+        <SheetContent
+          side="right"
+          className="w-[80vw] sm:max-w-[900px] lg:max-w-[1100px] p-0"
+          overlayClassName="bg-transparent backdrop-blur-0 pointer-events-none"
+        >
+          {selectedContact && (
+            <ContactDetails contact={selectedContact} onBack={() => setSelectedContact(null)} />
+          )}
+        </SheetContent>
+      </Sheet>
+
     </div>
+
   )
 }

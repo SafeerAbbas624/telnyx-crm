@@ -14,6 +14,8 @@ import { Send, AtSign, Clock, Mail, MoreVertical, Reply, Forward, Archive, User,
 import { format } from "date-fns"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
+import ContactName from "@/components/contacts/contact-name"
+
 import type { Contact } from "@/lib/types"
 
 interface EmailConversationProps {
@@ -223,7 +225,7 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
             </Avatar>
             <div>
               <h2 className="font-semibold">
-                {contact.firstName} {contact.lastName}
+                <ContactName contact={contact} clickMode="popup" />
               </h2>
               <div className="flex items-center gap-1 text-sm text-muted-foreground">
                 <AtSign className="h-3 w-3" />
@@ -275,8 +277,8 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
         <div className="space-y-4">
           {messages.map((message) => (
             <Card key={message.id} className={`${
-              message.direction === 'outbound' 
-                ? 'ml-8 bg-primary/5 border-primary/20' 
+              message.direction === 'outbound'
+                ? 'ml-8 bg-primary/5 border-primary/20'
                 : 'mr-8'
             }`}>
               <CardContent className="p-4">
@@ -284,14 +286,14 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
                   <div className="flex items-center gap-2">
                     <Avatar className="h-6 w-6">
                       <AvatarFallback className="text-xs">
-                        {message.direction === 'outbound' ? 'You' : 
+                        {message.direction === 'outbound' ? 'You' :
                          (message.fromName?.[0] || message.fromEmail[0])}
                       </AvatarFallback>
                     </Avatar>
                     <div>
                       <div className="font-medium text-sm">
-                        {message.direction === 'outbound' 
-                          ? 'You' 
+                        {message.direction === 'outbound'
+                          ? 'You'
                           : (message.fromName || message.fromEmail)
                         }
                       </div>
@@ -318,11 +320,11 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
                     )}
                   </div>
                 </div>
-                
+
                 <div className="mb-3">
                   <h4 className="font-medium text-sm mb-2">{message.subject}</h4>
                 </div>
-                
+
                 <div
                   className="prose prose-sm max-w-none whitespace-pre-wrap"
                   style={{ wordBreak: 'break-word' }}
@@ -333,7 +335,7 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
                       .replace(/^>/gm, '<div style="border-left: 3px solid #ccc; padding-left: 10px; margin: 5px 0; color: #666;">')
                   }}
                 />
-                
+
                 {message.direction === 'inbound' && (
                   <div className="flex items-center gap-2 mt-3 pt-3 border-t">
                     <Button variant="ghost" size="sm" className="flex items-center gap-1">
@@ -353,7 +355,7 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
               </CardContent>
             </Card>
           ))}
-          
+
           {messages.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <Mail className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -361,7 +363,7 @@ export default function EmailConversation({ contact, emailAccounts }: EmailConve
               <p className="text-sm">Send the first email to start the conversation</p>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>

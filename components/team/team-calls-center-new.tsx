@@ -1,5 +1,7 @@
 "use client"
 
+import ContactName from "@/components/contacts/contact-name"
+
 import React, { useState, useEffect } from "react"
 import { useCallUI } from "@/lib/context/call-ui-context"
 import { Button } from "@/components/ui/button"
@@ -432,7 +434,7 @@ export default function TeamCallsCenter() {
                           </Avatar>
                           <div>
                             <p className="font-medium text-sm">
-                              {contact.firstName} {contact.lastName}
+                              <ContactName contact={contact} className="!no-underline" />
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {formatPhoneNumberForDisplay(getBestPhoneNumber(contact)) || 'No phone'}
@@ -475,7 +477,7 @@ export default function TeamCallsCenter() {
                       </Avatar>
                       <div>
                         <h3 className="font-semibold">
-                          {selectedContact.firstName} {selectedContact.lastName}
+                          <ContactName contact={selectedContact} className="!no-underline" />
                         </h3>
                         <p className="text-sm text-muted-foreground">
                           {formatPhoneNumberForDisplay(getBestPhoneNumber(selectedContact))}

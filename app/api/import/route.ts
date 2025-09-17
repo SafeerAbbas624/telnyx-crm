@@ -71,7 +71,8 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const mapping = JSON.parse(formData.get('mapping') as string) as Record<string, string>;
-    
+    const rawTags = (formData.get('tags') as string | null) || "";
+
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
@@ -85,6 +86,26 @@ export async function POST(request: Request) {
       trim: true,
     }) as CsvRecord[];
     
+    // Parse per-file tags once and create/find Tag records
+    const tagNames = Array.from(new Set(
+      rawTags
+        .split(/[\s,]+/)
+        .map(t => t.trim())
+        .filter(Boolean)
+    ));
+
+    const tagRecords = tagNames.length > 0
+      ? await Promise.all(
+          tagNames.map((name) =>
+            prisma.tag.upsert({
+              where: { name },
+              update: {},
+              create: { name },
+            })
+          )
+        )
+      : [];
+
     const importId = uuidv4();
     const result: ImportResult = {
       id: importId,
@@ -143,9 +164,23 @@ export async function POST(request: Request) {
                 contactAddress: record[invertedMapping.contactAddress] || existingContact.contactAddress,
               },
             });
+            // Attach per-file tags to the existing contact
+            if (tagRecords.length > 0) {
+              await prisma.contactTag.createMany({
+                data: tagRecords.map(t => ({ contact_id: existingContact.id, tag_id: t.id })),
+                skipDuplicates: true,
+              });
+            }
             result.importedCount++;
           } else {
             // Same person, same property - this is a true duplicate
+            // Still attach per-file tags to the existing contact
+            if (tagRecords.length > 0) {
+              await prisma.contactTag.createMany({
+                data: tagRecords.map(t => ({ contact_id: existingContact.id, tag_id: t.id })),
+                skipDuplicates: true,
+              });
+            }
             result.duplicateCount++;
             skippedRecords.push({ row: rowNumber, reason: 'Duplicate contact with same property' });
             continue;
@@ -180,7 +215,14 @@ export async function POST(request: Request) {
             avatarUrl: record[invertedMapping.avatarUrl] || null,
           };
 
-          await prisma.contact.create({ data: contactData });
+          const created = await prisma.contact.create({ data: contactData });
+          // Attach per-file tags to the new contact
+          if (tagRecords.length > 0) {
+            await prisma.contactTag.createMany({
+              data: tagRecords.map(t => ({ contact_id: created.id, tag_id: t.id })),
+              skipDuplicates: true,
+            });
+          }
           result.importedCount++;
         }
 

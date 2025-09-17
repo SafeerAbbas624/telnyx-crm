@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import ContactName from "@/components/contacts/contact-name"
+
 import { useToast } from '@/hooks/use-toast'
 import {
   Mail,
@@ -317,7 +319,7 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
 
   const loadConversations = async () => {
     if (!selectedAccount) return
-    
+
     try {
       setIsLoading(true)
       const response = await fetch(`/api/team/email-conversations?accountId=${selectedAccount.id}`)
@@ -388,7 +390,7 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
               {isAccountsVisible ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </Button>
           </div>
-          
+
           <ScrollArea className="h-[calc(100vh-200px)]">
             <div className="space-y-2">
               {emailAccounts.map((account) => (
@@ -396,8 +398,8 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                   key={account.id}
                   className={cn(
                     "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors",
-                    selectedAccount?.id === account.id 
-                      ? "bg-primary text-primary-foreground" 
+                    selectedAccount?.id === account.id
+                      ? "bg-primary text-primary-foreground"
                       : "hover:bg-muted"
                   )}
                   onClick={() => setSelectedAccount(account)}
@@ -491,7 +493,7 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
             </Button>
           </div>
         </div>
-        
+
         <ScrollArea className="h-[calc(100vh-200px)]">
           {isLoading ? (
             <div className="flex items-center justify-center p-8">
@@ -517,8 +519,8 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                   key={conversation.id}
                   className={cn(
                     "p-4 cursor-pointer transition-colors",
-                    selectedConversation?.id === conversation.id 
-                      ? "bg-muted" 
+                    selectedConversation?.id === conversation.id
+                      ? "bg-muted"
                       : "hover:bg-muted/50"
                   )}
                   onClick={() => setSelectedConversation(conversation)}
@@ -532,7 +534,7 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
                         <p className="font-medium text-sm truncate">
-                          {conversation.contact.firstName} {conversation.contact.lastName}
+                          <ContactName contact={{...conversation.contact} as any} clickMode="popup" />
                         </p>
                         <div className="flex items-center gap-2">
                           {conversation.hasUnread && (
@@ -581,7 +583,7 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="font-semibold">
-                    {selectedConversation.contact.firstName} {selectedConversation.contact.lastName}
+                    <ContactName contact={{...selectedConversation.contact} as any} clickMode="popup" />
                   </h2>
                   <p className="text-sm text-muted-foreground">{selectedConversation.contact.email1}</p>
                 </div>

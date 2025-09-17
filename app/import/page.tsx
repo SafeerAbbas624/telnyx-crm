@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { format } from 'date-fns';
 
 type CSVRow = Record<string, string>;
@@ -110,6 +111,7 @@ export default function ImportPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState('import');
   const [importHistory, setImportHistory] = useState<ImportHistory[]>([]);
+  const [bulkTags, setBulkTags] = useState<string>("");
 
   const loadImportHistory = useCallback(async () => {
     try {
@@ -192,6 +194,7 @@ export default function ImportPage() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('mapping', JSON.stringify(mapping));
+    formData.append('tags', bulkTags || "");
 
     try {
       const response = await fetch('/api/import', { method: 'POST', body: formData });
@@ -346,6 +349,16 @@ export default function ImportPage() {
                       </Table>
                     </div>
                   </Card>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-medium">Tags for all imported contacts (optional)</h3>
+                  <p className="text-sm text-muted-foreground mb-2">Separate by comma or space. Example: investor hot-lead CA</p>
+                  <Input
+                    value={bulkTags}
+                    onChange={(e) => setBulkTags(e.target.value)}
+                    placeholder="investor, hot-lead, CA"
+                  />
                 </div>
 
                 <div className="flex justify-end pt-4">

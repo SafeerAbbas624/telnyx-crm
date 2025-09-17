@@ -9,6 +9,8 @@ import { format, isPast, isToday, isTomorrow } from "date-fns"
 import { useActivities } from "@/lib/context/activities-context"
 import { useContacts } from "@/lib/context/contacts-context"
 import type { Activity, Contact } from "@/lib/types"
+import ContactName from "@/components/contacts/contact-name"
+
 
 interface UpcomingActivitiesProps {
   onAddActivity?: (contact: Contact) => void
@@ -146,12 +148,7 @@ export default function UpcomingActivities({ onAddActivity }: UpcomingActivities
 
                   <div className="flex justify-between items-center mt-1">
                     <p className="text-sm text-muted-foreground">
-                      <button
-                        className="font-medium hover:underline"
-                        onClick={() => handleAddActivityClick(activity.contactId)}
-                      >
-                        {getContactName(activity.contactId)}
-                      </button>
+                      <ContactName contactId={activity.contactId} className="font-medium hover:underline" clickMode="popup" />
                       {activity.description && ` - ${activity.description}`}
                     </p>
 
