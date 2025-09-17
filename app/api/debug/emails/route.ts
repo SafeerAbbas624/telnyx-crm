@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export async function GET(request: NextRequest) {
   try {
     console.log('Debug: Checking emails in database...')
@@ -32,7 +35,7 @@ export async function GET(request: NextRequest) {
         emailMessages = await prisma.emailMessage.findMany({
           take: 10,
           orderBy: {
-            receivedAt: 'desc'
+            deliveredAt: 'desc'
           },
           select: {
             id: true,
