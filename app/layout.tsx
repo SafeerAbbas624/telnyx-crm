@@ -5,6 +5,10 @@ import Providers from '@/components/providers'
 import './globals.css'
 import faviconPng from '../Adler Capital_.png'
 
+// Force the entire app to be dynamic to avoid build-time static generation of API-backed pages
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export const metadata: Metadata = {
   title: 'Adler Capital CRM',
   description: 'Customer Relationship Management System',

@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { addClient, removeClient } from '@/lib/server-events'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export async function GET(request: NextRequest) {
   // Create a TransformStream to write SSE chunks
