@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { last10Digits, formatPhoneNumberForTelnyx } from '@/lib/phone-utils'
 
 export async function GET(request: NextRequest) {
   try {
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
           where: {
             OR: [
               { contactId: conversation.contact_id },
-              { 
+              {
                 AND: [
                   { toNumber: conversation.contact.phone1 },
                   { direction: 'outbound' }
@@ -88,16 +89,35 @@ export async function GET(request: NextRequest) {
           // Calculate unread status based on latest message
           hasUnread: conversation.unread_count > 0,
           // Show new message indicator if last message is inbound and recent
-          isNewMessage: latestMessage?.direction === 'inbound' && 
-                       latestMessage?.createdAt && 
+          isNewMessage: latestMessage?.direction === 'inbound' &&
+                       latestMessage?.createdAt &&
                        new Date(latestMessage.createdAt).getTime() > Date.now() - (24 * 60 * 60 * 1000) // 24 hours
         }
       })
     )
 
-    return NextResponse.json({ 
-      conversations: conversationsWithMessages,
-      total: conversationsWithMessages.length 
+    // Guard: collapse duplicate conversations for the same contact/number (e.g., pre-normalization entries)
+    const dedupedMap = new Map<string, any>()
+    for (const c of conversationsWithMessages) {
+      const normalized = formatPhoneNumberForTelnyx(c.phone_number) || c.phone_number
+      const key = `${c.contact_id}-${last10Digits(normalized) || normalized}`
+      const existing = dedupedMap.get(key)
+      if (!existing) {
+        dedupedMap.set(key, c)
+      } else {
+        // Keep the one with the most recent activity
+        const a = existing.last_message_at || existing.updated_at
+        const b = c.last_message_at || c.updated_at
+        if ((b ? new Date(b).getTime() : 0) > (a ? new Date(a).getTime() : 0)) {
+          dedupedMap.set(key, c)
+        }
+      }
+    }
+    const deduped = Array.from(dedupedMap.values())
+
+    return NextResponse.json({
+      conversations: deduped,
+      total: deduped.length
     })
   } catch (error) {
     console.error('Error fetching conversations:', error)

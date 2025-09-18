@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { formatPhoneNumberForTelnyx, isValidE164PhoneNumber } from '@/lib/phone-utils';
+import { formatPhoneNumberForTelnyx, isValidE164PhoneNumber, last10Digits } from '@/lib/phone-utils';
 
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
 const TELNYX_API_URL = 'https://api.telnyx.com/v2/messages';
@@ -90,39 +90,53 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Update or create conversation for test mode too
+      // Update or create conversation for test mode too (normalized + last-10 fallback)
       if (contactId && prisma.conversation) {
         try {
-          await prisma.conversation.upsert({
+          const normalizedTo = formattedToNumber
+          const last10 = last10Digits(formattedToNumber)
+
+          const existing = await prisma.conversation.findFirst({
             where: {
-              contact_id_phone_number: {
-                contact_id: contactId,
-                phone_number: formattedToNumber,
-              }
-            },
-            update: {
-              last_message_content: message,
-              last_message_at: new Date(),
-              last_message_direction: 'outbound',
-              last_sender_number: formattedFromNumber,
-              message_count: { increment: 1 },
-              updated_at: new Date(),
-              // Don't increment unread_count for outbound messages
-            },
-            create: {
               contact_id: contactId,
-              phone_number: formattedToNumber,
-              channel: 'sms',
-              last_message_content: message,
-              last_message_at: new Date(),
-              last_message_direction: 'outbound',
-              last_sender_number: formattedFromNumber,
-              message_count: 1,
-              unread_count: 0, // Outbound messages don't create unread count
-              status: 'active',
-              priority: 'normal',
-            }
-          });
+              OR: [
+                { phone_number: normalizedTo },
+                ...(last10 ? [{ phone_number: { endsWith: last10 } }] : [])
+              ]
+            },
+            orderBy: { updated_at: 'desc' }
+          })
+
+          if (existing) {
+            await prisma.conversation.update({
+              where: { id: existing.id },
+              data: {
+                phone_number: normalizedTo,
+                last_message_content: message,
+                last_message_at: new Date(),
+                last_message_direction: 'outbound',
+                last_sender_number: formattedFromNumber,
+                message_count: (existing.message_count ?? 0) + 1,
+                updated_at: new Date(),
+              }
+            })
+          } else {
+            await prisma.conversation.create({
+              data: {
+                contact_id: contactId,
+                phone_number: normalizedTo,
+                channel: 'sms',
+                last_message_content: message,
+                last_message_at: new Date(),
+                last_message_direction: 'outbound',
+                last_sender_number: formattedFromNumber,
+                message_count: 1,
+                unread_count: 0,
+                status: 'active',
+                priority: 'normal',
+              }
+            })
+          }
         } catch (error) {
           console.error('Error updating conversation in test mode:', error);
         }
@@ -229,39 +243,53 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Update or create conversation for this message
+    // Update or create conversation for this message (normalized + last-10 fallback)
     if (contactId && prisma.conversation) {
       try {
-        await prisma.conversation.upsert({
+        const normalizedTo = formattedToNumber
+        const last10 = last10Digits(formattedToNumber)
+
+        const existing = await prisma.conversation.findFirst({
           where: {
-            contact_id_phone_number: {
-              contact_id: contactId,
-              phone_number: formattedToNumber,
-            }
-          },
-          update: {
-            last_message_content: message,
-            last_message_at: new Date(),
-            last_message_direction: 'outbound',
-            last_sender_number: formattedFromNumber,
-            message_count: { increment: 1 },
-            updated_at: new Date(),
-            // Don't increment unread_count for outbound messages
-          },
-          create: {
             contact_id: contactId,
-            phone_number: formattedToNumber,
-            channel: 'sms',
-            last_message_content: message,
-            last_message_at: new Date(),
-            last_message_direction: 'outbound',
-            last_sender_number: formattedFromNumber,
-            message_count: 1,
-            unread_count: 0, // Outbound messages don't create unread count
-            status: 'active',
-            priority: 'normal',
-          }
-        });
+            OR: [
+              { phone_number: normalizedTo },
+              ...(last10 ? [{ phone_number: { endsWith: last10 } }] : [])
+            ]
+          },
+          orderBy: { updated_at: 'desc' }
+        })
+
+        if (existing) {
+          await prisma.conversation.update({
+            where: { id: existing.id },
+            data: {
+              phone_number: normalizedTo,
+              last_message_content: message,
+              last_message_at: new Date(),
+              last_message_direction: 'outbound',
+              last_sender_number: formattedFromNumber,
+              message_count: (existing.message_count ?? 0) + 1,
+              updated_at: new Date(),
+            }
+          })
+        } else {
+          await prisma.conversation.create({
+            data: {
+              contact_id: contactId,
+              phone_number: normalizedTo,
+              channel: 'sms',
+              last_message_content: message,
+              last_message_at: new Date(),
+              last_message_direction: 'outbound',
+              last_sender_number: formattedFromNumber,
+              message_count: 1,
+              unread_count: 0,
+              status: 'active',
+              priority: 'normal',
+            }
+          })
+        }
       } catch (error) {
         console.error('Error updating conversation:', error);
         // Don't fail the SMS send if conversation update fails

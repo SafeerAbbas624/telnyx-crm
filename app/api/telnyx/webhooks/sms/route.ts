@@ -343,37 +343,54 @@ async function handleMessageReceived(data: any) {
       })
     }
 
-    // Upsert conversation for this contact (now we always have one)
+    // Upsert/merge conversation for this contact using normalized number with last-10 fallback
     if (contact && prisma.conversation) {
-      const convPhone = fromFormatted || fromRaw
-      await prisma.conversation.upsert({
+      const normalized = fromFormatted || fromRaw
+      const last10From = last10Digits(fromRaw)
+
+      // Try to find an existing conversation by exact normalized or last-10 match
+      const existing = await prisma.conversation.findFirst({
         where: {
-          contact_id_phone_number: {
-            contact_id: contact.id,
-            phone_number: convPhone,
-          }
-        },
-        update: {
-          last_message_content: data.text,
-          last_message_at: new Date(),
-          last_message_direction: 'inbound',
-          message_count: { increment: 1 },
-          unread_count: { increment: 1 },
-          updated_at: new Date(),
-        },
-        create: {
           contact_id: contact.id,
-          phone_number: convPhone,
-          channel: 'sms',
-          last_message_content: data.text,
-          last_message_at: new Date(),
-          last_message_direction: 'inbound',
-          message_count: 1,
-          unread_count: 1,
-          status: 'active',
-          priority: 'normal',
-        }
+          OR: [
+            { phone_number: normalized },
+            ...(last10From ? [{ phone_number: { endsWith: last10From } }] : [])
+          ]
+        },
+        orderBy: { updated_at: 'desc' }
       })
+
+      if (existing) {
+        // Update existing conversation, and migrate its phone_number to normalized if needed
+        await prisma.conversation.update({
+          where: { id: existing.id },
+          data: {
+            phone_number: normalized,
+            last_message_content: data.text,
+            last_message_at: new Date(),
+            last_message_direction: 'inbound',
+            message_count: (existing.message_count ?? 0) + 1,
+            unread_count: (existing.unread_count ?? 0) + 1,
+            updated_at: new Date(),
+          }
+        })
+      } else {
+        // Create a new conversation
+        await prisma.conversation.create({
+          data: {
+            contact_id: contact.id,
+            phone_number: normalized,
+            channel: 'sms',
+            last_message_content: data.text,
+            last_message_at: new Date(),
+            last_message_direction: 'inbound',
+            message_count: 1,
+            unread_count: 1,
+            status: 'active',
+            priority: 'normal',
+          }
+        })
+      }
     }
 
     // Emit real-time event via SSE for live updates
