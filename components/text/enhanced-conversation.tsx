@@ -67,6 +67,59 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
     scrollToBottom()
   }, [messages])
 
+
+  // Live updates: listen to SSE and refresh/append messages when this contact gets a new SMS
+  useEffect(() => {
+    const es = new EventSource('/api/events')
+
+    const onInboundSms = (evt: MessageEvent) => {
+      try {
+        const msg = JSON.parse(evt.data || '{}') as any
+        if (!msg || msg.contactId !== contact.id) return
+        // If payload has text, optimistically append; otherwise reload
+        if (msg.text) {
+          const newMsg: Message = {
+            id: msg.messageId || `in-${Date.now()}`,
+            content: String(msg.text || ''),
+            direction: 'inbound',
+            status: 'received',
+            fromNumber: msg.from || msg.fromNumber || '',
+            toNumber: msg.to || msg.toNumber || '',
+            createdAt: new Date().toISOString(),
+          }
+          setMessages(prev => [...prev, newMsg])
+        } else {
+          loadMessages()
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    const onConversationUpdated = (evt: MessageEvent) => {
+      try {
+        const payload = JSON.parse(evt.data || '{}') as any
+        // Only refresh if this contact is affected
+        if (payload?.contactId === contact.id) {
+          loadMessages()
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    es.addEventListener('inbound_sms', onInboundSms as unknown as EventListener)
+    es.addEventListener('conversation_updated', onConversationUpdated as unknown as EventListener)
+
+    return () => {
+      try {
+        es.removeEventListener('inbound_sms', onInboundSms as unknown as EventListener)
+        es.removeEventListener('conversation_updated', onConversationUpdated as unknown as EventListener)
+        es.close()
+      } catch {}
+    }
+  }, [contact.id])
+
   const loadMessages = async () => {
     setIsLoading(true)
     try {
@@ -154,7 +207,7 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
 
       if (response.ok) {
         const data = await response.json()
-        
+
         // Add message to local state immediately
         const newMsg: Message = {
           id: data.messageId,
@@ -165,10 +218,10 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
           toNumber: contact.phone1 || contact.phone2 || contact.phone3 || '',
           createdAt: new Date().toISOString(),
         }
-        
+
         setMessages(prev => [...prev, newMsg])
         setNewMessage("")
-        
+
         toast({
           title: "Message sent",
           description: "Your message has been sent successfully",
@@ -254,9 +307,9 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
 
   const formatTime = (timestamp: string) => {
     try {
-      return new Date(timestamp).toLocaleTimeString([], { 
-        hour: '2-digit', 
-        minute: '2-digit' 
+      return new Date(timestamp).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
       })
     } catch {
       return ""
@@ -293,14 +346,14 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
               <ArrowLeft className="h-4 w-4" />
             </Button>
           )}
-          
+
           <Avatar className="h-10 w-10">
             <AvatarFallback className="bg-primary/10 text-primary">
               {contact.firstName?.[0] || ""}
               {contact.lastName?.[0] || ""}
             </AvatarFallback>
           </Avatar>
-          
+
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold truncate">
               {contact.firstName} {contact.lastName}
@@ -309,7 +362,7 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
               {contact.phone1} {contact.llcName && `• ${contact.llcName}`}
             </p>
           </div>
-          
+
           <div className="flex gap-1">
             <Button variant="ghost" size="sm" onClick={handleCall}>
               <Phone className="h-4 w-4" />
@@ -363,7 +416,7 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
                       )}
                     </div>
                   </div>
-                  
+
                   <div className="space-y-3">
                     {contact.phone1 && (
                       <div className="flex items-center gap-2">
@@ -390,9 +443,9 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
                       </div>
                     )}
                   </div>
-                  
-                  <Button 
-                    className="w-full" 
+
+                  <Button
+                    className="w-full"
                     onClick={() => {
                       setShowContactInfo(false)
                       // Navigate to dashboard - you might want to implement this
@@ -455,7 +508,7 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
           ) : (
             messages.map((message, index) => {
               const prevMessage = messages[index - 1]
-              const showDateSeparator = !prevMessage || 
+              const showDateSeparator = !prevMessage ||
                 formatDate(message.createdAt) !== formatDate(prevMessage.createdAt)
 
               return (
