@@ -7,6 +7,23 @@ export enum DealStatus {
   CLOSED_LOST = "closed_lost",
 }
 
+export interface ContactProperty {
+  id: string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  county?: string | null;
+  propertyType?: string | null;
+  bedrooms?: number | null;
+  totalBathrooms?: number | null;
+  buildingSqft?: number | null;
+  effectiveYearBuilt?: number | null;
+  estValue?: number | null;
+  estEquity?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Contact {
   id: string;
   firstName: string;
@@ -47,6 +64,7 @@ export interface Contact {
   name?: string; // computed from firstName + lastName
   phoneNumber?: string; // alias for phone1
   cityState?: string; // computed from city + state
+  properties?: ContactProperty[]; // all properties (if loaded)
 }
 
 export interface Tag {

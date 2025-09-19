@@ -19,6 +19,8 @@ import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
 import { format } from "date-fns"
 
+import AdvancedContactFilter from "@/components/text/advanced-contact-filter"
+
 interface TelnyxCall {
   id: string
   telnyxCallId: string
@@ -47,6 +49,8 @@ interface TelnyxPhoneNumber {
 }
 
 export default function CallsCenter() {
+  const { currentQuery, currentFilters } = useContacts()
+
   const { data: session } = useSession()
   const { toast } = useToast()
   const [searchQuery, setSearchQuery] = useState("")
@@ -175,23 +179,37 @@ export default function CallsCenter() {
     return () => clearTimeout(id)
   }, [searchQuery])
 
-  // Fetch contacts from database with pagination + search
+  // Fetch contacts from database with pagination + search/filters (DB-backed via /api/contacts)
   useEffect(() => {
     const controller = new AbortController()
-    const fetchContacts = async () => { setIsSearching(true)
+    const fetchContacts = async () => {
+      setIsSearching(true)
       setIsLoadingContacts(true)
       try {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) })
-        if (debouncedSearch) params.set('search', debouncedSearch)
+        const q = (currentQuery || '').trim()
+        if (q) params.set('search', q)
+        // Apply filters
+        const entries = Object.entries(currentFilters || {}) as Array<[string, string[]]>
+        const normalizedEntries = entries
+          .filter(([, vals]) => Array.isArray(vals) && vals.length > 0)
+          .map(([k, vals]) => [k, vals.map(v => String(v))] as [string, string[]])
+        normalizedEntries.forEach(([k, vals]) => {
+          params.set(k, vals.join(','))
+        })
 
-        const cacheKey = `p=${page}|l=${limit}|q=${debouncedSearch}`
+        const filtersKey = normalizedEntries
+          .map(([k, vals]) => `${k}=${vals.join('|')}`)
+          .sort()
+          .join('&')
+        const cacheKey = `p=${page}|l=${limit}|q=${q}|f=${filtersKey}`
+
         const cached = contactsCacheRef.current.get(cacheKey)
         if (cached) {
           setContactsResults(cached.results)
           setTotalPages(cached.totalPages)
         }
 
-        // Use appropriate endpoint based on user role
         const res = await fetch(`/api/contacts?${params}`, { signal: controller.signal })
         if (res.ok) {
           const data = await res.json()
@@ -199,7 +217,6 @@ export default function CallsCenter() {
           const total = data.pagination?.totalPages || 1
           setContactsResults(results)
           setTotalPages(total)
-          const cacheKey = `p=${page}|l=${limit}|q=${debouncedSearch}`
           contactsCacheRef.current.set(cacheKey, { results, totalPages: total })
         } else {
           console.error('Failed to fetch contacts:', res.status, res.statusText)
@@ -219,7 +236,7 @@ export default function CallsCenter() {
     }
     fetchContacts()
     return () => controller.abort()
-  }, [page, limit, debouncedSearch])
+  }, [page, limit, currentQuery, currentFilters])
 
   const loadData = async () => {
     try {
@@ -256,14 +273,14 @@ export default function CallsCenter() {
   }
 
 
-  const makeCall = async (contact: Contact) => {
+  const makeCall = async (contact: Contact, toNumberOverride?: string) => {
     if (!selectedPhoneNumber) {
       toast({ title: 'Error', description: 'Please select a phone number to call from', variant: 'destructive' })
       return
     }
 
-    const phoneToCall = getBestPhoneNumber(contact)
-    if (!phoneToCall) {
+    const dialNumber = (toNumberOverride && toNumberOverride.trim()) || getBestPhoneNumber(contact)
+    if (!dialNumber) {
       toast({ title: 'Error', description: 'Contact has no valid phone number', variant: 'destructive' })
       return
     }
@@ -275,13 +292,13 @@ export default function CallsCenter() {
       try {
         const { rtcClient } = await import('@/lib/webrtc/rtc-client')
         await rtcClient.ensureRegistered()
-        const { sessionId } = await rtcClient.startCall({ toNumber: phoneToCall, fromNumber: selectedPhoneNumber.phoneNumber })
+        const { sessionId } = await rtcClient.startCall({ toNumber: dialNumber, fromNumber: selectedPhoneNumber.phoneNumber })
 
-        toast({ title: 'Calling (WebRTC)', description: `${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}` })
+        toast({ title: 'Calling (WebRTC)', description: `${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(dialNumber)}` })
         openCall({
           contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
           fromNumber: selectedPhoneNumber.phoneNumber,
-          toNumber: phoneToCall,
+          toNumber: dialNumber,
           mode: 'webrtc',
           webrtcSessionId: sessionId,
         })
@@ -296,7 +313,7 @@ export default function CallsCenter() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fromNumber: selectedPhoneNumber.phoneNumber,
-          toNumber: phoneToCall,
+          toNumber: dialNumber,
           contactId: contact.id,
         }),
       })
@@ -307,11 +324,11 @@ export default function CallsCenter() {
       }
       const callData = await response.json()
 
-      toast({ title: 'Call Initiated', description: `Calling ${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}` })
+      toast({ title: 'Call Initiated', description: `Calling ${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(dialNumber)}` })
       openCall({
         contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
         fromNumber: selectedPhoneNumber.phoneNumber,
-        toNumber: phoneToCall,
+        toNumber: dialNumber,
         mode: 'call_control',
         telnyxCallId: callData.telnyxCallId,
       })
@@ -438,15 +455,17 @@ export default function CallsCenter() {
         {/* Contacts List */}
         <div className="w-1/3 border-r">
           <div className="p-4">
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search contacts..."
-                value={searchQuery}
-                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
-                className="pl-10"
+            <div className="mb-4">
+              {/* Advanced Filters (DB-backed) */}
+              <AdvancedContactFilter
+                contacts={contactsResults as any}
+                onFilteredContactsChange={() => { /* no-op: we fetch server-side below */ }}
+                selectedContacts={[] as any}
+                onSelectedContactsChange={() => { /* no-op for calls list */ }}
+                showList={false}
+                hideHeader
+                hideSelectAllPagesButton
               />
-              {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
             </div>
 
             <ScrollArea className="h-[calc(100vh-200px)]">
@@ -543,9 +562,20 @@ export default function CallsCenter() {
                         <h3 className="font-semibold">
                           <ContactName contact={selectedContact} className="!no-underline" />
                         </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {formatPhoneNumberForDisplay(getBestPhoneNumber(selectedContact))}
-                        </p>
+                        <div className="flex gap-2 flex-wrap text-sm">
+                          {([['phone1', selectedContact.phone1], ['phone2', selectedContact.phone2], ['phone3', selectedContact.phone3]] as const)
+                            .filter(([, num]) => !!num)
+                            .map(([key, num]) => (
+                              <Button
+                                key={key}
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => { e.preventDefault(); makeCall(selectedContact, num as string) }}
+                              >
+                                <PhoneCall className="h-3 w-3 mr-1" /> {formatPhoneNumberForDisplay(num as string)}
+                              </Button>
+                            ))}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

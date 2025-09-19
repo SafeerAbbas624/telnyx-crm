@@ -17,6 +17,8 @@ import AssignContactModal from "@/components/admin/assign-contact-modal"
 import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
 
+import ContactName from "@/components/contacts/contact-name"
+
 interface Message {
   id: string
   content: string
@@ -355,12 +357,14 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
           </Avatar>
 
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold truncate">
-              {contact.firstName} {contact.lastName}
-            </h3>
-            <p className="text-sm text-muted-foreground truncate">
-              {contact.phone1} {contact.llcName && `• ${contact.llcName}`}
-            </p>
+            <div className="text-left w-full">
+              <h3 className="font-semibold truncate">
+                <ContactName contact={contact as any} clickMode="popup" stopPropagation={false} className="!no-underline underline-offset-2 hover:underline" />
+              </h3>
+              <p className="text-sm text-muted-foreground truncate">
+                {contact.phone1} {contact.llcName && `• ${contact.llcName}`}
+              </p>
+            </div>
           </div>
 
           <div className="flex gap-1">

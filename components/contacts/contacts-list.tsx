@@ -267,10 +267,26 @@ const ContactCard: React.FC<{
                     {contact.dnc && (
                       <Badge variant="destructive" className="text-xs">DNC</Badge>
                     )}
-                    {contact.dealStatus && (
-                      <Badge variant="outline" className="text-xs capitalize">
-                        {contact.dealStatus.replace('_', ' ')}
-                      </Badge>
+                    {contact.tags && contact.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {contact.tags.slice(0, 10).map((tag) => (
+                          <Badge
+                            key={typeof tag === 'object' ? tag.id : String(tag)}
+                            variant="outline"
+                            className="text-xs"
+                            style={{
+                              backgroundColor: `${(typeof tag === 'object' ? tag.color : '#6b7280')}20`,
+                              color: typeof tag === 'object' ? tag.color : '#6b7280',
+                              border: `1px solid ${(typeof tag === 'object' ? tag.color : '#6b7280')}40`,
+                            }}
+                          >
+                            {typeof tag === 'object' ? tag.name : String(tag)}
+                          </Badge>
+                        ))}
+                        {contact.tags.length > 10 && (
+                          <Badge variant="outline" className="text-xs">+{contact.tags.length - 10}</Badge>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

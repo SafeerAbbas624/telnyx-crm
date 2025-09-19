@@ -45,6 +45,7 @@ model Contact {
   email_messages     EmailMessage[]
   email_conversations EmailConversation[]
   assignments        ContactAssignment[]
+  properties         ContactProperty[]
 
   // Performance indexes for common queries
   @@index([createdAt(sort: Desc)], name: "idx_contacts_created_at")
@@ -448,6 +449,28 @@ model ImportHistory {
   errors            Json?
 
   @@map("import_history")
+}
+
+model ContactProperty {
+  id                 String   @id @default(uuid()) @db.Uuid
+  contactId          String   @map("contact_id") @db.Uuid
+  contact            Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  address            String?  @map("address")
+  city               String?
+  state              String?
+  county             String?  @map("county")
+  propertyType       String?  @map("property_type")
+  bedrooms           Int?
+  totalBathrooms     Int?     @map("total_bathrooms")
+  buildingSqft       Int?     @map("building_sqft")
+  effectiveYearBuilt Int?     @map("effective_year_built")
+  estValue           Int?     @map("est_value")
+  estEquity          Int?     @map("est_equity")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([contactId], name: "idx_contact_properties_contact_id")
+  @@map("contact_properties")
 }
 
 model TelnyxPhoneNumber {

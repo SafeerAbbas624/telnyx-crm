@@ -17,6 +17,8 @@ import type { Contact } from "@/lib/types"
 import { Label } from "@/components/ui/label"
 import { templates } from "@/lib/mock-templates"
 
+import ContactName from "@/components/contacts/contact-name"
+
 // Mock messages for demo
 const mockMessages = [
   {
@@ -256,7 +258,7 @@ export default function TextConversation({ contact, onBack }: TextConversationPr
           </Avatar>
           <div>
             <h3 className="font-medium">
-              {contact.firstName || "Unknown"} {contact.lastName || ""}
+              <ContactName contact={contact as any} clickMode="popup" stopPropagation={false} className="!no-underline underline-offset-2 hover:underline" />
             </h3>
             <p className="text-sm text-gray-500">{contact.phone || "No phone"}</p>
           </div>

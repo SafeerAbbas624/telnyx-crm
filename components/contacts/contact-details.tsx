@@ -29,9 +29,42 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
   const { updateContact, tags } = useContacts()
 
 
+  const [fullContact, setFullContact] = useState<Contact | null>(null)
+  const [selectedPropertyIndex, setSelectedPropertyIndex] = useState(0)
 
-  const handleUpdateContact = (id: string, updates: Partial<Contact>) => {
-    updateContact(id, updates)
+  useEffect(() => {
+    let isMounted = true
+    fetch(`/api/contacts/${contact.id}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (isMounted && data) setFullContact(data) })
+      .catch(() => {})
+    return () => { isMounted = false }
+  }, [contact.id])
+
+  const properties = fullContact?.properties ?? []
+  const c = fullContact || contact
+
+  const activeProp = (properties.length > 0 && properties[selectedPropertyIndex]) ? properties[selectedPropertyIndex] : {
+    address: c.propertyAddress || '',
+    city: c.city || '',
+    state: c.state || '',
+    county: c.propertyCounty || '',
+    propertyType: c.propertyType || '',
+    bedrooms: c.bedrooms ?? null,
+    totalBathrooms: (typeof c.totalBathrooms === 'number' ? c.totalBathrooms : (c.totalBathrooms ? Number(c.totalBathrooms) : null)),
+    buildingSqft: c.buildingSqft ?? null,
+    effectiveYearBuilt: c.effectiveYearBuilt ?? null,
+    estValue: (typeof c.estValue === 'number' ? c.estValue : (c.estValue ? Number(c.estValue) : null)),
+    estEquity: (typeof c.estEquity === 'number' ? c.estEquity : (c.estEquity ? Number(c.estEquity) : null)),
+  }
+  const activeDebtOwed = (activeProp.estValue != null && activeProp.estEquity != null)
+    ? (activeProp.estValue - activeProp.estEquity)
+    : (c.debtOwed ?? null)
+
+
+  const handleUpdateContact = async (id: string, updates: Partial<Contact>) => {
+    const updated = await updateContact(id, updates)
+    if (updated) setFullContact(updated as any)
     setShowEditDialog(false)
   }
 
@@ -84,6 +117,7 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
   }, [isDragging, handleMouseMove, handleMouseUp])
 
   return (
+
     <div ref={containerRef} className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-gray-200">
@@ -94,7 +128,7 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
             </Button>
             <div>
               <h1 className="text-xl font-bold text-gray-900">
-                {contact.firstName} {contact.lastName}
+                {c.firstName} {c.lastName}
               </h1>
               <p className="text-sm text-gray-600">Contact Details</p>
             </div>
@@ -119,15 +153,15 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
             <div>
               <p className="text-sm text-gray-500 mb-1">First Name</p>
-              <p className="text-gray-900 font-medium">{contact.firstName || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.firstName || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Last Name</p>
-              <p className="text-gray-900 font-medium">{contact.lastName || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.lastName || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">LLC Name</p>
-              <p className="text-gray-900 font-medium">{contact.llcName || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.llcName || '—'}</p>
             </div>
           </div>
 
@@ -135,31 +169,33 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
             <div>
               <p className="text-sm text-gray-500 mb-1">Phone 1</p>
-              <p className="text-gray-900 font-medium">{contact.phone1 || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.phone1 || '—'}</p>
             </div>
+
+
             <div>
               <p className="text-sm text-gray-500 mb-1">Phone 2</p>
-              <p className="text-gray-900 font-medium">{contact.phone2 || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.phone2 || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Phone 3</p>
-              <p className="text-gray-900 font-medium">{contact.phone3 || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.phone3 || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Email 1</p>
-              <p className="text-gray-900 font-medium">{contact.email1 || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.email1 || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Email 2</p>
-              <p className="text-gray-900 font-medium">{contact.email2 || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.email2 || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Email 3</p>
-              <p className="text-gray-900 font-medium">{contact.email3 || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.email3 || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Contact Address</p>
-              <p className="text-gray-900 font-medium">{contact.contactAddress || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.contactAddress || '—'}</p>
             </div>
           </div>
 
@@ -167,43 +203,68 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
             <div>
               <p className="text-sm text-gray-500 mb-1">Property Address</p>
-              <p className="text-gray-900 font-medium">{contact.propertyAddress || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.address || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">City</p>
-              <p className="text-gray-900 font-medium">{contact.city || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.city || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">State</p>
-              <p className="text-gray-900 font-medium">{contact.state || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.state || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">County</p>
-              <p className="text-gray-900 font-medium">{contact.propertyCounty || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.county || '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Property Type</p>
-              <p className="text-gray-900 font-medium">{contact.propertyType || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.propertyType || '—'}</p>
             </div>
           </div>
+
+
+          {/* Property Tabs (only when multiple properties) */}
+          {properties.length > 1 && (
+            <div className="mb-4">
+              <Tabs
+                value={`prop-${selectedPropertyIndex}`}
+                onValueChange={(v) => {
+                  const idx = parseInt((v || 'prop-0').split('-')[1])
+                  setSelectedPropertyIndex(Number.isFinite(idx) ? Math.max(0, idx) : 0)
+                }}
+              >
+                <TabsList className="flex flex-wrap">
+                  {properties.map((p, idx) => {
+                    const label = p.address || [p.city, p.state].filter(Boolean).join(', ') || `Property ${idx + 1}`
+                    return (
+                      <TabsTrigger key={p.id} value={`prop-${idx}`}>
+                        {label}
+                      </TabsTrigger>
+                    )
+                  })}
+                </TabsList>
+              </Tabs>
+            </div>
+          )}
 
           {/* Property Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-4 mb-6">
             <div>
               <p className="text-sm text-gray-500 mb-1">Bedrooms</p>
-              <p className="text-gray-900 font-medium">{contact.bedrooms || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.bedrooms ?? '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Bathrooms</p>
-              <p className="text-gray-900 font-medium">{contact.totalBathrooms || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.totalBathrooms ?? '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Square Feet</p>
-              <p className="text-gray-900 font-medium">{contact.buildingSqft ? contact.buildingSqft.toLocaleString() : '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.buildingSqft ? activeProp.buildingSqft.toLocaleString() : '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Year Built</p>
-              <p className="text-gray-900 font-medium">{contact.effectiveYearBuilt || '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.effectiveYearBuilt ?? '—'}</p>
             </div>
           </div>
 
@@ -211,15 +272,15 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
             <div>
               <p className="text-sm text-gray-500 mb-1">Estimated Value</p>
-              <p className="text-gray-900 font-medium">{contact.estValue ? `$${Number(contact.estValue).toLocaleString()}` : '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.estValue != null ? `$${Number(activeProp.estValue).toLocaleString()}` : '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Debt Owed</p>
-              <p className="text-gray-900 font-medium">{contact.debtOwed ? `$${Number(contact.debtOwed).toLocaleString()}` : '—'}</p>
+              <p className="text-gray-900 font-medium">{activeDebtOwed != null ? `$${Number(activeDebtOwed).toLocaleString()}` : '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Estimated Equity</p>
-              <p className="text-gray-900 font-medium">{contact.estEquity ? `$${Number(contact.estEquity).toLocaleString()}` : '—'}</p>
+              <p className="text-gray-900 font-medium">{activeProp.estEquity != null ? `$${Number(activeProp.estEquity).toLocaleString()}` : '—'}</p>
             </div>
           </div>
 
@@ -227,30 +288,30 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
             <div>
               <p className="text-sm text-gray-500 mb-1">Deal Status</p>
-              <p className="text-gray-900 font-medium capitalize">{contact.dealStatus ? contact.dealStatus.replace('_', ' ') : '—'}</p>
+              <p className="text-gray-900 font-medium capitalize">{c.dealStatus ? c.dealStatus.replace('_', ' ') : '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">Do Not Call</p>
-              <p className="text-gray-900 font-medium">{contact.dnc !== undefined ? (contact.dnc ? 'Yes' : 'No') : '—'}</p>
+              <p className="text-gray-900 font-medium">{c.dnc !== undefined ? (c.dnc ? 'Yes' : 'No') : '—'}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1">DNC Reason</p>
-              <p className="text-gray-900 font-medium">{contact.dncReason || '—'}</p>
+              <p className="text-gray-900 font-medium">{c.dncReason || '—'}</p>
             </div>
           </div>
 
           {/* Notes */}
           <div className="mb-6">
             <p className="text-sm text-gray-500 mb-1">Notes</p>
-            <p className="text-gray-900">{contact.notes || '—'}</p>
+            <p className="text-gray-900">{c.notes || '—'}</p>
           </div>
 
           {/* Tags */}
-          {contact.tags && contact.tags.length > 0 && (
+          {c.tags && c.tags.length > 0 && (
             <div className="mb-6">
               <p className="text-sm text-gray-500 mb-2">Tags</p>
               <div className="flex flex-wrap gap-2">
-                {contact.tags.map((tag) => {
+                {c.tags.map((tag) => {
                   const tagInfo = typeof tag === 'string' ? getTagInfo(tag) : tag
                   return (
                     <Badge

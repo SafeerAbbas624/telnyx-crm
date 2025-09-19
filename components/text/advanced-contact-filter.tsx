@@ -177,6 +177,11 @@ export default function AdvancedContactFilter({
     Object.entries(selectedFilters).forEach(([field, values]) => {
       if (values.length > 0) {
         result = result.filter(contact => {
+          if (field === 'tags') {
+            const tagsArr = (contact as any).tags || []
+            const tagNames = Array.isArray(tagsArr) ? tagsArr.map((t: any) => t.name) : []
+            return values.some(v => tagNames.includes(v))
+          }
           const fieldValue = (contact as any)[field]?.toString() || ""
           return values.includes(fieldValue)
         })
@@ -237,36 +242,9 @@ export default function AdvancedContactFilter({
   const debouncedSearch = useDebounce(searchQuery, 300)
   const hasMountedRef = useRef(false)
   useEffect(() => {
-    // Skip on first mount to avoid double initial loads (ContactsProvider already loads)
+    // Skip on first mount
     if (!hasMountedRef.current) { hasMountedRef.current = true; return }
-    // Skip debounced search if we're in the middle of clearing filters
-    if (isClearing) {
-      console.log(`🔍 [ADVANCED FILTER DEBUG] Skipping debounced search - clearing in progress`)
-      return
-    }
-
-    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
-      if (values.length > 0) acc[key] = values.join(',')
-      return acc
-    }, {} as any)
-
-    // Only include value/equity filters if they're different from default "show all" ranges
-    // Default ranges that should not be sent as filters:
-    const isDefaultValueRange = valueRange[0] === 0 && valueRange[1] >= 5000000
-    const isDefaultEquityRange = equityRange[0] === 0 && equityRange[1] >= 2000000000
-
-    if (!isDefaultValueRange) {
-      filters.minValue = String(valueRange[0])
-      filters.maxValue = String(valueRange[1])
-    }
-
-    if (!isDefaultEquityRange) {
-      filters.minEquity = String(equityRange[0])
-      filters.maxEquity = String(equityRange[1])
-    }
-
-    console.log(`🔍 [ADVANCED FILTER DEBUG] Triggering search: "${debouncedSearch}" with filters:`, filters)
-    searchContacts(debouncedSearch, filters)
+    // No-op: immediate search is handled in handleSearch and handleFilterChange
   }, [debouncedSearch, selectedFilters, valueRange, equityRange, isClearing])
 
 
@@ -312,9 +290,28 @@ export default function AdvancedContactFilter({
     }, 1000)
   }
 
-  // Handle search input (debounced effect triggers DB query)
+  // Handle search input: trigger immediate DB search (previous results are auto-cancelled)
   const handleSearch = (query: string) => {
     setSearchQuery(query)
+
+    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
+      if ((values as string[]).length > 0) acc[key] = (values as string[]).join(',')
+      return acc
+    }, {} as any)
+
+    const isDefaultValueRange = valueRange[0] === 0 && valueRange[1] >= 5000000
+    const isDefaultEquityRange = equityRange[0] === 0 && equityRange[1] >= 2000000000
+
+    if (!isDefaultValueRange) {
+      filters.minValue = String(valueRange[0])
+      filters.maxValue = String(valueRange[1])
+    }
+    if (!isDefaultEquityRange) {
+      filters.minEquity = String(equityRange[0])
+      filters.maxEquity = String(equityRange[1])
+    }
+
+    searchContacts(query, filters)
   }
 
   // Handle filter changes with database search
@@ -453,7 +450,7 @@ export default function AdvancedContactFilter({
             placeholder="Search contacts by name, email, phone, address..."
             className="pl-8"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
 
@@ -545,23 +542,25 @@ export default function AdvancedContactFilter({
                     </div>
                   </div>
 
-                  {/* Deal Status */}
+                  {/* Tags */}
                   <div className="space-y-2">
-                    <h5 className="font-semibold text-sm text-gray-900">Deal Status</h5>
+                    <h5 className="font-semibold text-sm text-gray-900">Tags</h5>
                     <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                      {(filterOptions?.dealStatuses?.length ? filterOptions.dealStatuses : getUniqueValues('dealStatus')).slice(0, 50).map((option: string) => {
+                      {(
+                        (filterOptions?.tags?.length ? filterOptions.tags.map((t: any) => t.name) : Array.from(new Set((contacts || []).flatMap((c: any) => (c.tags || []).map((t: any) => t.name)))) )
+                      ).slice(0, 200).map((tagName: string) => {
                         const pool = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-                        const count = Array.isArray(pool) ? pool.filter(c => (c as any)['dealStatus'] === option).length : 0
-                        const isSelected = selectedFilters['dealStatus']?.includes(option) || false
+                        const count = Array.isArray(pool) ? pool.filter(c => Array.isArray((c as any).tags) && (c as any).tags.some((t: any) => t.name === tagName)).length : 0
+                        const isSelected = selectedFilters['tags']?.includes(tagName) || false
                         return (
-                          <div key={`deal-${option}`} className="flex items-center space-x-2">
+                          <div key={`tag-${tagName}`} className="flex items-center space-x-2">
                             <Checkbox
-                              id={`deal-${option}`}
+                              id={`tag-${tagName}`}
                               checked={isSelected}
-                              onCheckedChange={(checked) => handleFilterChange('dealStatus', option, checked as boolean)}
+                              onCheckedChange={(checked) => handleFilterChange('tags', tagName, checked as boolean)}
                             />
-                            <Label htmlFor={`deal-${option}`} className="text-sm cursor-pointer flex-1">
-                              {option} ({count})
+                            <Label htmlFor={`tag-${tagName}`} className="text-sm cursor-pointer flex-1">
+                              {tagName} ({count})
                             </Label>
                           </div>
                         )

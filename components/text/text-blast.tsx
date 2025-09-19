@@ -5,18 +5,17 @@ import type { Contact } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
-import { Send, Filter, Users, X, Play, Pause, Phone, Plus, Edit, Trash2, Copy, Save } from "lucide-react"
+import { Send, Users, X, Play, Pause, Phone, Plus, Edit, Trash2, Copy, Save } from "lucide-react"
 import { useProcesses } from "@/lib/context/process-context"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useContacts } from "@/lib/context/contacts-context"
-import { fetchTags } from "@/lib/api"
+import AdvancedContactFilter from "@/components/text/advanced-contact-filter"
 import { getBestPhoneNumber, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 
 interface Template {
@@ -27,22 +26,14 @@ interface Template {
   subject?: string
 }
 
-interface Tag {
-  id: string;
-  name: string;
-}
 
 export default function TextBlast() {
   const { contacts } = useContacts()
   const [message, setMessage] = useState("")
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
-  const [tags, setTags] = useState<Tag[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
-  const selectedCount = selectedContactIds.size;
-  const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set());
-  const [selectedPropertyTypes, setSelectedPropertyTypes] = useState<Set<string>>(new Set());
-  const [showFilters, setShowFilters] = useState(false);
+  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
+  const [filteredContacts, setFilteredContacts] = useState<Contact[]>(contacts)
   const [senderNumbers, setSenderNumbers] = useState<any[]>([]);
   const [newSenderNumber, setNewSenderNumber] = useState("");
   const [newSenderState, setNewSenderState] = useState("");
@@ -54,7 +45,6 @@ export default function TextBlast() {
   const [delayMin, setDelayMin] = useState(8);
   const [delayMax, setDelayMax] = useState(12);
   const [currentProcessId, setCurrentProcessId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string | undefined>(undefined);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
@@ -70,8 +60,6 @@ export default function TextBlast() {
     const loadData = async () => {
       try {
         setIsLoading(true);
-        const tagsData = await fetchTags();
-        setTags(tagsData);
 
         // Fetch phone numbers separately with error handling
         try {
@@ -88,13 +76,11 @@ export default function TextBlast() {
           setSenderNumbers([]);
         }
 
-        // Select all contacts by default
-        setSelectedContactIds(new Set(contactsData.map((c: Contact) => c.id)));
       } catch (error) {
         console.error('Error loading data:', error);
         toast({
           title: 'Error',
-          description: 'Failed to load contacts and tags',
+          description: 'Failed to load phone numbers',
           variant: 'destructive',
         });
       } finally {
@@ -105,66 +91,6 @@ export default function TextBlast() {
     loadData();
   }, [toast]);
 
-  // Property types
-  const propertyTypes = [
-    { id: "single-family", label: "Single-Family" },
-    { id: "duplex", label: "Duplex" },
-    { id: "triplex", label: "Triplex" },
-    { id: "quadplex", label: "Quadplex" },
-    { id: "multi-family", label: "Multi-Family" },
-  ]
-
-  // Filter contacts based on search and selected tags
-  const filteredContacts = contacts.filter((contact: Contact) => {
-    // Search in contact details and tags
-    const searchLower = searchQuery?.toLowerCase() || ""
-    const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
-    const searchMatch =
-      !searchQuery ||
-      contactName.toLowerCase().includes(searchLower) ||
-      (contact.phone1?.toLowerCase() || '').includes(searchLower) ||
-      (contact.propertyAddress?.toLowerCase() || '').includes(searchLower) ||
-      (contact.tags?.some((tag: string) => 
-        tag.toLowerCase().includes(searchLower)
-      ) || false)
-
-    // Filter by tags
-    const tagMatch = selectedTagIds.size === 0 || 
-      (contact.tags?.some((tag: string) => 
-        selectedTagIds.has(tag)
-      ) || false)
-
-    // Filter by property type
-    const propertyTypeMatch = 
-      selectedPropertyTypes.size === 0 ||
-      (contact.propertyType !== undefined && selectedPropertyTypes.has(contact.propertyType))
-
-    return searchMatch && tagMatch && propertyTypeMatch
-  })
-
-  const handleTagChange = (tagId: string) => {
-    setSelectedTagIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(tagId)) {
-        newSet.delete(tagId);
-      } else {
-        newSet.add(tagId);
-      }
-      return newSet;
-    });
-  };
-
-  const handlePropertyTypeChange = (type: string) => {
-    setSelectedPropertyTypes(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(type)) {
-        newSet.delete(type);
-      } else {
-        newSet.add(type);
-      }
-      return newSet;
-    });
-  };
 
   const addSenderNumber = async () => {
     if (!newSenderNumber.trim()) {
@@ -240,23 +166,6 @@ export default function TextBlast() {
     }
   }
 
-  const handleContactSelect = (contactId: string) => {
-    const newSelected = new Set(selectedContactIds)
-    if (selectedContactIds.has(contactId)) {
-      newSelected.delete(contactId)
-    } else {
-      newSelected.add(contactId)
-    }
-    setSelectedContactIds(newSelected)
-  }
-
-  const handleSelectAll = () => {
-    if (selectedContactIds.size === filteredContacts.length) {
-      setSelectedContactIds(new Set())
-    } else {
-      setSelectedContactIds(new Set(filteredContacts.map(c => c.id)))
-    }
-  }
 
   const handleSelectTemplate = (templateId: string) => {
     const template = templates.find((t) => t.id === templateId)
@@ -289,7 +198,7 @@ export default function TextBlast() {
   }
 
   const handleSendBlast = async () => {
-    if (!message.trim() || filteredContacts.length === 0 || !Array.isArray(senderNumbers) || senderNumbers.length === 0) {
+    if (!message.trim() || selectedContacts.length === 0 || !Array.isArray(senderNumbers) || senderNumbers.length === 0) {
       toast({
         title: "Cannot send messages",
         description: "Please select contacts, a message template, and add sender numbers",
@@ -306,9 +215,9 @@ export default function TextBlast() {
     // Add to global process tracking
     const processId = addProcess({
       type: "text",
-      label: `Text Blast (${filteredContacts.length} contacts)`,
+      label: `Text Blast (${selectedContacts.length} contacts)`,
       progress: 0,
-      total: filteredContacts.length,
+      total: selectedContacts.length,
       isPaused: false,
     })
 
@@ -316,11 +225,11 @@ export default function TextBlast() {
 
     toast({
       title: "Text Blast Started",
-      description: `Sending messages to ${filteredContacts.length} contacts`,
+      description: `Sending messages to ${selectedContacts.length} contacts`,
     })
 
     // Simulate sending messages
-    for (let i = 0; i < filteredContacts.length; i++) {
+    for (let i = 0; i < selectedContacts.length; i++) {
       if (isPaused) {
         // Wait until unpaused
         await new Promise<void>((resolve) => {
@@ -335,7 +244,7 @@ export default function TextBlast() {
         })
       }
 
-      const contact = filteredContacts[i]
+      const contact = selectedContacts[i]
       const senderNumber = senderNumbers[i % senderNumbers.length]
       const formattedMessage = formatMessage(message, contact)
 
@@ -366,7 +275,7 @@ export default function TextBlast() {
 
       // Update progress
       setSentCount(i + 1)
-      setProgress(Math.round(((i + 1) / filteredContacts.length) * 100))
+      setProgress(Math.round(((i + 1) / selectedContacts.length) * 100))
 
       // Update global process state
       if (currentProcessId) {
@@ -382,7 +291,7 @@ export default function TextBlast() {
 
     toast({
       title: "Bulk messaging complete",
-      description: `Successfully sent ${filteredContacts.length} messages`,
+      description: `Successfully sent ${selectedContacts.length} messages`,
     })
   }
 
@@ -527,97 +436,24 @@ export default function TextBlast() {
             <CardContent className="p-6">
               <div className="flex justify-between items-center mb-4">
                 <h4 className="font-medium">Recipients</h4>
-                <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
-                  <Filter size={16} className="mr-2" />
-                  {showFilters ? "Hide Filters" : "Show Filters"}
-                </Button>
               </div>
-
-              {showFilters && (
-                <div className="space-y-4 p-4 border rounded-md mb-4">
-                  <div>
-                    <h5 className="text-sm font-medium mb-2">Filter by Tags</h5>
-                    {isLoading ? (
-                      <div className="text-sm text-gray-500">Loading tags...</div>
-                    ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {tags.map((tag: Tag) => (
-                          <div key={tag.id} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`tag-${tag.id}`}
-                              checked={selectedTagIds.has(tag.name)}
-                              onCheckedChange={() => handleTagChange(tag.name)}
-                            />
-                            <Label htmlFor={`tag-${tag.id}`} className="text-sm font-normal">
-                              {tag.name}
-                            </Label>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <h5 className="text-sm font-medium mb-2">Filter by Property Type</h5>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {propertyTypes.map((type) => (
-                        <div key={type.id} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`type-${type.id}`}
-                            checked={selectedPropertyTypes.has(type.id)}
-                            onCheckedChange={() => handlePropertyTypeChange(type.id)}
-                          />
-                          <Label htmlFor={`type-${type.id}`} className="text-sm">
-                            {type.label}
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="flex items-center justify-between p-3 bg-muted/30 rounded-md mb-4">
                 <div className="flex items-center gap-2">
                   <Users size={18} className="text-muted-foreground" />
                   <span>
-                    {selectedContactIds.size} of {filteredContacts.length} contacts selected ({contacts.length} total)
+                    {selectedContacts.length} of {filteredContacts.length} contacts selected ({contacts.length} total)
                   </span>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleSelectAll}>
-                  {selectedContactIds.size === filteredContacts.length ? "Deselect All" : "Select All"}
-                </Button>
               </div>
 
-              {/* Contact List */}
-              {filteredContacts.length > 0 && (
-                <div className="max-h-60 overflow-y-auto border rounded-md">
-                  {filteredContacts.slice(0, 50).map((contact) => (
-                    <div
-                      key={contact.id}
-                      className="flex items-center space-x-3 p-3 border-b last:border-b-0 hover:bg-gray-50"
-                    >
-                      <Checkbox
-                        checked={selectedContactIds.has(contact.id)}
-                        onCheckedChange={() => handleContactSelect(contact.id)}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium">
-                          {contact.firstName} {contact.lastName}
-                        </div>
-                        <div className="text-sm text-gray-500 truncate">
-                          {formatPhoneNumberForDisplay(contact.phone1)} • {contact.llcName || 'No company'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {filteredContacts.length > 50 && (
-                    <div className="p-3 text-center text-sm text-gray-500 border-t">
-                      Showing first 50 contacts. Use filters to narrow down results.
-                    </div>
-                  )}
-                </div>
-              )}
+              <AdvancedContactFilter
+                contacts={contacts}
+                onFilteredContactsChange={setFilteredContacts}
+                selectedContacts={selectedContacts}
+                onSelectedContactsChange={setSelectedContacts}
+                showList
+              />
             </CardContent>
           </Card>
 
@@ -648,7 +484,7 @@ export default function TextBlast() {
                     <div className="flex justify-between text-sm">
                       <span>Progress:</span>
                       <span>
-                        {sentCount} of {filteredContacts.length}
+                        {sentCount} of {selectedContacts.length}
                       </span>
                     </div>
                     <Progress value={progress} className="h-2" />
@@ -673,11 +509,11 @@ export default function TextBlast() {
                   ) : (
                     <Button
                       onClick={handleSendBlast}
-                      disabled={!message.trim() || filteredContacts.length === 0 || !Array.isArray(senderNumbers) || senderNumbers.length === 0}
+                      disabled={!message.trim() || selectedContacts.length === 0 || !Array.isArray(senderNumbers) || senderNumbers.length === 0}
                       className="flex items-center gap-2"
                     >
                       <Send size={16} />
-                      Send to {filteredContacts.length} Contact{filteredContacts.length !== 1 ? "s" : ""}
+                      Send to {selectedContacts.length} Contact{selectedContacts.length !== 1 ? "s" : ""}
                     </Button>
                   )}
                 </div>

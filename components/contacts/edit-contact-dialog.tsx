@@ -43,7 +43,6 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
   const [contactAddress, setContactAddress] = useState(contact?.contactAddress || "")
   const [city, setCity] = useState(contact?.city || "")
   const [state, setState] = useState(contact?.state || "")
-  const [zipCode, setZipCode] = useState(contact?.zipCode || "")
   const [propertyCounty, setPropertyCounty] = useState(contact?.propertyCounty || "")
   const [propertyType, setPropertyType] = useState(contact?.propertyType || "")
   const [bedrooms, setBedrooms] = useState<number | undefined>(contact?.bedrooms ?? undefined)
@@ -58,6 +57,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
   const [dncReason, setDncReason] = useState(contact?.dncReason || "")
   const [notes, setNotes] = useState(contact?.notes || "")
   const [selectedTags, setSelectedTags] = useState<Tag[]>(contact?.tags || [])
+  const [newTagName, setNewTagName] = useState("")
 
   useEffect(() => {
     if (contact) {
@@ -74,7 +74,6 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       setContactAddress(contact.contactAddress || "")
       setCity(contact.city || "")
       setState(contact.state || "")
-      setZipCode(contact.zipCode || "")
       setPropertyCounty(contact.propertyCounty || "")
       setPropertyType(contact.propertyType || "")
       setBedrooms(contact.bedrooms ?? undefined)
@@ -92,7 +91,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
     }
   }, [contact])
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!contact) return
 
     if (!firstName || !lastName) {
@@ -104,8 +103,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       return
     }
 
-    const updatedContact: Contact = {
-      ...contact,
+    const payload: Partial<Contact> & { tags?: any[] } = {
       firstName,
       lastName,
       llcName: llcName || undefined,
@@ -119,30 +117,32 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       contactAddress: contactAddress || undefined,
       city: city || undefined,
       state: state || undefined,
-      zipCode: zipCode || undefined,
       propertyCounty: propertyCounty || undefined,
       propertyType: propertyType || undefined,
-      bedrooms: bedrooms,
-      totalBathrooms: totalBathrooms,
-      buildingSqft: buildingSqft,
-      effectiveYearBuilt: effectiveYearBuilt,
-      estValue: estValue,
-      debtOwed: debtOwed,
-      estEquity: estEquity,
+      bedrooms,
+      totalBathrooms,
+      buildingSqft,
+      effectiveYearBuilt,
+      estValue,
+      estEquity,
       dealStatus,
       dnc,
       dncReason: dnc ? dncReason || "N/A" : undefined,
       notes: notes || undefined,
-      tags: selectedTags,
-      updatedAt: new Date().toISOString(),
+      tags: selectedTags.map((t: any) => ({
+        id: typeof t.id === 'string' && t.id.startsWith('new:') ? undefined : t.id,
+        name: t.name,
+        color: t.color,
+      })),
     }
 
-    updateContact(contact!.id, updatedContact)
+    const updated = await updateContact(contact.id, payload)
     toast({
       title: "Contact updated",
       description: `${firstName} ${lastName}'s details have been updated.`,
     })
     onOpenChange(false)
+    return updated
   }
 
   return (
@@ -218,10 +218,6 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
             <div className="space-y-2">
               <Label htmlFor="state">State</Label>
               <Input id="state" value={state} onChange={(e) => setState(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="zipCode">Zip Code</Label>
-              <Input id="zipCode" value={zipCode} onChange={(e) => setZipCode(e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -336,32 +332,54 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
           </div>
           <div className="space-y-2">
             <Label htmlFor="tags">Tags</Label>
-            <Select
-              onValueChange={(value) => {
-                const tag = tags.find((t) => t.id === value)
-                if (tag && !selectedTags.some((t) => t.id === tag.id)) {
-                  setSelectedTags([...selectedTags, tag])
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Add tags" />
-              </SelectTrigger>
-              <SelectContent>
-                {tags.map((tag) => (
-                  <SelectItem key={tag.id} value={tag.id}>
-                    {tag.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-2">
+                <Select
+                  onValueChange={(value) => {
+                    const tag = tags.find((t) => t.id === value)
+                    if (tag && !selectedTags.some((t) => t.id === tag.id)) {
+                      setSelectedTags([...selectedTags, tag])
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select existing tags" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tags.map((tag) => (
+                      <SelectItem key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Input
+                  placeholder="New tag"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const name = newTagName.trim()
+                      if (!name) return
+                      if (!selectedTags.some((t: any) => t.name.toLowerCase() === name.toLowerCase())) {
+                        const newTag: any = { id: `new:${name}`, name, color: '#3B82F6' }
+                        setSelectedTags([...selectedTags, newTag])
+                      }
+                      setNewTagName("")
+                    }
+                  }}
+                />
+              </div>
+            </div>
             <div className="flex flex-wrap gap-2 mt-2">
-              {selectedTags.map((tag) => (
+              {selectedTags.map((tag: any) => (
                 <Badge
                   key={tag.id}
-                  style={{ backgroundColor: tag.color, color: "white" }}
+                  style={{ backgroundColor: tag.color || '#3B82F6', color: "white" }}
                   className="cursor-pointer"
-                  onClick={() => setSelectedTags(selectedTags.filter((t) => t.id !== tag.id))}
+                  onClick={() => setSelectedTags(selectedTags.filter((t: any) => t.id !== tag.id && t.name !== tag.name))}
                 >
                   {tag.name}
                 </Badge>

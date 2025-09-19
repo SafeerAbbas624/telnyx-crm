@@ -3,16 +3,16 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { useSession } from "next-auth/react"
+import AdvancedContactFilter from "@/components/text/advanced-contact-filter"
+import { useContacts } from "@/lib/context/contacts-context"
 import {
   Phone,
   PhoneCall,
-  Search,
   Clock,
   DollarSign,
   Play,
@@ -65,7 +65,7 @@ interface Contact {
 export default function TeamCallsCenter() {
   const { data: session } = useSession()
   const { toast } = useToast()
-  const [searchQuery, setSearchQuery] = useState("")
+  const { currentQuery, currentFilters } = useContacts()
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [assignedContacts, setAssignedContacts] = useState<Contact[]>([])
   const [assignedPhoneNumbers, setAssignedPhoneNumbers] = useState<TelnyxPhoneNumber[]>([])
@@ -74,10 +74,12 @@ export default function TeamCallsCenter() {
   const [isLoading, setIsLoading] = useState(true)
   const [isDialing, setIsDialing] = useState(false)
   const [activeCall, setActiveCall] = useState<TelnyxCall | null>(null)
+  const [page, setPage] = useState(1)
+  const [limit] = useState(25)
 
   useEffect(() => {
     loadTeamData()
-  }, [])
+  }, [page, currentQuery, currentFilters])
 
 
   // Detect active calls and poll while active to keep UI in sync
@@ -107,8 +109,17 @@ export default function TeamCallsCenter() {
   const loadTeamData = async () => {
     setIsLoading(true)
     try {
-      // Load assigned contacts
-      const contactsResponse = await fetch('/api/team/assigned-contacts')
+      // Build query params from AdvancedContactFilter state (via ContactsProvider)
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+      if (currentQuery) params.set('search', currentQuery)
+      if (currentFilters) {
+        Object.entries(currentFilters).forEach(([k, v]) => {
+          if (v != null && String(v).length > 0) params.set(k, String(v))
+        })
+      }
+
+      // Load assigned contacts with filters (server-side filtered, team-restricted)
+      const contactsResponse = await fetch(`/api/team/assigned-contacts?${params.toString()}`)
       if (contactsResponse.ok) {
         const contactsData = await contactsResponse.json()
         setAssignedContacts(contactsData.contacts || [])
@@ -119,18 +130,12 @@ export default function TeamCallsCenter() {
         const phoneResponse = await fetch('/api/team/assigned-phone-numbers')
         if (phoneResponse.ok) {
           const phoneData = await phoneResponse.json()
-          console.log('Phone API response:', phoneData)
-
           if (phoneData.phoneNumbers && phoneData.phoneNumbers.length > 0) {
             setAssignedPhoneNumbers(phoneData.phoneNumbers)
-            setSelectedPhoneNumber(phoneData.phoneNumbers[0])
-            console.log('Set phone numbers:', phoneData.phoneNumbers)
+            setSelectedPhoneNumber((prev) => prev || phoneData.phoneNumbers[0])
           } else {
-            console.log('No phone numbers in response')
             setAssignedPhoneNumbers([])
           }
-        } else {
-          console.error('Phone API error:', phoneResponse.status)
         }
       } catch (error) {
         console.error('Phone API fetch error:', error)
@@ -169,7 +174,7 @@ export default function TeamCallsCenter() {
     return contact.phone1 || contact.phone2 || contact.phone3 || ''
   }
 
-  const makeCall = async (contact: Contact) => {
+  const makeCall = async (contact: Contact, toNumberOverride?: string) => {
     if (!selectedPhoneNumber) {
       toast({
         title: "Error",
@@ -179,8 +184,8 @@ export default function TeamCallsCenter() {
       return
     }
 
-    const phoneToCall = getBestPhoneNumber(contact)
-    if (!phoneToCall) {
+    const dialNumber = (toNumberOverride && toNumberOverride.trim()) || getBestPhoneNumber(contact)
+    if (!dialNumber) {
       toast({
         title: "Error",
         description: "Contact has no phone number",
@@ -198,7 +203,7 @@ export default function TeamCallsCenter() {
         },
         body: JSON.stringify({
           fromNumber: selectedPhoneNumber.number,
-          toNumber: phoneToCall,
+          toNumber: dialNumber,
           contactId: contact.id,
         }),
       })
@@ -227,10 +232,6 @@ export default function TeamCallsCenter() {
     }
   }
 
-  const filteredContacts = assignedContacts.filter(contact =>
-    `${contact.firstName} ${contact.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    getBestPhoneNumber(contact).includes(searchQuery)
-  )
 
   const formatDuration = (seconds: number): string => {
     const minutes = Math.floor(seconds / 60)
@@ -287,30 +288,28 @@ export default function TeamCallsCenter() {
       </div>
 
       <div className="flex-1 flex">
-        {/* Contacts List */}
+        {/* Contacts List + Advanced Filters */}
         <div className="w-1/3 border-r">
-          <div className="p-4">
-            <div className="relative mb-4">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search assigned contacts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+          <div className="p-4 space-y-4">
+            <AdvancedContactFilter
+              contacts={assignedContacts}
+              onFilteredContactsChange={() => { /* ignore; we fetch server-side */ }}
+              selectedContacts={[]}
+              onSelectedContactsChange={() => {}}
+              showList={false}
+              hideHeader
+              hideSelectAllPagesButton
+            />
 
-            <ScrollArea className="h-[calc(100vh-200px)]">
+            <ScrollArea className="h-[calc(100vh-280px)]">
               <div className="space-y-2">
-                {filteredContacts.length === 0 ? (
+                {assignedContacts.length === 0 ? (
                   <div className="text-center py-8">
                     <User className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">
-                      {searchQuery ? "No contacts match your search" : "No contacts assigned to you"}
-                    </p>
+                    <p className="text-muted-foreground">No contacts match your filters</p>
                   </div>
                 ) : (
-                  filteredContacts.map((contact) => (
+                  assignedContacts.map((contact) => (
                     <Card
                       key={contact.id}
                       className={`cursor-pointer transition-colors hover:bg-muted/50 ${
@@ -374,9 +373,20 @@ export default function TeamCallsCenter() {
                         <h3 className="font-semibold">
                           {selectedContact.firstName} {selectedContact.lastName}
                         </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {formatPhoneNumberForDisplay(getBestPhoneNumber(selectedContact))}
-                        </p>
+                        <div className="flex gap-2 flex-wrap text-sm">
+                          {([['phone1', selectedContact.phone1], ['phone2', selectedContact.phone2], ['phone3', selectedContact.phone3]] as const)
+                            .filter(([, num]) => !!num)
+                            .map(([key, num]) => (
+                              <Button
+                                key={key}
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => { e.preventDefault(); makeCall(selectedContact, num as string) }}
+                              >
+                                <PhoneCall className="h-3 w-3 mr-1" /> {formatPhoneNumberForDisplay(num as string)}
+                              </Button>
+                            ))}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

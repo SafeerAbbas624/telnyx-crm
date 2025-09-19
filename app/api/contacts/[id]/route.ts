@@ -79,6 +79,7 @@ export async function GET(
             },
           },
         },
+        properties: true,
       },
     });
 
@@ -124,13 +125,29 @@ export async function GET(
       phone: contact.phone1 || '',
       email: contact.email1 || '',
       propertyValue: contact.estValue ? Number(contact.estValue) : null,
-      debtOwed: contact.estValue && contact.estEquity ? 
+      debtOwed: contact.estValue && contact.estEquity ?
         Number(contact.estValue) - Number(contact.estEquity) : null,
       tags: contact.contact_tags.map((ct) => ({
         id: ct.tag.id,
         name: ct.tag.name,
         color: ct.tag.color || '#3B82F6'
       })),
+      properties: (contact as any).properties?.map((p: any) => ({
+        id: p.id,
+        address: p.address || '',
+        city: p.city || '',
+        state: p.state || '',
+        county: p.county || '',
+        propertyType: p.propertyType || '',
+        bedrooms: p.bedrooms ?? null,
+        totalBathrooms: p.totalBathrooms ?? null,
+        buildingSqft: p.buildingSqft ?? null,
+        effectiveYearBuilt: p.effectiveYearBuilt ?? null,
+        estValue: p.estValue ?? null,
+        estEquity: p.estEquity ?? null,
+        createdAt: p.createdAt?.toISOString?.() || undefined,
+        updatedAt: p.updatedAt?.toISOString?.() || undefined,
+      })) || [],
     };
 
     return NextResponse.json(formattedContact);
@@ -198,66 +215,115 @@ export async function PATCH(
     if (body.notes !== undefined) updateData.notes = body.notes;
     if (body.avatarUrl !== undefined) updateData.avatarUrl = body.avatarUrl;
 
-    const updatedContact = await prisma.contact.update({
+    // Update core contact fields first
+    await prisma.contact.update({
       where: { id },
       data: updateData,
+    });
+
+    // If tags provided, upsert new tags by name and sync associations
+    if (Array.isArray(body.tags)) {
+      // Normalize incoming tags into { id?: string, name?: string, color?: string }
+      const incoming: Array<{ id?: string; name?: string; color?: string } | string> = body.tags;
+      const desiredTagIds = new Set<string>();
+      const candidatesToCreate = new Map<string, string | undefined>(); // name -> color
+
+      for (const item of incoming) {
+        if (typeof item === 'string') {
+          const name = item.trim();
+          if (name) candidatesToCreate.set(name, undefined);
+          continue;
+        }
+        if (item && item.id) {
+          desiredTagIds.add(item.id);
+        } else if (item && item.name) {
+          const name = item.name.trim();
+          if (name) candidatesToCreate.set(name, item.color);
+        }
+      }
+
+      // Create or fetch tags for names
+      for (const [name, color] of candidatesToCreate.entries()) {
+        const tag = await prisma.tag.upsert({
+          where: { name },
+          update: color ? { color } : {},
+          create: { name, ...(color ? { color } : {}) },
+        });
+        desiredTagIds.add(tag.id);
+      }
+
+      // Fetch current associations
+      const existing = await prisma.contactTag.findMany({
+        where: { contact_id: id },
+        select: { tag_id: true },
+      });
+      const existingIds = new Set(existing.map((e) => e.tag_id));
+
+      const toAdd = [...desiredTagIds].filter((tid) => !existingIds.has(tid));
+      const toRemove = [...existingIds].filter((tid) => !desiredTagIds.has(tid));
+
+      if (toAdd.length > 0) {
+        await prisma.contactTag.createMany({
+          data: toAdd.map((tid) => ({ contact_id: id, tag_id: tid })),
+          skipDuplicates: true,
+        });
+      }
+      if (toRemove.length > 0) {
+        await prisma.contactTag.deleteMany({
+          where: { contact_id: id, tag_id: { in: toRemove } },
+        });
+      }
+    }
+
+    // Re-fetch full contact with tags to return fresh data
+    const updated = await prisma.contact.findUnique({
+      where: { id },
       include: {
-        contact_tags: {
-          include: {
-            tag: {
-              select: {
-                id: true,
-                name: true,
-                color: true,
-              },
-            },
-          },
-        },
+        contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } },
       },
     });
 
+    if (!updated) {
+      return NextResponse.json({ error: 'Contact not found after update' }, { status: 404 });
+    }
+
     // Transform the data to match the expected frontend format
     const formattedContact = {
-      id: updatedContact.id,
-      firstName: updatedContact.firstName || '',
-      lastName: updatedContact.lastName || '',
-      llcName: updatedContact.llcName || '',
-      phone1: updatedContact.phone1 || '',
-      phone2: updatedContact.phone2 || '',
-      phone3: updatedContact.phone3 || '',
-      email1: updatedContact.email1 || '',
-      email2: updatedContact.email2 || '',
-      email3: updatedContact.email3 || '',
-      propertyAddress: updatedContact.propertyAddress || '',
-      contactAddress: updatedContact.contactAddress || '',
-      city: updatedContact.city || '',
-      state: updatedContact.state || '',
-      propertyCounty: updatedContact.propertyCounty || '',
-      propertyType: updatedContact.propertyType || '',
-      bedrooms: updatedContact.bedrooms,
-      totalBathrooms: updatedContact.totalBathrooms ? Number(updatedContact.totalBathrooms) : null,
-      buildingSqft: updatedContact.buildingSqft,
-      effectiveYearBuilt: updatedContact.effectiveYearBuilt,
-      estValue: updatedContact.estValue ? Number(updatedContact.estValue) : null,
-      estEquity: updatedContact.estEquity ? Number(updatedContact.estEquity) : null,
-      dnc: updatedContact.dnc,
-      dncReason: updatedContact.dncReason || '',
-      dealStatus: updatedContact.dealStatus,
-      notes: updatedContact.notes || '',
-      avatarUrl: updatedContact.avatarUrl || '',
-      createdAt: updatedContact.createdAt.toISOString(),
-      updatedAt: updatedContact.updatedAt?.toISOString() || updatedContact.createdAt.toISOString(),
+      id: updated.id,
+      firstName: updated.firstName || '',
+      lastName: updated.lastName || '',
+      llcName: updated.llcName || '',
+      phone1: updated.phone1 || '',
+      phone2: updated.phone2 || '',
+      phone3: updated.phone3 || '',
+      email1: updated.email1 || '',
+      email2: updated.email2 || '',
+      email3: updated.email3 || '',
+      propertyAddress: updated.propertyAddress || '',
+      contactAddress: updated.contactAddress || '',
+      city: updated.city || '',
+      state: updated.state || '',
+      propertyCounty: updated.propertyCounty || '',
+      propertyType: updated.propertyType || '',
+      bedrooms: updated.bedrooms,
+      totalBathrooms: updated.totalBathrooms ? Number(updated.totalBathrooms) : null,
+      buildingSqft: updated.buildingSqft,
+      effectiveYearBuilt: updated.effectiveYearBuilt,
+      estValue: updated.estValue ? Number(updated.estValue) : null,
+      estEquity: updated.estEquity ? Number(updated.estEquity) : null,
+      dnc: updated.dnc,
+      dncReason: updated.dncReason || '',
+      dealStatus: updated.dealStatus,
+      notes: updated.notes || '',
+      avatarUrl: updated.avatarUrl || '',
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt?.toISOString() || updated.createdAt.toISOString(),
       // Legacy/compatibility fields
-      phone: updatedContact.phone1 || '',
-      email: updatedContact.email1 || '',
-      propertyValue: updatedContact.estValue ? Number(updatedContact.estValue) : null,
-      debtOwed: updatedContact.estValue && updatedContact.estEquity ? 
-        Number(updatedContact.estValue) - Number(updatedContact.estEquity) : null,
-      tags: updatedContact.contact_tags.map((ct) => ({
-        id: ct.tag.id,
-        name: ct.tag.name,
-        color: ct.tag.color || '#3B82F6'
-      })),
+      phone: updated.phone1 || '',
+      email: updated.email1 || '',
+      propertyValue: updated.estValue ? Number(updated.estValue) : null,
+      debtOwed: updated.estValue && updated.estEquity ? Number(updated.estValue) - Number(updated.estEquity) : null,
+      tags: updated.contact_tags.map((ct) => ({ id: ct.tag.id, name: ct.tag.name, color: ct.tag.color || '#3B82F6' })),
     };
 
     return NextResponse.json(formattedContact);
