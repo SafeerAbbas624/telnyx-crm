@@ -158,25 +158,45 @@ export function EmailAccountEdit({ accountId, onSuccess, onCancel }: EmailAccoun
   const handleTestConnection = async () => {
     setIsTesting(true)
     try {
+      // If passwords are masked, fetch the actual credentials from the server
+      let testData = {
+        smtpHost: formData.smtpHost,
+        smtpPort: formData.smtpPort,
+        smtpEncryption: formData.smtpEncryption,
+        smtpUsername: formData.smtpUsername,
+        smtpPassword: formData.smtpPassword,
+        imapHost: formData.imapHost,
+        imapPort: formData.imapPort,
+        imapEncryption: formData.imapEncryption,
+        imapUsername: formData.imapUsername,
+        imapPassword: formData.imapPassword,
+      }
+
+      // If passwords are masked, get the actual credentials
+      if (formData.smtpPassword === '••••••••' || formData.imapPassword === '••••••••') {
+        const credResponse = await fetch(`/api/email/accounts/${accountId}/credentials`)
+        if (credResponse.ok) {
+          const credData = await credResponse.json()
+          if (credData.success) {
+            // Use stored credentials for masked passwords
+            if (formData.smtpPassword === '••••••••') {
+              testData.smtpPassword = credData.credentials.smtpPassword
+            }
+            if (formData.imapPassword === '••••••••') {
+              testData.imapPassword = credData.credentials.imapPassword
+            }
+          }
+        }
+      }
+
       const response = await fetch('/api/email/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          smtpHost: formData.smtpHost,
-          smtpPort: formData.smtpPort,
-          smtpEncryption: formData.smtpEncryption,
-          smtpUsername: formData.smtpUsername,
-          smtpPassword: formData.smtpPassword === '••••••••' ? undefined : formData.smtpPassword,
-          imapHost: formData.imapHost,
-          imapPort: formData.imapPort,
-          imapEncryption: formData.imapEncryption,
-          imapUsername: formData.imapUsername,
-          imapPassword: formData.imapPassword === '••••••••' ? undefined : formData.imapPassword,
-        }),
+        body: JSON.stringify(testData),
       })
 
       const result = await response.json()
-      
+
       if (result.success) {
         toast({
           title: 'Connection Test Successful',
@@ -378,18 +398,24 @@ export function EmailAccountEdit({ accountId, onSuccess, onCancel }: EmailAccoun
                   onChange={(e) => handleInputChange('smtpPassword', e.target.value)}
                   placeholder={formData.hasSmtpPassword ? '••••••••' : 'Enter password'}
                   required={!formData.hasSmtpPassword}
+                  className="pr-10"
                 />
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                  onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent z-10"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowSmtpPassword(!showSmtpPassword);
+                  }}
+                  tabIndex={-1}
                 >
                   {showSmtpPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4 text-gray-500" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4 text-gray-500" />
                   )}
                 </Button>
               </div>
@@ -464,18 +490,24 @@ export function EmailAccountEdit({ accountId, onSuccess, onCancel }: EmailAccoun
                   value={formData.imapPassword || ''}
                   onChange={(e) => handleInputChange('imapPassword', e.target.value)}
                   placeholder={formData.hasImapPassword ? '••••••••' : 'Enter password'}
+                  className="pr-10"
                 />
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                  onClick={() => setShowImapPassword(!showImapPassword)}
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent z-10"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowImapPassword(!showImapPassword);
+                  }}
+                  tabIndex={-1}
                 >
                   {showImapPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4 text-gray-500" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4 text-gray-500" />
                   )}
                 </Button>
               </div>

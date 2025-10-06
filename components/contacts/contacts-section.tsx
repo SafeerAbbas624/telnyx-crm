@@ -1,15 +1,16 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { useDebounce } from "@/hooks/use-debounce"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Plus, UserPlus, Trash2, Search } from "lucide-react"
+import { Plus, UserPlus, Trash2, Search, Tags } from "lucide-react"
 import ContactsList from "./contacts-list"
 import AddContactDialog from "./add-contact-dialog"
 import EditContactDialog from "./edit-contact-dialog"
 import ContactDetails from "./contact-details" // Import ContactDetails
 import AdvancedContactFilter from "../text/advanced-contact-filter"
+import BulkTagOperations from "./bulk-tag-operations"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
@@ -45,10 +46,22 @@ export default function ContactsSection() {
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([])
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [showBulkTagOperations, setShowBulkTagOperations] = useState(false)
+
+
+  // Reset to full list on Contacts page mount to avoid carrying over filters from other tabs/pages
+  useEffect(() => {
+    // Always load the default, unfiltered list when visiting Contacts
+    searchContacts('', {})
+  }, [])
+
+
+  // Export state (admin only)
+  const [exportSelectedOnly, setExportSelectedOnly] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   // Debounce search - responsive search timing
-  const debouncedSearchTerm = useDebounce(searchTerm, 300) // 300ms wait
+
 
   // Initialize filtered contacts with all contacts when they're first loaded
   useEffect(() => {
@@ -67,22 +80,6 @@ export default function ContactsSection() {
     }
   }, [contacts, filteredContacts.length])
 
-  // Real-time database search effect (only when user actually types something)
-  useEffect(() => {
-    console.log('🔍 Search effect triggered:', { searchTerm, debouncedSearchTerm })
-    const term = debouncedSearchTerm.trim()
-    if (term.length === 0) {
-      // Do NOT hit the API for empty search; just show current contacts
-      if (contacts.length > 0) {
-        setFilteredContacts(contacts)
-      }
-      return
-    }
-    // Trigger database search when there is a non-empty term
-    searchContacts(term)
-    // Intentionally exclude searchContacts from deps to avoid identity changes causing loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearchTerm, contacts])
 
   // Use filtered contacts when a search or filters are active (even if zero results)
   const isFilteringActive = Boolean(currentQuery) || (currentFilters && Object.values(currentFilters).some(v => String(v).length > 0))
@@ -154,25 +151,7 @@ export default function ContactsSection() {
 
   const handleAddContact = async (newContactData: Omit<Contact, "id" | "createdAt">) => {
     try {
-      const estValue = newContactData.propertyValue ?? undefined
-      const debtOwed = newContactData.debtOwed ?? undefined
-      const estEquity = typeof estValue === 'number' && typeof debtOwed === 'number'
-        ? Number(estValue) - Number(debtOwed)
-        : undefined
-
-      const payload: any = {
-        firstName: newContactData.firstName,
-        lastName: newContactData.lastName,
-        phone1: (newContactData as any).phone || newContactData.phone1 || undefined,
-        email1: (newContactData as any).email || newContactData.email1 || undefined,
-        propertyAddress: newContactData.propertyAddress || undefined,
-        propertyType: newContactData.propertyType || undefined,
-        estValue,
-        estEquity,
-        notes: newContactData.notes || undefined,
-      }
-
-      await addContact(payload as any)
+      await addContact(newContactData as any)
       setShowAddDialog(false)
     } catch (e) {
       console.error('Failed to add contact', e)
@@ -190,6 +169,53 @@ export default function ContactsSection() {
 
   const handleContactSelect = (contact: Contact) => {
     setSelectedContact(contact)
+  }
+
+
+  // Export CSV handler (admin only)
+  const handleExportCsv = async () => {
+    if (!isAdmin) return
+    try {
+      setExporting(true)
+      const payload: any = {
+        ...currentFilters,
+        search: currentQuery,
+        exportAllMatching: !exportSelectedOnly,
+      }
+      if (exportSelectedOnly) {
+        if (selectedContactIds.length === 0) {
+          toast({ title: 'No contacts selected', description: 'Select one or more contacts to export, or switch to exporting all filtered contacts.', variant: 'destructive' })
+          setExporting(false)
+          return
+        }
+        payload.selectedIds = selectedContactIds
+      }
+
+      const res = await fetch('/api/admin/contacts/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '')
+        throw new Error(txt || 'Failed to export contacts')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g, '-')
+      a.download = `contacts-${ts}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Export failed', e)
+      toast({ title: 'Export failed', description: 'Please try again or adjust filters.', variant: 'destructive' })
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleBackToList = () => {
@@ -230,6 +256,28 @@ export default function ContactsSection() {
 
             extraActions={(
               <>
+                {isAdmin && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setExportSelectedOnly(false); handleExportCsv() }}
+                      disabled={exporting}
+                    >
+                      {exporting ? 'Exporting…' : 'Export CSV (Filtered)'}
+                    </Button>
+                    {selectedContactIds.length > 0 && (
+                      <Button
+                        size="sm"
+                        className="ml-2"
+                        onClick={() => { setExportSelectedOnly(true); handleExportCsv() }}
+                        disabled={exporting}
+                      >
+                        {exporting ? 'Exporting…' : `Export Selected (${selectedContactIds.length})`}
+                      </Button>
+                    )}
+                  </>
+                )}
                 {selectedContactIds.length > 0 && (
                   <>
                     {isAdmin && (
@@ -254,6 +302,15 @@ export default function ContactsSection() {
                         }
                       />
                     )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowBulkTagOperations(true)}
+                      className="ml-2 flex items-center gap-2"
+                    >
+                      <Tags className="h-4 w-4" />
+                      Tag Selected ({selectedContactIds.length})
+                    </Button>
                     <Button
                       variant="destructive"
                       size="sm"
@@ -336,6 +393,10 @@ export default function ContactsSection() {
               </div>
             )}
           </div>
+
+
+
+
         ) : (
           <ContactsList
             contacts={finalFilteredContacts}
@@ -374,6 +435,8 @@ export default function ContactsSection() {
               disabled={!pagination.hasMore}
             >
               Next
+
+
             </Button>
             <Button
               variant="outline"
@@ -410,6 +473,8 @@ export default function ContactsSection() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
+
+
             <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
               Delete
             </AlertDialogAction>
@@ -428,6 +493,20 @@ export default function ContactsSection() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Bulk Tag Operations Dialog */}
+      <BulkTagOperations
+        open={showBulkTagOperations}
+        onOpenChange={setShowBulkTagOperations}
+        selectedContactIds={selectedContactIds}
+        onComplete={() => {
+          // Refresh contacts to show updated tags
+          searchContacts(currentQuery, currentFilters)
+          // Clear selection
+          setSelectedContactIds([])
+          setSelectedContacts([])
+        }}
+      />
 
     </div>
 

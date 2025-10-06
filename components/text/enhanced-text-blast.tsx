@@ -75,7 +75,7 @@ interface MessageTemplate {
 }
 
 export default function EnhancedTextBlast() {
-  const { contacts } = useContacts()
+  const { contacts, searchContacts } = useContacts()
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [selectedNumbers, setSelectedNumbers] = useState<TelnyxPhoneNumber[]>([])
@@ -103,7 +103,11 @@ export default function EnhancedTextBlast() {
   console.log('EnhancedTextBlast - availableNumbers:', availableNumbers)
   console.log('EnhancedTextBlast - selectedNumbers:', selectedNumbers)
 
-
+  // Ensure we start from the full contact list when opening Text Blast
+  useEffect(() => {
+    searchContacts('', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Load data on component mount
   useEffect(() => {

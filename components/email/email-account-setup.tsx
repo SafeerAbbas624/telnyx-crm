@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Mail, Settings, TestTube, ArrowLeft, CheckCircle, XCircle } from "lucide-react"
+import { Mail, Settings, TestTube, ArrowLeft, CheckCircle, XCircle, Eye, EyeOff } from "lucide-react"
 
 interface EmailAccountSetupProps {
   onSuccess: () => void
@@ -88,6 +88,8 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
   const [isLoading, setIsLoading] = useState(false)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false)
+  const [showImapPassword, setShowImapPassword] = useState(false)
 
   // Common email provider presets
   const emailProviders = {
@@ -435,14 +437,35 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
                     </div>
                     <div>
                       <Label htmlFor="smtpPassword">Password *</Label>
-                      <Input
-                        id="smtpPassword"
-                        type="password"
-                        value={formData.smtpPassword}
-                        onChange={(e) => handleInputChange('smtpPassword', e.target.value)}
-                        placeholder="App password recommended"
-                        required
-                      />
+                      <div className="relative">
+                        <Input
+                          id="smtpPassword"
+                          type={showSmtpPassword ? 'text' : 'password'}
+                          value={formData.smtpPassword}
+                          onChange={(e) => handleInputChange('smtpPassword', e.target.value)}
+                          placeholder="App password recommended"
+                          required
+                          className="pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent z-10"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowSmtpPassword(!showSmtpPassword);
+                          }}
+                          tabIndex={-1}
+                        >
+                          {showSmtpPassword ? (
+                            <EyeOff className="h-4 w-4 text-gray-500" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-gray-500" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </TabsContent>
@@ -497,13 +520,34 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
                     </div>
                     <div>
                       <Label htmlFor="imapPassword">Password</Label>
-                      <Input
-                        id="imapPassword"
-                        type="password"
-                        value={formData.imapPassword}
-                        onChange={(e) => handleInputChange('imapPassword', e.target.value)}
-                        placeholder="App password recommended"
-                      />
+                      <div className="relative">
+                        <Input
+                          id="imapPassword"
+                          type={showImapPassword ? 'text' : 'password'}
+                          value={formData.imapPassword}
+                          onChange={(e) => handleInputChange('imapPassword', e.target.value)}
+                          placeholder="App password recommended"
+                          className="pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent z-10"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowImapPassword(!showImapPassword);
+                          }}
+                          tabIndex={-1}
+                        >
+                          {showImapPassword ? (
+                            <EyeOff className="h-4 w-4 text-gray-500" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-gray-500" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </TabsContent>

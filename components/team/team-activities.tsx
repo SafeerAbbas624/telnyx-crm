@@ -83,7 +83,7 @@ export default function TeamActivities() {
 
   const loadActivities = async () => {
     try {
-      const response = await fetch('/api/team/activities')
+      const response = await fetch('/api/team/activities?limit=500')
       if (response.ok) {
         const data = await response.json()
         setActivities(data.activities || [])
@@ -262,9 +262,10 @@ export default function TeamActivities() {
   const getActivityIcon = (type: string) => {
     switch (type) {
       case 'call': return Phone
-      case 'email': return Mail
       case 'meeting': return Calendar
-      case 'follow_up': return MessageSquare
+      case 'email': return Mail
+      case 'task': return CheckCircle
+      case 'note': return Edit
       default: return Calendar
     }
   }
@@ -371,10 +372,11 @@ export default function TeamActivities() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="call">Phone Call</SelectItem>
-                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="call">Call</SelectItem>
                       <SelectItem value="meeting">Meeting</SelectItem>
-                      <SelectItem value="follow_up">Follow Up</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="task">Task</SelectItem>
+                      <SelectItem value="note">Notes</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -477,10 +479,10 @@ export default function TeamActivities() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="call">Call</SelectItem>
-                      <SelectItem value="email">Email</SelectItem>
                       <SelectItem value="meeting">Meeting</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
                       <SelectItem value="task">Task</SelectItem>
-                      <SelectItem value="note">Note</SelectItem>
+                      <SelectItem value="note">Notes</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

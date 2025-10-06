@@ -127,6 +127,7 @@ export interface Activity {
   nextAction?: string;
   createdAt: string;
   updatedAt: string;
+  tags?: Tag[];
 }
 
 export type DealStage = DealStatus;

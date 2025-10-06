@@ -41,10 +41,24 @@ export default function ContactName({ contactId, contact: contactProp, name, cla
   const [loading, setLoading] = useState(false)
   const idToFetch = contactProp?.id || contactId || contactFromContext?.id
 
-  // Load contact details when opening popup/drawer if not already available
+  // Ensure we show the correct contact when the target changes (e.g., selecting another conversation)
+  useEffect(() => {
+    if (!idToFetch) {
+      setFullContact(null)
+      return
+    }
+    // If the cached contact is for a different id, reset/sync to the current basic contact data
+    setFullContact((prev) => {
+      if (prev && prev.id === idToFetch) return prev
+      return contactProp || contactFromContext || null
+    })
+  }, [idToFetch, contactProp, contactFromContext])
+
+  // Load contact details when opening popup/drawer if not already available for this contact
   useEffect(() => {
     if (!open) return
-    if (fullContact || !idToFetch) return
+    if (!idToFetch) return
+    if (fullContact && fullContact.id === idToFetch) return
     let cancelled = false
     setLoading(true)
     fetch(`/api/contacts/${idToFetch}`)

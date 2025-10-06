@@ -60,14 +60,15 @@ model Contact {
 }
 
 model Tag {
-  id           String       @id @default(uuid()) @db.Uuid
-  name         String       @unique
-  color        String       @default("#3B82F6")
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String        @unique
+  color        String        @default("#3B82F6")
   description  String?
-  is_system    Boolean?     @default(false)
-  created_at   DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime     @updatedAt @db.Timestamptz(6)
+  is_system    Boolean?      @default(false)
+  created_at   DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime      @updatedAt @db.Timestamptz(6)
   contact_tags ContactTag[]
+  activity_tags ActivityTag[]
 
   @@map("tags")
 }
@@ -83,6 +84,19 @@ model ContactTag {
 
   @@unique([contact_id, tag_id])
   @@map("contact_tags")
+}
+
+model ActivityTag {
+  id          String   @id @default(uuid()) @db.Uuid
+  activity_id String   @db.Uuid
+  tag_id      String   @db.Uuid
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  created_by  String?  @db.Uuid
+  activity    Activity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  tag         Tag      @relation(fields: [tag_id], references: [id], onDelete: Cascade)
+
+  @@unique([activity_id, tag_id])
+  @@map("activity_tags")
 }
 
 model Message {
@@ -190,6 +204,7 @@ model Activity {
   updated_at           DateTime          @updatedAt @db.Timestamptz(6)
   contact              Contact           @relation(fields: [contact_id], references: [id], onDelete: Cascade)
   createdBy            User?             @relation("UserActivities", fields: [created_by], references: [id], onDelete: SetNull)
+  activity_tags        ActivityTag[]
 
   @@index([contact_id, due_date], name: "idx_activities_contact_due")
   @@index([created_by, created_at(sort: Desc)], name: "idx_activities_created_by")
@@ -1030,6 +1045,7 @@ model EmailConversation {
 
   isArchived        Boolean             @default(false) @map("is_archived")
   isStarred         Boolean             @default(false) @map("is_starred")
+  deletedAt         DateTime?           @map("deleted_at")
 
   createdAt         DateTime            @default(now()) @map("created_at")
   updatedAt         DateTime            @updatedAt @map("updated_at")
@@ -1131,8 +1147,24 @@ model User {
   calls             TelnyxCall[]        @relation("UserCalls")
   accounts          Account[]           @relation("UserAccounts")
   automations       TextAutomation[]    @relation("UserAutomations")
+  filterPresets     FilterPreset[]      @relation("UserFilterPresets")
 
   @@map("users")
+}
+
+model FilterPreset {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  filters     Json     // Store filter configuration as JSON
+  userId      String   @map("user_id") @db.Uuid
+  user        User     @relation("UserFilterPresets", fields: [userId], references: [id], onDelete: Cascade)
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("filter_presets")
+  @@index([userId])
 }
 
 model Session {

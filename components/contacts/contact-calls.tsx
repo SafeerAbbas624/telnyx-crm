@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, PlusCircle, Mic } from "lucide-react"
+import { PhoneIncoming, PhoneOutgoing, PhoneMissed, PlusCircle, Mic, Phone } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
 import { useCallUI } from "@/lib/context/call-ui-context"
@@ -186,8 +186,8 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg font-semibold">Calls</CardTitle>
-        <Button variant="ghost" size="sm" onClick={handleLogCall}>
-          <PlusCircle className="h-4 w-4 mr-2" /> Log Call
+        <Button variant="default" size="sm" onClick={handleLogCall} className="bg-green-600 hover:bg-green-700">
+          <Phone className="h-4 w-4 mr-2" /> Call
         </Button>
       </CardHeader>
       <CardContent className="flex-1 pt-4">

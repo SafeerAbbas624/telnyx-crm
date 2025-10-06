@@ -5,7 +5,8 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Edit, Phone, Mail, MapPin, DollarSign, Home, GripHorizontal } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { ArrowLeft, Edit, Phone, Mail, MapPin, DollarSign, Home, GripHorizontal, Building2, Calendar, User, Tag, AlertCircle } from "lucide-react"
 import type { Contact } from "@/lib/types"
 import { ContactNotes } from "./contact-notes"
 import ContactActivities from "./contact-activities"
@@ -15,6 +16,7 @@ import ContactEmails from "./contact-emails"
 import ContactTimeline from "./contact-timeline"
 import EditContactDialog from "./edit-contact-dialog"
 import { useContacts } from "@/lib/context/contacts-context"
+import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 
 interface ContactDetailsProps {
   contact: Contact
@@ -144,167 +146,240 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
       <div className="flex-1 flex flex-col min-h-0 relative">
         {/* Contact Details Section - Resizable Top Panel */}
         <div
-          className="overflow-y-auto p-6 bg-white"
+          className="overflow-y-auto p-6 bg-gray-50"
           style={{ height: `${topPanelHeight}%` }}
         >
+          {/* Contact Overview Card */}
+          <Card className="mb-4">
+            <CardContent className="pt-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-16 w-16 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold">
+                    {c.firstName?.[0]}{c.lastName?.[0]}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{c.firstName} {c.lastName}</h2>
+                    {c.llcName && <p className="text-sm text-gray-600 flex items-center gap-1 mt-1"><Building2 className="h-4 w-4" />{c.llcName}</p>}
+                    <div className="flex items-center gap-2 mt-2">
+                      <Badge variant={c.dealStatus === 'closed' ? 'default' : c.dealStatus === 'negotiating' ? 'secondary' : 'outline'} className="capitalize">
+                        {c.dealStatus?.replace('_', ' ') || 'Lead'}
+                      </Badge>
+                      {c.dnc && (
+                        <Badge variant="destructive" className="flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          Do Not Call
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags */}
+              {c.tags && c.tags.length > 0 && (
+                <div className="mb-4 pb-4 border-b">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Tag className="h-4 w-4 text-gray-500" />
+                    {c.tags.map((tag: any) => (
+                      <Badge
+                        key={tag.id}
+                        variant="outline"
+                        style={{
+                          backgroundColor: `${tag.color}15`,
+                          borderColor: tag.color,
+                          color: tag.color
+                        }}
+                      >
+                        {tag.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Contact Info */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="flex items-start gap-3">
+                  <Phone className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-1">Phone</p>
+                    {c.phone1 && <p className="text-sm font-medium text-gray-900">{formatPhoneNumberForDisplay(c.phone1)}</p>}
+                    {c.phone2 && <p className="text-sm text-gray-600">{formatPhoneNumberForDisplay(c.phone2)}</p>}
+                    {c.phone3 && <p className="text-sm text-gray-600">{formatPhoneNumberForDisplay(c.phone3)}</p>}
+                    {!c.phone1 && !c.phone2 && !c.phone3 && <p className="text-sm text-gray-400">No phone</p>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Mail className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-1">Email</p>
+                    {c.email1 && <p className="text-sm font-medium text-gray-900 truncate">{c.email1}</p>}
+                    {c.email2 && <p className="text-sm text-gray-600 truncate">{c.email2}</p>}
+                    {c.email3 && <p className="text-sm text-gray-600 truncate">{c.email3}</p>}
+                    {!c.email1 && !c.email2 && !c.email3 && <p className="text-sm text-gray-400">No email</p>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <MapPin className="h-5 w-5 text-red-600 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-500 mb-1">Address</p>
+                    {c.contactAddress ? (
+                      <p className="text-sm font-medium text-gray-900">{c.contactAddress}</p>
+                    ) : (
+                      <p className="text-sm text-gray-400">No address</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Property Information Card */}
+          <Card className="mb-4">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Home className="h-5 w-5" />
+                Property Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
 
 
-          {/* Personal Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">First Name</p>
-              <p className="text-gray-900 font-medium">{c.firstName || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Last Name</p>
-              <p className="text-gray-900 font-medium">{c.lastName || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">LLC Name</p>
-              <p className="text-gray-900 font-medium">{c.llcName || '—'}</p>
-            </div>
-          </div>
+              {/* Property Tabs (only when multiple properties) */}
+              {properties.length > 1 && (
+                <div className="mb-4">
+                  <Tabs
+                    value={`prop-${selectedPropertyIndex}`}
+                    onValueChange={(v) => {
+                      const idx = parseInt((v || 'prop-0').split('-')[1])
+                      setSelectedPropertyIndex(Number.isFinite(idx) ? Math.max(0, idx) : 0)
+                    }}
+                  >
+                    <TabsList className="flex flex-wrap">
+                      {properties.map((p, idx) => {
+                        const label = p.address || [p.city, p.state].filter(Boolean).join(', ') || `Property ${idx + 1}`
+                        return (
+                          <TabsTrigger key={p.id} value={`prop-${idx}`}>
+                            {label}
+                          </TabsTrigger>
+                        )
+                      })}
+                    </TabsList>
+                  </Tabs>
+                </div>
+              )}
 
-          {/* Contact Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Phone 1</p>
-              <p className="text-gray-900 font-medium">{c.phone1 || '—'}</p>
-            </div>
+              {/* Property Address */}
+              <div className="mb-4 pb-4 border-b">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Property Address</p>
+                    <p className="text-sm font-medium text-gray-900">{activeProp.address || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Location</p>
+                    <p className="text-sm font-medium text-gray-900">
+                      {[activeProp.city, activeProp.state, activeProp.county].filter(Boolean).join(', ') || '—'}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
+              {/* Property Details Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Bedrooms</p>
+                  <p className="text-lg font-bold text-gray-900">{activeProp.bedrooms ?? '—'}</p>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Bathrooms</p>
+                  <p className="text-lg font-bold text-gray-900">{activeProp.totalBathrooms ?? '—'}</p>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Sq Ft</p>
+                  <p className="text-lg font-bold text-gray-900">{activeProp.buildingSqft ? activeProp.buildingSqft.toLocaleString() : '—'}</p>
+                </div>
+                <div className="text-center p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Year Built</p>
+                  <p className="text-lg font-bold text-gray-900">{activeProp.effectiveYearBuilt ?? '—'}</p>
+                </div>
+              </div>
 
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Phone 2</p>
-              <p className="text-gray-900 font-medium">{c.phone2 || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Phone 3</p>
-              <p className="text-gray-900 font-medium">{c.phone3 || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Email 1</p>
-              <p className="text-gray-900 font-medium">{c.email1 || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Email 2</p>
-              <p className="text-gray-900 font-medium">{c.email2 || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Email 3</p>
-              <p className="text-gray-900 font-medium">{c.email3 || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Contact Address</p>
-              <p className="text-gray-900 font-medium">{c.contactAddress || '—'}</p>
-            </div>
-          </div>
+              {/* Property Type */}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Property Type</p>
+                <p className="text-sm font-medium text-gray-900">{activeProp.propertyType || '—'}</p>
+              </div>
+            </CardContent>
+          </Card>
 
-          {/* Property Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Property Address</p>
-              <p className="text-gray-900 font-medium">{activeProp.address || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">City</p>
-              <p className="text-gray-900 font-medium">{activeProp.city || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">State</p>
-              <p className="text-gray-900 font-medium">{activeProp.state || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">County</p>
-              <p className="text-gray-900 font-medium">{activeProp.county || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Property Type</p>
-              <p className="text-gray-900 font-medium">{activeProp.propertyType || '—'}</p>
-            </div>
-          </div>
+          {/* Financial Information Card */}
+          <Card className="mb-4">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                Financial Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-xs text-blue-600 font-medium mb-1">Estimated Value</p>
+                  <p className="text-2xl font-bold text-blue-900">
+                    {activeProp.estValue != null ? `$${Number(activeProp.estValue).toLocaleString()}` : '—'}
+                  </p>
+                </div>
+                <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-xs text-red-600 font-medium mb-1">Debt Owed</p>
+                  <p className="text-2xl font-bold text-red-900">
+                    {activeDebtOwed != null ? `$${Number(activeDebtOwed).toLocaleString()}` : '—'}
+                  </p>
+                </div>
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-xs text-green-600 font-medium mb-1">Estimated Equity</p>
+                  <p className="text-2xl font-bold text-green-900">
+                    {activeProp.estEquity != null ? `$${Number(activeProp.estEquity).toLocaleString()}` : '—'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-
-          {/* Property Tabs (only when multiple properties) */}
-          {properties.length > 1 && (
-            <div className="mb-4">
-              <Tabs
-                value={`prop-${selectedPropertyIndex}`}
-                onValueChange={(v) => {
-                  const idx = parseInt((v || 'prop-0').split('-')[1])
-                  setSelectedPropertyIndex(Number.isFinite(idx) ? Math.max(0, idx) : 0)
-                }}
-              >
-                <TabsList className="flex flex-wrap">
-                  {properties.map((p, idx) => {
-                    const label = p.address || [p.city, p.state].filter(Boolean).join(', ') || `Property ${idx + 1}`
-                    return (
-                      <TabsTrigger key={p.id} value={`prop-${idx}`}>
-                        {label}
-                      </TabsTrigger>
-                    )
-                  })}
-                </TabsList>
-              </Tabs>
-            </div>
+          {/* Additional Information Card */}
+          {(c.notes || c.dncReason) && (
+            <Card className="mb-4">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <User className="h-5 w-5" />
+                  Additional Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {c.notes && (
+                  <div className="mb-4">
+                    <p className="text-xs text-gray-500 mb-2">Notes</p>
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap">{c.notes}</p>
+                  </div>
+                )}
+                {c.dnc && c.dncReason && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-2">DNC Reason</p>
+                    <p className="text-sm text-gray-900">{c.dncReason}</p>
+                  </div>
+                )}
+                <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-xs text-gray-500">
+                  <div>
+                    <p className="mb-1">Created</p>
+                    <p className="text-gray-900">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1">Last Updated</p>
+                    <p className="text-gray-900">{c.updatedAt ? new Date(c.updatedAt).toLocaleDateString() : '—'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
-
-          {/* Property Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-4 mb-6">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Bedrooms</p>
-              <p className="text-gray-900 font-medium">{activeProp.bedrooms ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Bathrooms</p>
-              <p className="text-gray-900 font-medium">{activeProp.totalBathrooms ?? '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Square Feet</p>
-              <p className="text-gray-900 font-medium">{activeProp.buildingSqft ? activeProp.buildingSqft.toLocaleString() : '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Year Built</p>
-              <p className="text-gray-900 font-medium">{activeProp.effectiveYearBuilt ?? '—'}</p>
-            </div>
-          </div>
-
-          {/* Financial Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Estimated Value</p>
-              <p className="text-gray-900 font-medium">{activeProp.estValue != null ? `$${Number(activeProp.estValue).toLocaleString()}` : '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Debt Owed</p>
-              <p className="text-gray-900 font-medium">{activeDebtOwed != null ? `$${Number(activeDebtOwed).toLocaleString()}` : '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Estimated Equity</p>
-              <p className="text-gray-900 font-medium">{activeProp.estEquity != null ? `$${Number(activeProp.estEquity).toLocaleString()}` : '—'}</p>
-            </div>
-          </div>
-
-          {/* Status Information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-4 mb-6">
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Deal Status</p>
-              <p className="text-gray-900 font-medium capitalize">{c.dealStatus ? c.dealStatus.replace('_', ' ') : '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">Do Not Call</p>
-              <p className="text-gray-900 font-medium">{c.dnc !== undefined ? (c.dnc ? 'Yes' : 'No') : '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-500 mb-1">DNC Reason</p>
-              <p className="text-gray-900 font-medium">{c.dncReason || '—'}</p>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="mb-6">
-            <p className="text-sm text-gray-500 mb-1">Notes</p>
-            <p className="text-gray-900">{c.notes || '—'}</p>
-          </div>
 
           {/* Tags */}
           {c.tags && c.tags.length > 0 && (

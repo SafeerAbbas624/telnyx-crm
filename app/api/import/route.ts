@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Contact, ImportHistory, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
+import { redisClient } from '@/lib/cache/redis-client';
+import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
 
 interface CsvRecord {
   [key: string]: string | undefined;
@@ -48,7 +50,7 @@ function normalizePropertyTypeStrict(input: string | undefined): string | null {
   // Multi-family (5+ units)
   if (any(['apartment building', 'apartment complex', 'multi-dwelling', 'residential complex', 'high-rise', 'high rise', 'mid-rise', 'mid rise', 'walk-up', 'tenement']) ||
       (s.includes('multi') && s.includes('family') && (s.includes('5') || s.includes('+'))))
-    return 'Multi-family (5+ units)';
+    return 'Multifamily (5+ units)';
 
   // Single-family (SFR)
   if (hasAll(['single','family']) || any(['single-family','sfr','single-family dwelling','sfd','detached house','standalone house','single-detached','single family residential','single-family residence']))
@@ -156,6 +158,8 @@ export async function POST(request: Request) {
       : [];
 
     // Cache contacts by normalized phone for this import run to reduce DB lookups
+    const processedIds = new Set<string>();
+
     const contactCache = new Map<string, Contact | null>();
 
     const importId = uuidv4();
@@ -245,6 +249,7 @@ export async function POST(request: Request) {
                 avatarUrl: record[invertedMapping.avatarUrl] || existingContact.avatarUrl,
               },
             });
+            processedIds.add(existingContact.id);
           }
 
           // Attach per-file tags to the existing contact
@@ -253,6 +258,7 @@ export async function POST(request: Request) {
               data: tagRecords.map(t => ({ contact_id: existingContact.id, tag_id: t.id })),
               skipDuplicates: true,
             });
+            processedIds.add(existingContact.id);
           }
 
           // If there's a property address, add as additional property if not already present
@@ -301,6 +307,7 @@ export async function POST(request: Request) {
                     : existingContact.estEquity,
                 },
               });
+              processedIds.add(existingContact.id);
 
               result.importedCount++;
             } else {
@@ -379,9 +386,11 @@ export async function POST(request: Request) {
                 estEquity: parsedEstEquityInt,
               },
             });
+
           }
 
           result.importedCount++;
+          processedIds.add(created.id);
         }
 
       } catch (error) {
@@ -405,6 +414,74 @@ export async function POST(request: Request) {
         errors: JSON.stringify(result.errors),
       },
     });
+
+    // After import: reindex in Elasticsearch and invalidate caches so UI totals update immediately
+    try {
+      const ids = Array.from(processedIds)
+      if (ids.length > 0) {
+        const toIndex = await prisma.contact.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            llcName: true,
+            phone1: true,
+            phone2: true,
+            phone3: true,
+            email1: true,
+            email2: true,
+            email3: true,
+            propertyAddress: true,
+            contactAddress: true,
+            city: true,
+            state: true,
+            propertyCounty: true,
+            propertyType: true,
+            dealStatus: true,
+            estValue: true,
+            estEquity: true,
+            dnc: true,
+            createdAt: true,
+            updatedAt: true,
+          }
+        })
+
+        const docs = toIndex.map((c: any) => ({
+          id: c.id,
+          firstName: c.firstName || undefined,
+          lastName: c.lastName || undefined,
+          llcName: c.llcName || undefined,
+          phone1: c.phone1 || undefined,
+          phone2: c.phone2 || undefined,
+          phone3: c.phone3 || undefined,
+          email1: c.email1 || undefined,
+          email2: c.email2 || undefined,
+          email3: c.email3 || undefined,
+          propertyAddress: c.propertyAddress || undefined,
+          contactAddress: c.contactAddress || undefined,
+          city: c.city || undefined,
+          state: c.state || undefined,
+          propertyCounty: c.propertyCounty || undefined,
+          propertyType: c.propertyType || undefined,
+          dealStatus: c.dealStatus || undefined,
+          estValue: c.estValue != null ? Number(c.estValue) : undefined,
+          estEquity: c.estEquity != null ? Number(c.estEquity) : undefined,
+          dnc: c.dnc ?? false,
+          createdAt: c.createdAt?.toISOString?.() || new Date().toISOString(),
+          updatedAt: c.updatedAt?.toISOString?.()
+        }))
+
+        await elasticsearchClient.bulkIndexContacts(docs as any)
+      }
+
+      // Clear list and search caches so totals and lists reflect new imports immediately
+      await redisClient.invalidateContactsListCache()
+      await redisClient.invalidateSearchCache()
+      await redisClient.invalidateStatsCache()
+    } catch (e) {
+      console.warn('Post-import indexing/cache invalidation failed:', e)
+    }
 
     return NextResponse.json({
       success: true,

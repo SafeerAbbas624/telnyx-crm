@@ -199,11 +199,11 @@ class RedisClient {
       await this.connect()
       const contactKey = this.getContactKey(contactId)
       await this.client.del(contactKey)
-      
+
       // Also invalidate related caches
       const conversationKey = this.getConversationKey(contactId)
       await this.client.del(conversationKey)
-      
+
       // Invalidate contacts list cache (pattern-based deletion)
       const pattern = 'contacts:page:*'
       const keys = await this.client.keys(pattern)
@@ -241,17 +241,31 @@ class RedisClient {
     }
   }
 
+	  async invalidateContactsListCache() {
+	    try {
+	      await this.connect()
+	      const pattern = 'contacts:page:*'
+	      const keys = await this.client.keys(pattern)
+	      if (keys.length > 0) {
+	        await this.client.del(...keys)
+	      }
+	    } catch (error) {
+	      console.error('Error invalidating contacts list cache:', error)
+	    }
+	  }
+
+
   // Bulk operations for better performance
   async cacheBulkContacts(contacts: any[]) {
     try {
       await this.connect()
       const pipeline = this.client.pipeline()
-      
+
       contacts.forEach(contact => {
         const key = this.getContactKey(contact.id)
         pipeline.setex(key, 600, JSON.stringify(contact))
       })
-      
+
       await pipeline.exec()
     } catch (error) {
       console.error('Error bulk caching contacts:', error)

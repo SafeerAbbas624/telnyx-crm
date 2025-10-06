@@ -24,6 +24,9 @@ import {
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import { NewEmailModal } from './new-email-modal'
+import EnhancedEmailModal from './enhanced-email-modal'
+import EnhancedEmailConversation from './enhanced-email-conversation'
+import { useEmailUpdates } from '@/lib/hooks/use-socket'
 
 // Format email content to handle quoted replies properly
 function formatEmailContent(content: string): string {
@@ -165,6 +168,18 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
+  // Real-time email updates via Socket.IO
+  const { newEmailCount, resetCount } = useEmailUpdates(selectedAccount?.id)
+
+  // Reload conversations when new emails arrive
+  useEffect(() => {
+    if (newEmailCount > 0 && selectedAccount) {
+      console.log(`📧 [REAL-TIME] ${newEmailCount} new email(s) received, reloading conversations...`)
+      loadConversations()
+      resetCount()
+    }
+  }, [newEmailCount, selectedAccount])
+
   // Handle reply card resizing
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true)
@@ -257,22 +272,30 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
 
     try {
       setIsSyncing(true)
+
+      // Add timeout to fetch request - reduced to 25 seconds
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
+
       const response = await fetch('/api/email/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accountId: selectedAccount.id
-        })
+        }),
+        signal: controller.signal
       })
+
+      clearTimeout(timeoutId)
 
       if (response.ok) {
         const data = await response.json()
         setLastSyncTime(new Date())
 
-        if (showToast && data.syncedCount > 0) {
+        if (showToast && data.synced > 0) {
           toast({
             title: 'New Emails',
-            description: `${data.syncedCount} new emails received`,
+            description: `${data.synced} new emails received`,
             duration: 3000
           })
         }
@@ -284,15 +307,56 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
         if (selectedConversation) {
           loadMessages()
         }
+      } else if (response.status === 504) {
+        // Gateway timeout - sync is still running in background
+        console.log('Sync timeout - will complete in background')
+        setLastSyncTime(new Date())
+
+        // Still refresh conversations after a delay
+        setTimeout(async () => {
+          await loadConversations()
+          if (selectedConversation) {
+            loadMessages()
+          }
+        }, 5000)
+
+        if (showToast) {
+          toast({
+            title: 'Sync In Progress',
+            description: 'Email sync is taking longer than usual. Emails will appear shortly.',
+            duration: 5000
+          })
+        }
       } else {
         throw new Error('Sync failed')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sync error:', error)
-      if (showToast) {
+
+      // Handle abort/timeout
+      if (error.name === 'AbortError') {
+        console.log('Sync timeout - will complete in background')
+        setLastSyncTime(new Date())
+
+        // Still refresh conversations after a delay
+        setTimeout(async () => {
+          await loadConversations()
+          if (selectedConversation) {
+            loadMessages()
+          }
+        }, 5000)
+
+        if (showToast) {
+          toast({
+            title: 'Sync In Progress',
+            description: 'Email sync is taking longer than usual. Emails will appear shortly.',
+            duration: 5000
+          })
+        }
+      } else if (showToast) {
         toast({
           title: 'Error',
-          description: 'Failed to sync emails',
+          description: 'Failed to sync emails. Please try again.',
           variant: 'destructive',
         })
       }
@@ -836,7 +900,7 @@ export function EmailConversationsGmail({ emailAccounts }: EmailConversationsGma
       </div>
 
       {/* New Email Modal */}
-      <NewEmailModal
+      <EnhancedEmailModal
         isOpen={isNewEmailModalOpen}
         onClose={() => setIsNewEmailModalOpen(false)}
         emailAccount={selectedAccount}

@@ -19,6 +19,14 @@ const createActivitySchema = z.object({
   durationMinutes: z.number().int().positive().optional(),
   reminderMinutes: z.number().int().positive().optional(),
   isAllDay: z.boolean().default(false),
+  tags: z.array(z.union([
+    z.string(),
+    z.object({
+      id: z.string().optional(),
+      name: z.string(),
+      color: z.string().optional()
+    })
+  ])).optional(),
 })
 
 // GET /api/activities - Get all activities or filter by contactId
@@ -78,6 +86,15 @@ export async function GET(request: NextRequest) {
 
     const activities = await prisma.activity.findMany({
       where: whereClause,
+      include: {
+        activity_tags: {
+          include: {
+            tag: {
+              select: { id: true, name: true, color: true }
+            }
+          }
+        }
+      },
       orderBy: [
         { due_date: 'asc' },
         { created_at: 'desc' }
@@ -87,7 +104,7 @@ export async function GET(request: NextRequest) {
     })
 
     // Transform database fields to match frontend types
-    const transformedActivities = activities.map(activity => ({
+    const transformedActivities = activities.map((activity: any) => ({
       id: activity.id,
       contactId: activity.contact_id,
       dealId: activity.deal_id,
@@ -108,6 +125,7 @@ export async function GET(request: NextRequest) {
       nextAction: activity.next_action,
       createdAt: activity.created_at.toISOString(),
       updatedAt: activity.updated_at.toISOString(),
+      tags: activity.activity_tags?.map((at: any) => at.tag) || [],
     }))
 
     return NextResponse.json(transformedActivities)
@@ -173,6 +191,62 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    // Handle tags if provided
+    if (Array.isArray(validatedData.tags) && validatedData.tags.length > 0) {
+      const desiredTagIds = new Set<string>()
+      const candidatesToCreate = new Map<string, string | undefined>()
+
+      for (const item of validatedData.tags) {
+        if (typeof item === 'string') {
+          const name = item.trim()
+          if (name) candidatesToCreate.set(name, undefined)
+          continue
+        }
+        if (item && item.id) {
+          desiredTagIds.add(item.id)
+        } else if (item && item.name) {
+          const name = item.name.trim()
+          if (name) candidatesToCreate.set(name, item.color)
+        }
+      }
+
+      // Create or fetch tags for names
+      for (const [name, color] of candidatesToCreate.entries()) {
+        const tag = await prisma.tag.upsert({
+          where: { name },
+          update: color ? { color } : {},
+          create: { name, ...(color ? { color } : {}) },
+        })
+        desiredTagIds.add(tag.id)
+      }
+
+      // Create activity-tag associations
+      if (desiredTagIds.size > 0) {
+        await prisma.activityTag.createMany({
+          data: [...desiredTagIds].map((tid) => ({
+            activity_id: activity.id,
+            tag_id: tid,
+            created_by: session.user.id
+          })),
+          skipDuplicates: true,
+        })
+      }
+    }
+
+    // Fetch the created activity with tags
+    const activityWithTags = await prisma.activity.findUnique({
+      where: { id: activity.id },
+      include: {
+        activity_tags: {
+          include: {
+            tag: {
+              select: { id: true, name: true, color: true }
+            }
+          }
+        }
+      }
+    })
+
     // Transform database fields to match frontend types
     const transformedActivity = {
       id: activity.id,
@@ -195,6 +269,7 @@ export async function POST(request: NextRequest) {
       nextAction: activity.next_action,
       createdAt: activity.created_at.toISOString(),
       updatedAt: activity.updated_at.toISOString(),
+      tags: activityWithTags?.activity_tags?.map((at: any) => at.tag) || [],
     }
 
     return NextResponse.json(transformedActivity, { status: 201 })

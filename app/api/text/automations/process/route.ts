@@ -66,7 +66,16 @@ async function processAutomation(automationId: string) {
     let failedCount = 0
     let deliveredCount = 0
 
-    for (let i = 0; i < selectedContacts.length; i++) {
+    for (let i = automation.currentIndex; i < selectedContacts.length; i++) {
+      // Re-check automation status before each message to allow immediate pause/stop
+      const fresh = await prisma.textAutomation.findUnique({
+        where: { id: automationId },
+        select: { status: true, messageDelay: true }
+      })
+      if (!fresh || fresh.status !== 'running') {
+        break
+      }
+
       const contactId = selectedContacts[i]
       const senderNumber = senderNumbers[i % senderNumbers.length] // Rotate through sender numbers
 
@@ -79,6 +88,10 @@ async function processAutomation(automationId: string) {
 
         if (!contact?.phone1) {
           failedCount++
+          await prisma.textAutomation.update({
+            where: { id: automationId },
+            data: { failedCount: { increment: 1 }, currentIndex: i + 1 }
+          })
           continue
         }
 
@@ -99,63 +112,69 @@ async function processAutomation(automationId: string) {
           sentCount++
           // Assume delivered for now - webhook will update actual status
           deliveredCount++
+          await prisma.textAutomation.update({
+            where: { id: automationId },
+            data: {
+              sentCount: { increment: 1 },
+              deliveredCount: { increment: 1 },
+              currentIndex: i + 1,
+            }
+          })
         } else {
           failedCount++
+          await prisma.textAutomation.update({
+            where: { id: automationId },
+            data: { failedCount: { increment: 1 }, currentIndex: i + 1 }
+          })
         }
 
         // Add delay between messages
-        if (i < selectedContacts.length - 1 && automation.messageDelay > 0) {
-          await new Promise(resolve => setTimeout(resolve, automation.messageDelay * 1000))
+        const delaySeconds = (fresh.messageDelay ?? automation.messageDelay) || 0
+        if (i < selectedContacts.length - 1 && delaySeconds > 0) {
+          await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000))
         }
 
       } catch (error) {
         console.error('Error sending message to contact:', contactId, error)
         failedCount++
+        await prisma.textAutomation.update({
+          where: { id: automationId },
+          data: { failedCount: { increment: 1 }, currentIndex: i + 1 }
+        })
       }
     }
 
-    // Update automation stats
-    const updatedSentCount = automation.sentCount + sentCount
-    const updatedDeliveredCount = automation.deliveredCount + deliveredCount
-    const updatedFailedCount = automation.failedCount + failedCount
+    // Only complete the cycle if we actually finished all recipients AND are still running
+    const latest = await prisma.textAutomation.findUnique({ where: { id: automationId } })
+    if (!latest) return
 
-    // Calculate next run time
-    const nextCycle = automation.currentCycle + 1
-    let nextRunAt: Date | null = null
-    let status = automation.status
-    let completedAt: Date | null = null
+    const finishedCycle = latest.status === 'running' && latest.currentIndex >= selectedContacts.length
 
-    // Check if we should continue or complete
-    if (automation.isIndefinite || (automation.totalCycles && nextCycle <= automation.totalCycles)) {
-      // Schedule next cycle
-      nextRunAt = calculateNextRunTime(automation.loopDelay, automation.loopDelayUnit)
-    } else {
-      // Automation completed
-      status = 'completed'
-      completedAt = new Date()
+    if (finishedCycle) {
+      const nextCycle = latest.currentCycle + 1
+      const willContinue = latest.isIndefinite || (latest.totalCycles !== null && nextCycle <= latest.totalCycles)
+
+      await prisma.textAutomation.update({
+        where: { id: automationId },
+        data: {
+          currentCycle: nextCycle,
+          lastRunAt: new Date(),
+          nextRunAt: willContinue ? calculateNextRunTime(latest.loopDelay, latest.loopDelayUnit) : null,
+          status: willContinue ? 'running' : 'completed',
+          completedAt: willContinue ? undefined : new Date(),
+          // Reset index at end of cycle for the next one
+          currentIndex: 0,
+        }
+      })
     }
 
-    // Update automation
-    await prisma.textAutomation.update({
-      where: { id: automationId },
-      data: {
-        currentCycle: nextCycle,
-        sentCount: updatedSentCount,
-        deliveredCount: updatedDeliveredCount,
-        failedCount: updatedFailedCount,
-        lastRunAt: new Date(),
-        nextRunAt,
-        status,
-        completedAt,
-      }
-    })
-
-    console.log(`Automation ${automationId} cycle ${automation.currentCycle} completed:`, {
+    const after = await prisma.textAutomation.findUnique({ where: { id: automationId }, select: { nextRunAt: true, status: true, currentCycle: true } })
+    console.log(`Automation ${automationId} cycle ${automation.currentCycle} processed:`, {
       sent: sentCount,
       delivered: deliveredCount,
       failed: failedCount,
-      nextRunAt: nextRunAt?.toISOString(),
-      status
+      nextRunAt: after?.nextRunAt?.toISOString(),
+      status: after?.status,
     })
 
   } catch (error) {

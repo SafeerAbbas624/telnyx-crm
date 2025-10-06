@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { redisClient } from '@/lib/cache/redis-client';
 import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
 import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
+import { getToken } from 'next-auth/jwt';
 
 interface Contact {
   id: string;
@@ -76,7 +77,8 @@ export async function GET(request: NextRequest) {
     const maxValue = searchParams.get('maxValue') ? parseFloat(searchParams.get('maxValue')!) : undefined
     const minEquity = searchParams.get('minEquity') ? parseFloat(searchParams.get('minEquity')!) : undefined
     const maxEquity = searchParams.get('maxEquity') ? parseFloat(searchParams.get('maxEquity')!) : undefined
-    const useElasticsearch = searchParams.get('useElasticsearch') === 'true' || !!search
+    const hasMultiValues = [dealStatus, propertyType, city, state, propertyCounty, tags].some(v => (v ?? '').includes(','))
+    const useElasticsearch = (searchParams.get('useElasticsearch') === 'true' || !!search) && !hasMultiValues
 
     const filters = { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue, minEquity, maxEquity }
 
@@ -159,7 +161,12 @@ export async function GET(request: NextRequest) {
           await redisClient.cacheSearchResults(search, page, limit, response, 120)
         }
 
-        return NextResponse.json(response)
+        // If Elasticsearch returned results, respond; otherwise, fall back to DB query below
+        if (result.total && result.total > 0 && Array.isArray(formattedContacts) && formattedContacts.length > 0) {
+          return NextResponse.json(response)
+        } else {
+          console.warn('Elasticsearch returned no results; falling back to database query for search=', search)
+        }
       } catch (esError) {
         console.error('Elasticsearch error, falling back to database:', esError)
         // Fall through to database query
@@ -183,24 +190,32 @@ export async function GET(request: NextRequest) {
       ]
     }
 
+    // Helper to parse comma-separated values
+    const splitCsv = (s: string) => s.split(',').map(v => v.trim()).filter(Boolean)
+
     if (dealStatus) {
-      where.dealStatus = dealStatus
+      const list = splitCsv(dealStatus)
+      where.dealStatus = list.length > 1 ? { in: list } : list[0]
     }
 
     if (propertyType) {
-      where.propertyType = propertyType
+      const list = splitCsv(propertyType)
+      where.propertyType = list.length > 1 ? { in: list } : list[0]
     }
 
     if (city) {
-      where.city = { contains: city, mode: 'insensitive' }
+      const list = splitCsv(city)
+      where.city = list.length > 1 ? { in: list } : { equals: list[0] }
     }
 
     if (state) {
-      where.state = { contains: state, mode: 'insensitive' }
+      const list = splitCsv(state)
+      where.state = list.length > 1 ? { in: list } : { equals: list[0] }
     }
 
     if (propertyCounty) {
-      where.propertyCounty = { contains: propertyCounty, mode: 'insensitive' }
+      const list = splitCsv(propertyCounty)
+      where.propertyCounty = list.length > 1 ? { in: list } : { equals: list[0] }
     }
 
     if (tags) {
@@ -225,55 +240,47 @@ export async function GET(request: NextRequest) {
     const isDefaultEquityRange = (minEquity <= 500 && maxEquity >= 900000000) ||
                                 (minEquity === 0 && maxEquity >= 900000000)
 
-    // Only apply value filters if we have an active search/filter OR the range is not default
-    if ((minValue !== undefined || maxValue !== undefined) &&
-        (hasActiveSearch || hasExplicitFilters || !isDefaultValueRange)) {
+    // Apply value filters only when range is not the default "show all". Avoid excluding NULLs on default.
+    if ((minValue !== undefined || maxValue !== undefined) && !isDefaultValueRange) {
       where.estValue = {}
       if (minValue !== undefined) where.estValue.gte = minValue
       if (maxValue !== undefined) where.estValue.lte = maxValue
     }
 
-    // Only apply equity filters if we have an active search/filter OR the range is not default
-    if ((minEquity !== undefined || maxEquity !== undefined) &&
-        (hasActiveSearch || hasExplicitFilters || !isDefaultEquityRange)) {
+    // Apply equity filters only when range is not the default "show all". Avoid excluding NULLs on default.
+    if ((minEquity !== undefined || maxEquity !== undefined) && !isDefaultEquityRange) {
       where.estEquity = {}
       if (minEquity !== undefined) where.estEquity.gte = minEquity
       if (maxEquity !== undefined) where.estEquity.lte = maxEquity
     }
 
-    // Use Promise.all for parallel queries
-    const [totalCount, contacts] = await Promise.all([
-      prisma.contact.count({ where }),
-      prisma.contact.findMany({
+    // Fast path: when searching or filtering, skip expensive totalCount and just detect hasMore with limit+1 fetch
+    const fastMode = Boolean(hasActiveSearch || hasExplicitFilters)
+
+    let totalCount: number
+    let contacts: any[]
+    let hasMore: boolean
+
+    if (fastMode) {
+      const rows = await prisma.contact.findMany({
         where,
         select: {
+          // Slim payload for fast search typing
           id: true,
           firstName: true,
           lastName: true,
           llcName: true,
           phone1: true,
-          phone2: true,
-          phone3: true,
           email1: true,
-          email2: true,
-          email3: true,
           propertyAddress: true,
-          contactAddress: true,
           city: true,
           state: true,
           propertyCounty: true,
           propertyType: true,
-          bedrooms: true,
-          totalBathrooms: true,
-          buildingSqft: true,
-          effectiveYearBuilt: true,
           estValue: true,
           estEquity: true,
           dnc: true,
-          dncReason: true,
           dealStatus: true,
-          notes: true,
-          avatarUrl: true,
           createdAt: true,
           updatedAt: true,
           contact_tags: {
@@ -292,11 +299,73 @@ export async function GET(request: NextRequest) {
           createdAt: 'desc',
         },
         skip: offset,
-        take: limit,
+        take: limit + 1,
       })
-    ]);
+      hasMore = rows.length > limit
+      contacts = hasMore ? rows.slice(0, limit) : rows
+      // Provide a minimal lower-bound totalCount to keep pagination UI sane without an expensive COUNT(*) scan
+      totalCount = (page - 1) * limit + contacts.length + (hasMore ? 1 : 0)
+    } else {
+      // Full path with exact total when just browsing without active search/filters
+      const [exactTotal, rows] = await Promise.all([
+        prisma.contact.count({ where }),
+        prisma.contact.findMany({
+          where,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            llcName: true,
+            phone1: true,
+            phone2: true,
+            phone3: true,
+            email1: true,
+            email2: true,
+            email3: true,
+            propertyAddress: true,
+            contactAddress: true,
+            city: true,
+            state: true,
+            propertyCounty: true,
+            propertyType: true,
+            bedrooms: true,
+            totalBathrooms: true,
+            buildingSqft: true,
+            effectiveYearBuilt: true,
+            estValue: true,
+            estEquity: true,
+            dnc: true,
+            dncReason: true,
+            dealStatus: true,
+            notes: true,
+            avatarUrl: true,
+            createdAt: true,
+            updatedAt: true,
+            contact_tags: {
+              select: {
+                tag: {
+                  select: {
+                    id: true,
+                    name: true,
+                    color: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip: offset,
+          take: limit,
+        })
+      ])
+      totalCount = exactTotal
+      contacts = rows
+      hasMore = page * limit < totalCount
+    }
 
-    console.log(`✅ [API DEBUG] Database query completed: ${totalCount} total, ${contacts.length} returned for "${search}" in ${Date.now() - startTime}ms`)
+    console.log(`✅ [API DEBUG] Database query completed: ${totalCount} total (approx=${fastMode}), ${contacts.length} returned for "${search}" in ${Date.now() - startTime}ms`)
 
     if (contacts.length === 0) {
       console.log(`⚠️ [API DEBUG] No contacts returned from database query - this might indicate an issue with the query or filters`)
@@ -346,7 +415,7 @@ export async function GET(request: NextRequest) {
       propertyValue: contact.estValue ? Number(contact.estValue) : null,
       debtOwed: contact.estValue && contact.estEquity ?
         Number(contact.estValue) - Number(contact.estEquity) : null,
-      tags: contact.contact_tags.map((ct: { tag: { name: string; id: string; color: string } }) => ({
+      tags: (contact.contact_tags ?? []).map((ct: { tag: { name: string; id: string; color: string } }) => ({
         id: ct.tag.id,
         name: ct.tag.name,
         color: ct.tag.color || '#3B82F6'
@@ -362,7 +431,7 @@ export async function GET(request: NextRequest) {
         limit,
         totalCount,
         totalPages: Math.ceil(totalCount / limit),
-        hasMore: page * limit < totalCount
+        hasMore
       },
       source: 'database'
     }
@@ -398,6 +467,14 @@ export async function POST(request: NextRequest) {
     const phone2 = formatPhoneNumberForTelnyx(body.phone2 || '') || null
     const phone3 = formatPhoneNumberForTelnyx(body.phone3 || '') || null
 
+    // Validate required fields: firstName and phone1
+    if (!body.firstName || !String(body.firstName).trim()) {
+      return NextResponse.json({ error: 'firstName is required' }, { status: 400 })
+    }
+    if (!body.phone1 || !phone1) {
+      return NextResponse.json({ error: 'phone1 is required and must be a valid phone number' }, { status: 400 })
+    }
+
     // De-dup by phone: if any provided phone matches an existing contact (digits-only ends-with), update it instead of creating new
     const candidatesLast10 = [phone1, phone2, phone3].map(p => last10Digits(p || '')).filter(Boolean) as string[]
     let existing: any = null
@@ -429,6 +506,7 @@ export async function POST(request: NextRequest) {
       email2: body.email2 || null,
       email3: body.email3 || null,
       propertyAddress: body.propertyAddress || null,
+      contactAddress: body.contactAddress || null,
       city: body.city || null,
       state: body.state || null,
       propertyCounty: body.propertyCounty || null,
@@ -446,9 +524,77 @@ export async function POST(request: NextRequest) {
       avatarUrl: body.avatarUrl || null,
     };
 
-    const newContact = existing
-      ? await prisma.contact.update({ where: { id: existing.id }, data: contactData, include: { contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } } } })
-      : await prisma.contact.create({ data: contactData, include: { contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } } } })
+    const createdOrUpdated = existing
+      ? await prisma.contact.update({ where: { id: existing.id }, data: contactData })
+      : await prisma.contact.create({ data: contactData })
+
+    // If tags provided, upsert names and sync associations (only when at least one tag specified)
+    if (Array.isArray(body.tags)) {
+      const incoming: Array<{ id?: string; name?: string; color?: string } | string> = body.tags;
+
+      // Only modify associations when user actually provided at least one tag token
+      if (incoming.length > 0) {
+        const desiredTagIds = new Set<string>();
+        const candidatesToCreate = new Map<string, string | undefined>();
+
+        for (const item of incoming) {
+          if (typeof item === 'string') {
+            const name = item.trim();
+            if (name) candidatesToCreate.set(name, undefined);
+            continue;
+          }
+          if (item && item.id) {
+            desiredTagIds.add(item.id);
+          } else if (item && item.name) {
+            const name = item.name.trim();
+            if (name) candidatesToCreate.set(name, item.color);
+          }
+        }
+
+        for (const [name, color] of candidatesToCreate.entries()) {
+          const tag = await prisma.tag.upsert({
+            where: { name },
+            update: color ? { color } : {},
+            create: { name, ...(color ? { color } : {}) },
+          });
+          desiredTagIds.add(tag.id);
+        }
+
+        // Replace existing associations with the desired set
+        await prisma.contactTag.deleteMany({ where: { contact_id: createdOrUpdated.id } });
+
+        if (desiredTagIds.size > 0) {
+          await prisma.contactTag.createMany({
+            data: [...desiredTagIds].map((tid) => ({ contact_id: createdOrUpdated.id, tag_id: tid })),
+            skipDuplicates: true,
+          });
+        }
+      }
+    }
+
+    // Re-fetch full contact with tags to return
+    const newContact = await prisma.contact.findUnique({
+      where: { id: createdOrUpdated.id },
+      include: { contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } } },
+    })
+
+    if (!newContact) {
+      return NextResponse.json({ error: 'Contact not found after creation' }, { status: 500 })
+    }
+
+    // If a TEAM_USER created this contact, auto-assign it to them
+    try {
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+      if (token && token.role === 'TEAM_USER' && token.sub) {
+        await prisma.contactAssignment.upsert({
+          where: { userId_contactId: { userId: token.sub as string, contactId: newContact.id } },
+          update: { assignedBy: token.sub as string },
+          create: { userId: token.sub as string, contactId: newContact.id, assignedBy: token.sub as string },
+        })
+      }
+    } catch (e) {
+      console.warn('Auto-assign on contact create failed (non-fatal):', e)
+    }
 
     // Transform the data to match the expected frontend format
     const formattedContact = {
@@ -493,6 +639,37 @@ export async function POST(request: NextRequest) {
         color: ct.tag.color || '#3B82F6'
       })),
     };
+
+    // Index the contact into Elasticsearch (non-blocking on failure)
+    try {
+      await elasticsearchClient.indexContact({
+        id: newContact.id,
+        firstName: newContact.firstName || undefined,
+        lastName: newContact.lastName || undefined,
+        llcName: newContact.llcName || undefined,
+        phone1: newContact.phone1 || undefined,
+        phone2: newContact.phone2 || undefined,
+        phone3: newContact.phone3 || undefined,
+        email1: newContact.email1 || undefined,
+        email2: newContact.email2 || undefined,
+        email3: newContact.email3 || undefined,
+        propertyAddress: newContact.propertyAddress || undefined,
+        contactAddress: newContact.contactAddress || undefined,
+        city: newContact.city || undefined,
+        state: newContact.state || undefined,
+        propertyCounty: newContact.propertyCounty || undefined,
+        propertyType: newContact.propertyType || undefined,
+        estValue: newContact.estValue != null ? Number(newContact.estValue) : undefined,
+        estEquity: newContact.estEquity != null ? Number(newContact.estEquity) : undefined,
+        dnc: typeof newContact.dnc === 'boolean' ? newContact.dnc : undefined,
+        dealStatus: newContact.dealStatus || undefined,
+        createdAt: newContact.createdAt.toISOString(),
+        updatedAt: (newContact.updatedAt?.toISOString() || newContact.createdAt.toISOString()),
+        tags: newContact.contact_tags?.map((ct) => ct.tag.name) || [],
+      })
+    } catch (e) {
+      console.warn('ES indexContact failed (non-fatal):', e)
+    }
 
     return NextResponse.json(formattedContact, { status: 201 });
   } catch (error) {

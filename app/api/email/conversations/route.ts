@@ -3,90 +3,208 @@ import { prisma } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    // Check if EmailConversation model exists
-    if (!prisma.emailConversation) {
-      console.warn('EmailConversation model not available in Prisma client. Returning empty data.');
+    // Check if EmailMessage model exists
+    if (!prisma.emailMessage) {
+      console.warn('EmailMessage model not available in Prisma client. Returning empty data.');
       return NextResponse.json({
         conversations: [],
       });
     }
 
     const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('accountId');
     const search = searchParams.get('search');
+    const view = searchParams.get('view') || 'inbox'; // inbox, starred, archived, trash
+    const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const offset = (page - 1) * limit;
 
-    // Build where clause for search
-    const where: any = {};
-    
+    if (!accountId) {
+      return NextResponse.json({
+        conversations: [],
+        total: 0,
+      });
+    }
+
+    // Get all messages for this email account, grouped by contact
+    const messageWhere: any = {
+      emailAccountId: accountId,
+      contactId: { not: null }
+    };
+
+    // Get unique contact IDs that have messages with this account
+    const contactIds = await prisma.emailMessage.findMany({
+      where: messageWhere,
+      select: { contactId: true },
+      distinct: ['contactId']
+    });
+
+    if (contactIds.length === 0) {
+      return NextResponse.json({
+        conversations: [],
+        total: 0,
+        page,
+        totalPages: 0,
+      });
+    }
+
+    const uniqueContactIds = contactIds.map(m => m.contactId).filter((id): id is string => id !== null);
+
+    // Build contact where clause with search
+    const contactWhere: any = {
+      id: { in: uniqueContactIds }
+    };
+
     if (search) {
-      where.OR = [
-        {
-          contact: {
-            OR: [
-              { firstName: { contains: search, mode: 'insensitive' } },
-              { lastName: { contains: search, mode: 'insensitive' } },
-              { email1: { contains: search, mode: 'insensitive' } },
-              { email2: { contains: search, mode: 'insensitive' } },
-              { email3: { contains: search, mode: 'insensitive' } },
-              { llcName: { contains: search, mode: 'insensitive' } },
-            ]
-          }
-        },
-        { emailAddress: { contains: search, mode: 'insensitive' } },
-        { lastMessageContent: { contains: search, mode: 'insensitive' } },
+      contactWhere.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email1: { contains: search, mode: 'insensitive' } },
+        { email2: { contains: search, mode: 'insensitive' } },
+        { email3: { contains: search, mode: 'insensitive' } },
+        { llcName: { contains: search, mode: 'insensitive' } },
       ];
     }
 
-    const conversations = await prisma.emailConversation.findMany({
-      where,
-      include: {
-        contact: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email1: true,
-            email2: true,
-            email3: true,
-            llcName: true,
-          }
-        }
+    // Get contacts
+    const contacts = await prisma.contact.findMany({
+      where: contactWhere,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email1: true,
+        email2: true,
+        email3: true,
+        llcName: true,
       },
-      orderBy: [
-        { unreadCount: 'desc' },
-        { lastMessageAt: 'desc' },
-        { updatedAt: 'desc' }
-      ],
-      take: limit,
-      skip: offset,
     });
 
-    // Transform data to match frontend expectations
-    const transformedConversations = conversations.map(conv => ({
-      id: conv.id,
-      contact: conv.contact,
-      emailAddress: conv.emailAddress,
-      lastMessage: conv.lastMessageContent ? {
-        id: conv.lastMessageId || '',
-        subject: conv.lastMessageContent,
-        content: conv.lastMessageContent,
-        direction: conv.lastMessageDirection || 'outbound',
-        createdAt: conv.lastMessageAt?.toISOString() || new Date().toISOString(),
-      } : null,
-      last_message_at: conv.lastMessageAt?.toISOString(),
-      last_message_content: conv.lastMessageContent,
-      last_message_direction: conv.lastMessageDirection,
-      message_count: conv.messageCount,
-      unread_count: conv.unreadCount,
-      hasUnread: conv.unreadCount > 0,
-      isNewMessage: conv.lastMessageAt && 
-        new Date().getTime() - new Date(conv.lastMessageAt).getTime() < 5 * 60 * 1000, // 5 minutes
-    }));
+    // For each contact, get their last message and stats
+    const conversations = await Promise.all(
+      contacts.map(async (contact) => {
+        // Determine the contact's email address (use email1 as primary)
+        const emailAddress = contact.email1 || contact.email2 || contact.email3 || '';
+
+        // Get or create EmailConversation record
+        let emailConversation = await prisma.emailConversation.findFirst({
+          where: {
+            contactId: contact.id,
+            emailAddress: emailAddress
+          }
+        });
+
+        // Create if doesn't exist
+        if (!emailConversation) {
+          emailConversation = await prisma.emailConversation.create({
+            data: {
+              contactId: contact.id,
+              emailAddress: emailAddress,
+              messageCount: 0,
+              unreadCount: 0,
+              isArchived: false,
+              isStarred: false,
+            }
+          });
+        }
+
+        // Get last message for this contact
+        const lastMessage = await prisma.emailMessage.findFirst({
+          where: {
+            emailAccountId: accountId,
+            contactId: contact.id
+          },
+          orderBy: { deliveredAt: 'desc' },
+          select: {
+            id: true,
+            subject: true,
+            content: true,
+            direction: true,
+            deliveredAt: true,
+            openedAt: true
+          }
+        });
+
+        // Count messages
+        const messageCount = await prisma.emailMessage.count({
+          where: {
+            emailAccountId: accountId,
+            contactId: contact.id
+          }
+        });
+
+        // Count unread messages (inbound messages without openedAt)
+        const unreadCount = await prisma.emailMessage.count({
+          where: {
+            emailAccountId: accountId,
+            contactId: contact.id,
+            direction: 'inbound',
+            openedAt: null
+          }
+        });
+
+        // Get preview text (strip HTML and truncate)
+        const previewText = lastMessage?.content
+          ? lastMessage.content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().substring(0, 100)
+          : '';
+
+        return {
+          id: emailConversation.id,
+          contact,
+          emailAddress,
+          isStarred: emailConversation.isStarred,
+          isArchived: emailConversation.isArchived,
+          deletedAt: emailConversation.deletedAt,
+          lastMessage: lastMessage ? {
+            id: lastMessage.id,
+            subject: lastMessage.subject || 'No Subject',
+            preview: previewText,
+            sentAt: lastMessage.deliveredAt?.toISOString() || new Date().toISOString(),
+            isRead: lastMessage.direction === 'outbound' || !!lastMessage.openedAt,
+            direction: lastMessage.direction,
+          } : null,
+          messageCount: messageCount,
+          unreadCount: unreadCount,
+          hasUnread: unreadCount > 0,
+        };
+      })
+    );
+
+    // Filter conversations based on view
+    let filteredConversations = conversations;
+
+    if (view === 'starred') {
+      filteredConversations = conversations.filter(c => c.isStarred && !c.deletedAt);
+    } else if (view === 'archived') {
+      filteredConversations = conversations.filter(c => c.isArchived && !c.deletedAt);
+    } else if (view === 'trash') {
+      filteredConversations = conversations.filter(c => c.deletedAt !== null);
+    } else {
+      // inbox: not archived, not deleted
+      filteredConversations = conversations.filter(c => !c.isArchived && !c.deletedAt);
+    }
+
+    // Sort by unread count and last message time
+    filteredConversations.sort((a, b) => {
+      if (a.unreadCount !== b.unreadCount) {
+        return b.unreadCount - a.unreadCount;
+      }
+      const aTime = a.lastMessage?.sentAt ? new Date(a.lastMessage.sentAt).getTime() : 0;
+      const bTime = b.lastMessage?.sentAt ? new Date(b.lastMessage.sentAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    // Apply pagination
+    const totalCount = filteredConversations.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const paginatedConversations = filteredConversations.slice(offset, offset + limit);
 
     return NextResponse.json({
-      conversations: transformedConversations,
-      total: conversations.length,
+      conversations: paginatedConversations,
+      total: totalCount,
+      page,
+      totalPages,
+      hasMore: page < totalPages,
     });
   } catch (error) {
     console.error('Error fetching email conversations:', error);

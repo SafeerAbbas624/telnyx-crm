@@ -10,9 +10,11 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+
 import { Phone, PhoneCall, PhoneOff, Search, Clock, DollarSign, Play, Pause, Volume2, User } from "lucide-react"
 import { useContacts } from "@/lib/context/contacts-context"
-import { getBestPhoneNumber, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
+import { getBestPhoneNumber, formatPhoneNumberForDisplay, formatPhoneNumberForTelnyx } from "@/lib/phone-utils"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
 import { useCallUI } from "@/lib/context/call-ui-context"
@@ -89,7 +91,7 @@ export default function CallsCenter() {
   const [callsOffset, setCallsOffset] = useState(0)
   const [callsHasMore, setCallsHasMore] = useState(true)
   const [isLoadingMoreCalls, setIsLoadingMoreCalls] = useState(false)
-  const CALLS_LIMIT = 25
+  const CALLS_LIMIT = 100000
 
   const ACTIVE_STATUSES = new Set(['initiated','ringing','answered','bridged'])
 
@@ -104,9 +106,40 @@ export default function CallsCenter() {
 	        (c.phone1 || '').toLowerCase().includes(q) ||
 	        (c.propertyAddress || '').toLowerCase().includes(q)
 	      )
+
+
 	    })
 	  }, [contactsResults, searchQuery])
+  const [activeTab, setActiveTab] = useState<'contacts' | 'dialpad'>('contacts')
+  const [dialpadNumber, setDialpadNumber] = useState('')
+  const [dialpadCalls, setDialpadCalls] = useState<TelnyxCall[]>([])
+  const [isLoadingDialpadCalls, setIsLoadingDialpadCalls] = useState(false)
+  // Cache for contacts fetched by id for dialpad logs
+  const [callContactMap, setCallContactMap] = useState<Record<string, Contact | undefined>>({})
+  // Cache for contacts looked up by phone last10 for dialpad logs
+  const [callNumberMap, setCallNumberMap] = useState<Record<string, Contact | undefined>>({})
 
+  // Resolve a contact for a given call (prefer fetched-by-id; else context list; else number match)
+  const findContactForDialpadCall = React.useCallback((call: TelnyxCall) => {
+    try {
+      if (!call) return null
+      const cid = (call as any).contactId as string | undefined
+      if (cid) {
+        const fetched = callContactMap[cid]
+        if (fetched) return fetched
+        const fromList = contactsResults.find(c => c.id === cid)
+        if (fromList) return fromList
+      }
+      const counterparty = call.direction === 'outbound' ? call.toNumber : call.fromNumber
+      const last10 = (counterparty || '').replace(/\D/g, '').slice(-10)
+      if (!last10) return null
+      // Try number-based cache first (DB lookup)
+      const byNum = callNumberMap[last10]
+      if (byNum) return byNum
+      // Fallback to in-memory contacts list
+      return contactsResults.find(c => [c.phone1, c.phone2, c.phone3].some(p => (p || '').replace(/\D/g, '').endsWith(last10))) || null
+    } catch { return null }
+  }, [contactsResults, callContactMap, callNumberMap])
 
   useEffect(() => {
     loadData()
@@ -132,12 +165,118 @@ export default function CallsCenter() {
     return () => { if (interval) clearInterval(interval) }
   }, [hasActiveCall])
 
+  // Live-refresh selected contact call list while a call is active and once after it ends
+  useEffect(() => {
+    if (!selectedContact) return
+    let iv: NodeJS.Timeout | null = null
+
+    const refresh = () => fetchSelectedCalls(true)
+    // Initial fetch to catch any new records
+    refresh()
+    if (hasActiveCall) {
+      iv = setInterval(refresh, 3000)
+    }
+    return () => { if (iv) clearInterval(iv) }
+  }, [selectedContact?.id, hasActiveCall])
+
+
   // Close the activity dialog automatically once there is no active call
   useEffect(() => {
     if (!hasActiveCall && showActivityDialog) {
       setShowActivityDialog(false)
     }
   }, [hasActiveCall, showActivityDialog])
+  // Load dialpad call logs (Admin):
+  // - If a number is typed in the dialpad, show logs for that number
+  // - Otherwise, show logs for the currently selected FROM number
+  useEffect(() => {
+    if (activeTab !== 'dialpad') return
+
+    const typed = dialpadNumber?.trim()
+    const fallbackFrom = selectedPhoneNumber?.phoneNumber || ''
+    // Use the typed raw digits while user is typing; API handles partials via last-10/contains.
+    const candidate = typed ? typed : fallbackFrom
+
+    if (!candidate) { setDialpadCalls([]); return }
+
+    let aborted = false
+    const load = async () => {
+      try {
+        setIsLoadingDialpadCalls(true)
+        const params = new URLSearchParams({ number: candidate, limit: '200' })
+        const res = await fetch(`/api/calls/by-number?${params}`)
+        if (!res.ok) { setDialpadCalls([]); return }
+        const data = await res.json()
+        if (!aborted) setDialpadCalls(data.calls || [])
+      } finally {
+        if (!aborted) setIsLoadingDialpadCalls(false)
+      }
+    }
+    load()
+    return () => { aborted = true }
+  }, [activeTab, dialpadNumber, selectedPhoneNumber?.phoneNumber])
+
+  // Fetch missing contacts by id for dialpad calls so we can display names
+  useEffect(() => {
+    const ids = Array.from(new Set(
+      dialpadCalls.map(c => (c as any).contactId).filter(Boolean)
+    )) as string[]
+    const missing = ids.filter(id => !callContactMap[id])
+    if (missing.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const entries: Record<string, Contact> = {}
+      await Promise.all(missing.map(async (id) => {
+        try {
+          const r = await fetch(`/api/contacts/${id}`)
+          if (r.ok) {
+            const data = await r.json()
+            entries[id] = data
+          }
+        } catch {}
+      }))
+      if (!cancelled && Object.keys(entries).length) {
+        setCallContactMap(prev => ({ ...prev, ...entries }))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [dialpadCalls, callContactMap])
+
+  // When calls lack contactId and we cannot resolve from the current list,
+  // look up contacts by phone last10 across the DB and cache them by last10
+  useEffect(() => {
+    if (!dialpadCalls || dialpadCalls.length === 0) return
+    const needed = new Set<string>()
+    for (const call of dialpadCalls) {
+      const cid = (call as any).contactId as string | undefined
+      if (cid && (callContactMap[cid] || contactsResults.some(c => c.id === cid))) continue
+      const counterparty = call.direction === 'outbound' ? call.toNumber : call.fromNumber
+      const last10 = (counterparty || '').replace(/\D/g, '').slice(-10)
+      if (!last10) continue
+      const hasInList = contactsResults.some(c => [c.phone1, c.phone2, c.phone3].some(p => (p || '').replace(/\D/g, '').endsWith(last10)))
+      if (callNumberMap[last10] || hasInList) continue
+      needed.add(last10)
+    }
+    const arr = Array.from(needed)
+    if (arr.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      const updates: Record<string, Contact> = {}
+      await Promise.all(arr.map(async (last10) => {
+        try {
+          const r = await fetch(`/api/contacts/lookup-by-number?last10=${last10}`)
+          if (!r.ok) return
+          const contact = await r.json()
+          if (contact && contact.id) updates[last10] = contact
+        } catch {}
+      }))
+      if (!cancelled && Object.keys(updates).length) {
+        setCallNumberMap(prev => ({ ...prev, ...updates }))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [dialpadCalls, contactsResults, callContactMap, callNumberMap])
+
 
   // Load calls for selected contact (initial + pagination)
   const fetchSelectedCalls = async (reset = false) => {
@@ -189,23 +328,31 @@ export default function CallsCenter() {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) })
         const q = (currentQuery || '').trim()
         if (q) params.set('search', q)
-        // Apply filters
-        const entries = Object.entries(currentFilters || {}) as Array<[string, string[]]>
-        const normalizedEntries = entries
-          .filter(([, vals]) => Array.isArray(vals) && vals.length > 0)
-          .map(([k, vals]) => [k, vals.map(v => String(v))] as [string, string[]])
-        normalizedEntries.forEach(([k, vals]) => {
-          params.set(k, vals.join(','))
+
+        console.log('🔍 [CALLS CENTER] Fetching contacts with:', { currentQuery, currentFilters })
+
+        // Apply filters - handle both array and string formats
+        const entries = Object.entries(currentFilters || {})
+        entries.forEach(([key, value]) => {
+          if (value != null && value !== '') {
+            // If it's already a comma-separated string, use it directly
+            if (typeof value === 'string') {
+              params.set(key, value)
+            }
+            // If it's an array, join with commas
+            else if (Array.isArray(value) && value.length > 0) {
+              params.set(key, value.join(','))
+            }
+          }
         })
 
-        const filtersKey = normalizedEntries
-          .map(([k, vals]) => `${k}=${vals.join('|')}`)
-          .sort()
-          .join('&')
-        const cacheKey = `p=${page}|l=${limit}|q=${q}|f=${filtersKey}`
+        console.log('🔍 [CALLS CENTER] API params:', params.toString())
+
+        const cacheKey = `p=${page}|l=${limit}|q=${q}|f=${params.toString()}`
 
         const cached = contactsCacheRef.current.get(cacheKey)
         if (cached) {
+          console.log('🔍 [CALLS CENTER] Using cached results')
           setContactsResults(cached.results)
           setTotalPages(cached.totalPages)
         }
@@ -215,6 +362,7 @@ export default function CallsCenter() {
           const data = await res.json()
           const results = Array.isArray(data.contacts) ? data.contacts : []
           const total = data.pagination?.totalPages || 1
+          console.log('🔍 [CALLS CENTER] Received', results.length, 'contacts')
           setContactsResults(results)
           setTotalPages(total)
           contactsCacheRef.current.set(cacheKey, { results, totalPages: total })
@@ -427,6 +575,16 @@ export default function CallsCenter() {
         <div className="mb-4">
           <label className="text-sm font-medium mb-2 block">Select Phone Number</label>
           <div className="flex gap-2 flex-wrap">
+      {/* Tabs control */}
+      <div className="px-4 py-2 border-b">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+          <TabsList>
+            <TabsTrigger value="contacts">Contacts</TabsTrigger>
+            <TabsTrigger value="dialpad">Dialpad</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
             {phoneNumbers.map((phoneNumber) => (
               <Button
                 key={phoneNumber.id}
@@ -451,9 +609,12 @@ export default function CallsCenter() {
         </div>
       </div>
 
+
+      {activeTab !== 'dialpad' && (
+
       <div className="flex-1 flex">
         {/* Contacts List */}
-        <div className="w-1/3 border-r">
+        <div className="w-1/3 border-r" style={{ display: activeTab === 'dialpad' ? 'none' : undefined }}>
           <div className="p-4">
             <div className="mb-4">
               {/* Advanced Filters (DB-backed) */}
@@ -545,7 +706,7 @@ export default function CallsCenter() {
         </div>
 
         {/* Call Details & Recent Calls */}
-        <div className="w-2/3 p-4">
+        <div className="w-2/3 p-4" style={{ display: activeTab === 'dialpad' ? 'none' : undefined }}>
           {selectedContact ? (
             <div className="space-y-6">
               {/* Selected Contact Call Interface */}
@@ -787,6 +948,7 @@ export default function CallsCenter() {
 
                               </p>
                             )}
+
                             {call.recordingUrl && (
                               <Button size="sm" variant="ghost" className="h-6 w-6 p-0 mt-1">
                                 <Play className="h-3 w-3" />
@@ -812,9 +974,169 @@ export default function CallsCenter() {
                 <p>Select a contact to start calling</p>
               </div>
             </div>
+
+
           )}
         </div>
       </div>
+
+
+      )}
+
+      {activeTab === 'dialpad' && (
+        <div className="flex-1 p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            {/* Left: Keypad */}
+            <div className="w-full md:w-2/5">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Dialpad</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="max-w-md">
+                    <Input placeholder="Enter number" value={dialpadNumber} onChange={(e) => setDialpadNumber(e.target.value)} className="mb-4 h-12 text-lg" />
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                      {["1","2","3","4","5","6","7","8","9","*","0","#"].map((d) => (
+                        <Button key={d} variant="outline" className="h-14 text-lg" onClick={() => setDialpadNumber((n) => n + d)}>{d}</Button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button className="h-12 text-lg" disabled={!selectedPhoneNumber || !dialpadNumber} onClick={async () => {
+                        try {
+                          const { formatPhoneNumberForTelnyx } = await import("@/lib/phone-utils")
+                          const toNumber = formatPhoneNumberForTelnyx(dialpadNumber) as any
+                          if (!toNumber) { throw new Error('Enter a valid phone number') }
+
+                          // Try to resolve contact by the typed number (last-10). Use contacts list first, then DB lookup.
+                          let resolvedContact: any = null
+                          try {
+                            const digits = (dialpadNumber || '').replace(/\D/g, '')
+                            const last10 = digits.slice(-10)
+                            if (last10) {
+                              const fromList = contactsResults.find(c => [c.phone1, c.phone2, c.phone3].some(p => (p || '').replace(/\D/g, '').endsWith(last10)))
+                              if (fromList) {
+                                resolvedContact = fromList
+                              } else {
+                                const r = await fetch(`/api/contacts/lookup-by-number?last10=${last10}`)
+                                if (r.ok) { resolvedContact = await r.json() }
+                              }
+                            }
+                          } catch {}
+
+                          // Try WebRTC first
+                          try {
+                            const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+                            await rtcClient.ensureRegistered()
+                            const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber: selectedPhoneNumber!.phoneNumber })
+                            toast({ title: 'Calling (WebRTC)', description: toNumber })
+                            openCall({
+                              fromNumber: selectedPhoneNumber!.phoneNumber,
+                              toNumber,
+                              mode: 'webrtc',
+                              webrtcSessionId: sessionId,
+                              ...(resolvedContact ? { contact: { id: resolvedContact.id, firstName: resolvedContact.firstName, lastName: resolvedContact.lastName } } : {})
+                            })
+                          } catch {
+                            const resp = await fetch('/api/telnyx/calls', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ fromNumber: selectedPhoneNumber!.phoneNumber, toNumber })
+                            })
+                            if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || 'Failed to initiate call') }
+                            const data = await resp.json()
+                            toast({ title: 'Call Initiated', description: toNumber })
+                            openCall({
+                              fromNumber: selectedPhoneNumber!.phoneNumber,
+                              toNumber,
+                              mode: 'call_control',
+                              telnyxCallId: data.telnyxCallId,
+                              ...(resolvedContact ? { contact: { id: resolvedContact.id, firstName: resolvedContact.firstName, lastName: resolvedContact.lastName } } : {})
+                            })
+                          }
+                        } catch (err: any) {
+                          toast({ title: 'Error', description: err?.message || 'Failed to call', variant: 'destructive' })
+                        }
+                      }}>
+                        <PhoneCall className="h-4 w-4 mr-2" /> Call
+                      </Button>
+                      <Button className="h-12" variant="secondary" onClick={() => setDialpadNumber(dialpadNumber.slice(0,-1))}>Backspace</Button>
+                      <Button className="h-12" variant="ghost" onClick={() => setDialpadNumber('')}>Clear</Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Right: Call Logs */}
+            <div className="w-full md:w-3/5">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle>Call Logs</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingDialpadCalls && dialpadCalls.length === 0 ? (
+                    <div className="space-y-2">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="animate-pulse p-3 border rounded-md">
+                          <div className="h-3 bg-muted rounded w-1/3 mb-2" />
+                          <div className="h-3 bg-muted rounded w-1/4" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {dialpadCalls.map((call) => (
+                        <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full ${call.direction === 'outbound' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                              {call.direction === 'outbound' ? (
+                                <PhoneCall className="h-4 w-4 text-blue-600" />
+                              ) : (
+                                <Phone className="h-4 w-4 text-green-600" />
+                              )}
+                            </div>
+                            <div>
+                              {/* Name (top) */}
+                              <p className="text-sm font-semibold">
+                                {(() => {
+                                  const c = findContactForDialpadCall(call)
+                                  if (c) return <ContactName contact={c} className="!no-underline" />
+                                  if ((call as any).contactId) return <ContactName contactId={(call as any).contactId} className="!no-underline" />
+                                  return <>Unknown contact</>
+                                })()}
+                              </p>
+                              {/* Contact number (counterparty) */}
+                              <p className="text-xs text-muted-foreground">
+                                {formatPhoneNumberForDisplay(call.direction === 'outbound' ? call.toNumber : call.fromNumber)}
+                              </p>
+                              {/* Time */}
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge className={getStatusColor(call.status)}>
+                              {call.status}
+                            </Badge>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {formatDuration(computeDuration(call))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {dialpadCalls.length === 0 && !isLoadingDialpadCalls && (
+                        <div className="text-xs text-muted-foreground">No calls found for this number.</div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

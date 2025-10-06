@@ -15,6 +15,7 @@ import { useNotifications } from "@/lib/context/notifications-context"
 import { Search, Send, MessageSquare, Phone, Plus } from "lucide-react"
 import SimpleAddActivityDialog from "@/components/activities/simple-add-activity-dialog"
 import ContactName from "@/components/contacts/contact-name"
+import NewTextMessageModal from "@/components/text/new-text-message-modal"
 
 import { formatDistanceToNow } from "date-fns"
 
@@ -71,6 +72,7 @@ export default function TeamConversations() {
   const [showActivityDialog, setShowActivityDialog] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
+  const [showNewMessageModal, setShowNewMessageModal] = useState(false)
 
   useEffect(() => {
     const checkMobile = () => {
@@ -362,17 +364,26 @@ export default function TeamConversations() {
       {/* Conversations List */}
       <div className={`${isMobile ? "w-full" : "w-1/3 border-r"} flex flex-col`}>
         <div className="p-4 border-b flex-shrink-0">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-            <Input
-              type="search"
-              placeholder="Search conversations..."
-              className="pl-8"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
-
+          <div className="flex gap-2 items-start">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+              <Input
+                type="search"
+                placeholder="Search conversations..."
+                className="pl-8"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {isSearching && (<div className="text-xs text-muted-foreground mt-1">Searching...</div>)}
+            </div>
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={() => setShowNewMessageModal(true)}
+              title="Send new message"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
@@ -610,6 +621,15 @@ export default function TeamConversations() {
           onActivityAdded={handleActivityAdded}
         />
       )}
+
+      {/* New Message Modal (same as admin text center) */}
+      <NewTextMessageModal
+        open={showNewMessageModal}
+        onOpenChange={setShowNewMessageModal}
+        onMessageSent={() => {
+          loadConversations()
+        }}
+      />
     </div>
   )
 }

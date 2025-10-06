@@ -13,7 +13,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { CalendarIcon, Clock } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import type { Activity, ActivityType } from "@/lib/types"
+import { TagInput } from "@/components/ui/tag-input"
+import type { Activity, ActivityType, Tag } from "@/lib/types"
 
 interface AddActivityDialogProps {
   open: boolean
@@ -55,6 +56,7 @@ export default function AddActivityDialog({
     durationMinutes: "",
     reminderMinutes: "0",
     isAllDay: false,
+    tags: [] as Tag[],
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,6 +94,7 @@ export default function AddActivityDialog({
         durationMinutes: formData.durationMinutes ? parseInt(formData.durationMinutes) : undefined,
         reminderMinutes: formData.reminderMinutes && formData.reminderMinutes !== "0" ? parseInt(formData.reminderMinutes) : undefined,
         isAllDay: formData.isAllDay,
+        tags: formData.tags,
       }
 
       const response = await fetch('/api/activities', {
@@ -122,6 +125,7 @@ export default function AddActivityDialog({
         durationMinutes: "",
         reminderMinutes: "0",
         isAllDay: false,
+        tags: [],
       })
       
       onOpenChange(false)
@@ -146,6 +150,7 @@ export default function AddActivityDialog({
       durationMinutes: "",
       reminderMinutes: "0",
       isAllDay: false,
+      tags: [],
     })
     onOpenChange(false)
   }
@@ -325,6 +330,19 @@ export default function AddActivityDialog({
                 <SelectItem value="1440">1 day</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Tags */}
+          <div className="space-y-2">
+            <Label>Tags</Label>
+            <TagInput
+              value={formData.tags}
+              onChange={(tags) => setFormData(prev => ({ ...prev, tags }))}
+              contactId={contactId}
+              placeholder="Add tags to organize this activity..."
+              showSuggestions={true}
+              allowCreate={true}
+            />
           </div>
 
           <DialogFooter>

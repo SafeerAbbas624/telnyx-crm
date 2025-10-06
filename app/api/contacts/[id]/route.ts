@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { formatPhoneNumberForTelnyx } from '@/lib/phone-utils';
+import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
 
 interface ContactUpdateData {
   firstName?: string;
@@ -326,6 +327,35 @@ export async function PATCH(
       tags: updated.contact_tags.map((ct) => ({ id: ct.tag.id, name: ct.tag.name, color: ct.tag.color || '#3B82F6' })),
     };
 
+    // Try to update Elasticsearch index (non-blocking on failure)
+    try {
+      await elasticsearchClient.updateContact(updated.id, {
+        firstName: updated.firstName || undefined,
+        lastName: updated.lastName || undefined,
+        llcName: updated.llcName || undefined,
+        phone1: updated.phone1 || undefined,
+        phone2: updated.phone2 || undefined,
+        phone3: updated.phone3 || undefined,
+        email1: updated.email1 || undefined,
+        email2: updated.email2 || undefined,
+        email3: updated.email3 || undefined,
+        propertyAddress: updated.propertyAddress || undefined,
+        contactAddress: updated.contactAddress || undefined,
+        city: updated.city || undefined,
+        state: updated.state || undefined,
+        propertyCounty: updated.propertyCounty || undefined,
+        propertyType: updated.propertyType || undefined,
+        estValue: updated.estValue != null ? Number(updated.estValue) : undefined,
+        estEquity: updated.estEquity != null ? Number(updated.estEquity) : undefined,
+        dnc: typeof updated.dnc === 'boolean' ? updated.dnc : undefined,
+        dealStatus: updated.dealStatus || undefined,
+        updatedAt: new Date().toISOString(),
+        tags: updated.contact_tags?.map((ct) => ct.tag.name) || undefined,
+      })
+    } catch (e) {
+      console.warn('ES updateContact failed (non-fatal):', e)
+    }
+
     return NextResponse.json(formattedContact);
   } catch (error) {
     console.error('Error updating contact:', error);
@@ -346,6 +376,13 @@ export async function DELETE(
     await prisma.contact.delete({
       where: { id },
     });
+
+    // Try to remove from Elasticsearch (non-blocking)
+    try {
+      await elasticsearchClient.deleteContact(id)
+    } catch (e) {
+      console.warn('ES deleteContact failed (non-fatal):', e)
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

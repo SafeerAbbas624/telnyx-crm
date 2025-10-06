@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useToast } from "@/hooks/use-toast"
+import { TagInput } from "@/components/ui/tag-input"
 import type { Contact, Tag } from "@/lib/types"
 
 interface EditContactDialogProps {
@@ -27,7 +28,7 @@ interface EditContactDialogProps {
 }
 
 export default function EditContactDialog({ open, onOpenChange, contact }: EditContactDialogProps) {
-  const { updateContact, tags } = useContacts()
+  const { updateContact, tags, refreshFilterOptions } = useContacts()
   const { toast } = useToast()
 
   const [firstName, setFirstName] = useState(contact?.firstName || "")
@@ -57,7 +58,6 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
   const [dncReason, setDncReason] = useState(contact?.dncReason || "")
   const [notes, setNotes] = useState(contact?.notes || "")
   const [selectedTags, setSelectedTags] = useState<Tag[]>(contact?.tags || [])
-  const [newTagName, setNewTagName] = useState("")
 
   useEffect(() => {
     if (contact) {
@@ -129,14 +129,29 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       dnc,
       dncReason: dnc ? dncReason || "N/A" : undefined,
       notes: notes || undefined,
-      tags: selectedTags.map((t: any) => ({
-        id: typeof t.id === 'string' && t.id.startsWith('new:') ? undefined : t.id,
-        name: t.name,
-        color: t.color,
-      })),
+      tags: selectedTags.map((t: any) => {
+        // Handle new tags (prefixed with 'new:')
+        if (typeof t.id === 'string' && t.id.startsWith('new:')) {
+          return {
+            name: t.name,
+            color: t.color || '#3B82F6',
+          }
+        }
+        // Handle existing tags
+        return {
+          id: t.id,
+          name: t.name,
+          color: t.color,
+        }
+      }),
     }
 
     const updated = await updateContact(contact.id, payload)
+
+    // Force refresh filter options after updating contact (especially for tags)
+    console.log('🔄 [EDIT CONTACT] Manually refreshing filter options after update')
+    await refreshFilterOptions()
+
     toast({
       title: "Contact updated",
       description: `${firstName} ${lastName}'s details have been updated.`,
@@ -332,59 +347,14 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
           </div>
           <div className="space-y-2">
             <Label htmlFor="tags">Tags</Label>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2">
-                <Select
-                  onValueChange={(value) => {
-                    const tag = tags.find((t) => t.id === value)
-                    if (tag && !selectedTags.some((t) => t.id === tag.id)) {
-                      setSelectedTags([...selectedTags, tag])
-                    }
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select existing tags" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tags.map((tag) => (
-                      <SelectItem key={tag.id} value={tag.id}>
-                        {tag.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Input
-                  placeholder="New tag"
-                  value={newTagName}
-                  onChange={(e) => setNewTagName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const name = newTagName.trim()
-                      if (!name) return
-                      if (!selectedTags.some((t: any) => t.name.toLowerCase() === name.toLowerCase())) {
-                        const newTag: any = { id: `new:${name}`, name, color: '#3B82F6' }
-                        setSelectedTags([...selectedTags, newTag])
-                      }
-                      setNewTagName("")
-                    }
-                  }}
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {selectedTags.map((tag: any) => (
-                <Badge
-                  key={tag.id}
-                  style={{ backgroundColor: tag.color || '#3B82F6', color: "white" }}
-                  className="cursor-pointer"
-                  onClick={() => setSelectedTags(selectedTags.filter((t: any) => t.id !== tag.id && t.name !== tag.name))}
-                >
-                  {tag.name}
-                </Badge>
-              ))}
-            </div>
+            <TagInput
+              value={selectedTags}
+              onChange={setSelectedTags}
+              contactId={contact?.id}
+              placeholder="Add tags to organize this contact..."
+              showSuggestions={true}
+              allowCreate={true}
+            />
           </div>
         </div>
         <DialogFooter>

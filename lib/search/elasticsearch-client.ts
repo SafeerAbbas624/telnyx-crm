@@ -35,169 +35,153 @@ class ElasticsearchClient {
     this.client = new Client({
       node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
       auth: process.env.ELASTICSEARCH_USERNAME && process.env.ELASTICSEARCH_PASSWORD ? {
-        username: process.env.ELASTICSEARCH_USERNAME,
-        password: process.env.ELASTICSEARCH_PASSWORD
+        username: process.env.ELASTICSEARCH_USERNAME as string,
+        password: process.env.ELASTICSEARCH_PASSWORD as string,
       } : undefined,
       maxRetries: 3,
       requestTimeout: 30000,
-      sniffOnStart: true,
+      // Disable sniffing in Docker single-node to avoid switching to
+      // internal container addresses that the host cannot reach
+      sniffOnStart: false,
+
     })
   }
 
   // Initialize index with optimized mapping for 500K+ contacts
   async initializeIndex() {
-    try {
-      const indexExists = await this.client.indices.exists({
-        index: this.indexName
-      })
-
-      if (!indexExists) {
-        await this.client.indices.create({
-          index: this.indexName,
-          body: {
-            settings: {
-              number_of_shards: 3,
-              number_of_replicas: 1,
-              max_result_window: 100000,
-              analysis: {
-                analyzer: {
-                  contact_analyzer: {
-                    type: 'custom',
-                    tokenizer: 'standard',
-                    filter: [
-                      'lowercase',
-                      'asciifolding',
-                      'stop',
-                      'snowball'
-                    ]
-                  },
-                  phone_analyzer: {
-                    type: 'custom',
-                    tokenizer: 'keyword',
-                    filter: ['lowercase']
-                  }
-                }
-              }
+    const body = {
+      settings: {
+        number_of_shards: 1,
+        number_of_replicas: 0,
+        max_result_window: 100000,
+        analysis: {
+          analyzer: {
+            contact_analyzer: {
+              type: 'custom',
+              tokenizer: 'standard',
+              filter: [
+                'lowercase',
+                'asciifolding',
+                'stop',
+                'snowball'
+              ]
             },
-            mappings: {
-              properties: {
-                id: { type: 'keyword' },
-                firstName: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer',
-                  fields: {
-                    keyword: { type: 'keyword' },
-                    suggest: { type: 'completion' }
-                  }
-                },
-                lastName: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer',
-                  fields: {
-                    keyword: { type: 'keyword' },
-                    suggest: { type: 'completion' }
-                  }
-                },
-                fullName: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer',
-                  fields: {
-                    keyword: { type: 'keyword' },
-                    suggest: { type: 'completion' }
-                  }
-                },
-                llcName: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer',
-                  fields: {
-                    keyword: { type: 'keyword' },
-                    suggest: { type: 'completion' }
-                  }
-                },
-                phone1: { 
-                  type: 'text',
-                  analyzer: 'phone_analyzer',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                phone2: { 
-                  type: 'text',
-                  analyzer: 'phone_analyzer',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                phone3: { 
-                  type: 'text',
-                  analyzer: 'phone_analyzer',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                email1: { 
-                  type: 'text',
-                  analyzer: 'standard',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                email2: { 
-                  type: 'text',
-                  analyzer: 'standard',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                email3: { 
-                  type: 'text',
-                  analyzer: 'standard',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                propertyAddress: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer'
-                },
-                contactAddress: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer'
-                },
-                city: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                state: { 
-                  type: 'keyword'
-                },
-                propertyCounty: { 
-                  type: 'text',
-                  analyzer: 'contact_analyzer',
-                  fields: { keyword: { type: 'keyword' } }
-                },
-                propertyType: { 
-                  type: 'keyword'
-                },
-                dealStatus: { 
-                  type: 'keyword'
-                },
-                estValue: { 
-                  type: 'double'
-                },
-                estEquity: { 
-                  type: 'double'
-                },
-                dnc: { 
-                  type: 'boolean'
-                },
-                createdAt: { 
-                  type: 'date'
-                },
-                updatedAt: { 
-                  type: 'date'
-                },
-                tags: { 
-                  type: 'keyword'
-                }
-              }
+            phone_analyzer: {
+              type: 'custom',
+              tokenizer: 'keyword',
+              filter: ['lowercase']
             }
           }
-        })
-        console.log('✅ Elasticsearch index created successfully')
+        }
+      },
+      mappings: {
+        properties: {
+          id: { type: 'keyword' },
+          firstName: {
+            type: 'text',
+            analyzer: 'contact_analyzer',
+            fields: {
+              keyword: { type: 'keyword' },
+              suggest: { type: 'completion' }
+            }
+          },
+          lastName: {
+            type: 'text',
+            analyzer: 'contact_analyzer',
+            fields: {
+              keyword: { type: 'keyword' },
+              suggest: { type: 'completion' }
+            }
+          },
+          fullName: {
+            type: 'text',
+            analyzer: 'contact_analyzer',
+            fields: {
+              keyword: { type: 'keyword' },
+              suggest: { type: 'completion' }
+            }
+          },
+          llcName: {
+            type: 'text',
+            analyzer: 'contact_analyzer',
+            fields: {
+              keyword: { type: 'keyword' },
+              suggest: { type: 'completion' }
+            }
+          },
+          phone1: {
+            type: 'text',
+            analyzer: 'phone_analyzer',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          phone2: {
+            type: 'text',
+            analyzer: 'phone_analyzer',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          phone3: {
+            type: 'text',
+            analyzer: 'phone_analyzer',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          email1: {
+            type: 'text',
+            analyzer: 'standard',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          email2: {
+            type: 'text',
+            analyzer: 'standard',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          email3: {
+            type: 'text',
+            analyzer: 'standard',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          propertyAddress: {
+            type: 'text',
+            analyzer: 'contact_analyzer'
+          },
+          contactAddress: {
+            type: 'text',
+            analyzer: 'contact_analyzer'
+          },
+          city: {
+            type: 'text',
+            analyzer: 'contact_analyzer',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          state: { type: 'keyword' },
+          propertyCounty: {
+            type: 'text',
+            analyzer: 'contact_analyzer',
+            fields: { keyword: { type: 'keyword' } }
+          },
+          propertyType: { type: 'keyword' },
+          dealStatus: { type: 'keyword' },
+          estValue: { type: 'double' },
+          estEquity: { type: 'double' },
+          dnc: { type: 'boolean' },
+          createdAt: { type: 'date' },
+          updatedAt: { type: 'date' },
+          tags: { type: 'keyword' }
+        }
       }
-    } catch (error) {
-      console.error('❌ Error initializing Elasticsearch index:', error)
-      throw error
+    }
+
+    try {
+      // Try to create index; if it already exists, ignore 400
+      await (this.client.indices.create as any)({ index: this.indexName, body }, { ignore: [400], headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
+      console.log('✅ Elasticsearch index created (or already exists)')
+    } catch (e: any) {
+      const type = e?.meta?.body?.error?.type
+      if (e?.meta?.statusCode === 400 && type === 'resource_already_exists_exception') {
+        // Safe to ignore
+        return
+      }
+      console.error('❌ Error creating Elasticsearch index:', e)
+      throw e
     }
   }
 
@@ -211,7 +195,7 @@ class ElasticsearchClient {
           ...contact,
           fullName: `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
         }
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
     } catch (error) {
       console.error('Error indexing contact:', error)
       throw error
@@ -232,7 +216,7 @@ class ElasticsearchClient {
       const response = await this.client.bulk({
         body,
         refresh: true
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+x-ndjson; compatible-with=8' } })
 
       if (response.errors) {
         console.error('Bulk indexing errors:', response.items.filter(item => item.index?.error))
@@ -255,6 +239,7 @@ class ElasticsearchClient {
     minValue?: number
     maxValue?: number
     dnc?: boolean
+    tags?: string[]
     page?: number
     limit?: number
     sortBy?: string
@@ -269,6 +254,7 @@ class ElasticsearchClient {
       minValue,
       maxValue,
       dnc,
+      tags,
       page = 1,
       limit = 20,
       sortBy = 'createdAt',
@@ -298,7 +284,8 @@ class ElasticsearchClient {
             'email2',
             'email3',
             'propertyAddress',
-            'contactAddress'
+            'contactAddress',
+            'tags^2'
           ],
           type: 'best_fields',
           fuzziness: 'AUTO',
@@ -336,6 +323,11 @@ class ElasticsearchClient {
       filter.push({ range: { estValue: range } })
     }
 
+    // Tags filter
+    if (tags && tags.length > 0) {
+      filter.push({ terms: { tags } })
+    }
+
     // Build sort
     const sort: any[] = []
     if (search) {
@@ -365,7 +357,7 @@ class ElasticsearchClient {
             }
           } : undefined
         }
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
 
       const hits = response.hits.hits.map((hit: any) => ({
         ...hit._source,
@@ -403,7 +395,7 @@ class ElasticsearchClient {
             }
           }
         }
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
 
       return response.suggest.contact_suggest[0].options.map((option: any) => ({
         text: option.text,
@@ -450,7 +442,7 @@ class ElasticsearchClient {
             }
           }
         }
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
 
       return response.aggregations
     } catch (error) {
@@ -473,7 +465,7 @@ class ElasticsearchClient {
             } : {})
           }
         }
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
     } catch (error) {
       console.error('Error updating contact:', error)
       throw error
@@ -486,7 +478,7 @@ class ElasticsearchClient {
       await this.client.delete({
         index: this.indexName,
         id
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
     } catch (error) {
       console.error('Error deleting contact:', error)
       throw error
@@ -496,7 +488,7 @@ class ElasticsearchClient {
   // Health check
   async isHealthy(): Promise<boolean> {
     try {
-      const response = await this.client.ping()
+      const response = await this.client.ping({}, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8' } })
       return response.statusCode === 200
     } catch (error) {
       return false
@@ -508,7 +500,7 @@ class ElasticsearchClient {
     try {
       const response = await this.client.indices.stats({
         index: this.indexName
-      })
+      }, { headers: { accept: 'application/vnd.elasticsearch+json; compatible-with=8', 'content-type': 'application/vnd.elasticsearch+json; compatible-with=8' } })
       return response.indices[this.indexName]
     } catch (error) {
       console.error('Error getting index stats:', error)

@@ -1,0 +1,143 @@
+2025-10-02T23:57:42: node:internal/modules/cjs/loader:1383
+2025-10-02T23:57:42:   const err = new Error(message);
+2025-10-02T23:57:42:               ^
+2025-10-02T23:57:42: 
+2025-10-02T23:57:42: Error: Cannot find module '@/lib/encryption'
+2025-10-02T23:57:42: Require stack:
+2025-10-02T23:57:42: - /var/www/adlercapitalcrm.com/workers/email-sync-worker.ts
+2025-10-02T23:57:42:     at node:internal/modules/cjs/loader:1383:15
+2025-10-02T23:57:42:     at nextResolveSimple (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+2025-10-02T23:57:42:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+2025-10-02T23:57:42:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+2025-10-02T23:57:42:     at resolveTsPaths (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+2025-10-02T23:57:42:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+2025-10-02T23:57:42:     at m._resolveFilename (file:///var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+2025-10-02T23:57:42:     at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+2025-10-02T23:57:42:     at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+2025-10-02T23:57:42:     at Function._load (node:internal/modules/cjs/loader:1192:37) {
+2025-10-02T23:57:42:   code: 'MODULE_NOT_FOUND',
+2025-10-02T23:57:42:   requireStack: [ '/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts' ]
+2025-10-02T23:57:42: }
+2025-10-02T23:57:42: 
+2025-10-02T23:57:42: Node.js v22.19.0
+2025-10-02T23:57:47: node:internal/modules/cjs/loader:1383
+2025-10-02T23:57:47:   const err = new Error(message);
+2025-10-02T23:57:47:               ^
+2025-10-02T23:57:47: 
+2025-10-02T23:57:47: Error: Cannot find module '@/lib/encryption'
+2025-10-02T23:57:47: Require stack:
+2025-10-02T23:57:47: - /var/www/adlercapitalcrm.com/workers/email-sync-worker.ts
+2025-10-02T23:57:47:     at node:internal/modules/cjs/loader:1383:15
+2025-10-02T23:57:47:     at nextResolveSimple (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+2025-10-02T23:57:47:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+2025-10-02T23:57:47:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+2025-10-02T23:57:47:     at resolveTsPaths (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+2025-10-02T23:57:47:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+2025-10-02T23:57:47:     at m._resolveFilename (file:///var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+2025-10-02T23:57:47:     at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+2025-10-02T23:57:47:     at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+2025-10-02T23:57:47:     at Function._load (node:internal/modules/cjs/loader:1192:37) {
+2025-10-02T23:57:47:   code: 'MODULE_NOT_FOUND',
+2025-10-02T23:57:47:   requireStack: [ '/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts' ]
+2025-10-02T23:57:47: }
+2025-10-02T23:57:47: 
+2025-10-02T23:57:47: Node.js v22.19.0
+2025-10-02T23:57:52: node:internal/modules/cjs/loader:1383
+2025-10-02T23:57:52:   const err = new Error(message);
+2025-10-02T23:57:52:               ^
+2025-10-02T23:57:52: 
+2025-10-02T23:57:52: Error: Cannot find module '@/lib/encryption'
+2025-10-02T23:57:52: Require stack:
+2025-10-02T23:57:52: - /var/www/adlercapitalcrm.com/workers/email-sync-worker.ts
+2025-10-02T23:57:52:     at node:internal/modules/cjs/loader:1383:15
+2025-10-02T23:57:52:     at nextResolveSimple (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+2025-10-02T23:57:52:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+2025-10-02T23:57:52:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+2025-10-02T23:57:52:     at resolveTsPaths (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+2025-10-02T23:57:52:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+2025-10-02T23:57:52:     at m._resolveFilename (file:///var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+2025-10-02T23:57:52:     at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+2025-10-02T23:57:52:     at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+2025-10-02T23:57:52:     at Function._load (node:internal/modules/cjs/loader:1192:37) {
+2025-10-02T23:57:52:   code: 'MODULE_NOT_FOUND',
+2025-10-02T23:57:52:   requireStack: [ '/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts' ]
+2025-10-02T23:57:52: }
+2025-10-02T23:57:52: 
+2025-10-02T23:57:52: Node.js v22.19.0
+2025-10-02T23:57:57: node:internal/modules/cjs/loader:1383
+2025-10-02T23:57:57:   const err = new Error(message);
+2025-10-02T23:57:57:               ^
+2025-10-02T23:57:57: 
+2025-10-02T23:57:57: Error: Cannot find module '@/lib/encryption'
+2025-10-02T23:57:57: Require stack:
+2025-10-02T23:57:57: - /var/www/adlercapitalcrm.com/workers/email-sync-worker.ts
+2025-10-02T23:57:57:     at node:internal/modules/cjs/loader:1383:15
+2025-10-02T23:57:57:     at nextResolveSimple (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+2025-10-02T23:57:57:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+2025-10-02T23:57:57:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+2025-10-02T23:57:57:     at resolveTsPaths (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+2025-10-02T23:57:57:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+2025-10-02T23:57:57:     at m._resolveFilename (file:///var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+2025-10-02T23:57:57:     at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+2025-10-02T23:57:57:     at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+2025-10-02T23:57:57:     at Function._load (node:internal/modules/cjs/loader:1192:37) {
+2025-10-02T23:57:57:   code: 'MODULE_NOT_FOUND',
+2025-10-02T23:57:57:   requireStack: [ '/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts' ]
+2025-10-02T23:57:57: }
+2025-10-02T23:57:57: 
+2025-10-02T23:57:57: Node.js v22.19.0
+2025-10-02T23:58:03: node:internal/modules/cjs/loader:1383
+2025-10-02T23:58:03:   const err = new Error(message);
+2025-10-02T23:58:03:               ^
+2025-10-02T23:58:03: 
+2025-10-02T23:58:03: Error: Cannot find module '@/lib/encryption'
+2025-10-02T23:58:03: Require stack:
+2025-10-02T23:58:03: - /var/www/adlercapitalcrm.com/workers/email-sync-worker.ts
+2025-10-02T23:58:03:     at node:internal/modules/cjs/loader:1383:15
+2025-10-02T23:58:03:     at nextResolveSimple (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+2025-10-02T23:58:03:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+2025-10-02T23:58:03:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+2025-10-02T23:58:03:     at resolveTsPaths (/var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+2025-10-02T23:58:03:     at /var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102
+2025-10-02T23:58:03:     at m._resolveFilename (file:///var/www/adlercapitalcrm.com/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:789)
+2025-10-02T23:58:03:     at defaultResolveImpl (node:internal/modules/cjs/loader:1025:19)
+2025-10-02T23:58:03:     at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1030:22)
+2025-10-02T23:58:03:     at Function._load (node:internal/modules/cjs/loader:1192:37) {
+2025-10-02T23:58:03:   code: 'MODULE_NOT_FOUND',
+2025-10-02T23:58:03:   requireStack: [ '/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts' ]
+2025-10-02T23:58:03: }
+2025-10-02T23:58:03: 
+2025-10-02T23:58:03: Node.js v22.19.0
+2025-10-02T23:58:59: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-02T23:58:59: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-02T23:59:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:00:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:01:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:02:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:03:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:04:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:05:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:06:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:07:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:08:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:09:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:10:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:11:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:12:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:13:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:14:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:15:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:16:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:17:24: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:17:56: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:18:08: ❌ IMAP error for eman@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:18:10: ❌ IMAP error for ana@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T00:18:18: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T15:01:59: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T15:02:09: ❌ IMAP error for ana@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T15:02:19: ❌ IMAP error for eman@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T15:08:40: ❌ IMAP error for ed@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T20:53:39: ❌ IMAP error for joe@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T20:53:49: ❌ IMAP error for ana@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T20:53:59: ❌ IMAP error for eman@adlercapital.us: connection timed out. timeout = 10000 ms
+2025-10-03T20:54:12: ❌ IMAP error for ed@adlercapital.us: connection timed out. timeout = 10000 ms

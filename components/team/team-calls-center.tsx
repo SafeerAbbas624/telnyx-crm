@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { useSession } from "next-auth/react"
 import AdvancedContactFilter from "@/components/text/advanced-contact-filter"
@@ -75,6 +77,11 @@ export default function TeamCallsCenter() {
   const [isDialing, setIsDialing] = useState(false)
   const [activeCall, setActiveCall] = useState<TelnyxCall | null>(null)
   const [page, setPage] = useState(1)
+  const [activeTab, setActiveTab] = useState<'contacts' | 'dialpad'>('contacts')
+  const [dialpadNumber, setDialpadNumber] = useState('')
+  const [dialpadCalls, setDialpadCalls] = useState<TelnyxCall[]>([])
+  const [isLoadingDialpadCalls, setIsLoadingDialpadCalls] = useState(false)
+
   const [limit] = useState(25)
 
   useEffect(() => {
@@ -99,6 +106,28 @@ export default function TeamCallsCenter() {
       }, 3000)
     }
     return () => { if (interval) clearInterval(interval) }
+  // Load dialpad call logs (team: assigned number only)
+  useEffect(() => {
+    if (activeTab !== 'dialpad') return
+    const number = selectedPhoneNumber?.number
+    if (!number) { setDialpadCalls([]); return }
+    let aborted = false
+    const load = async () => {
+      try {
+        setIsLoadingDialpadCalls(true)
+        const params = new URLSearchParams({ number, limit: '200' })
+        const res = await fetch(`/api/calls/by-number?${params}`)
+        if (!res.ok) { setDialpadCalls([]); return }
+        const data = await res.json()
+        if (!aborted) setDialpadCalls(data.calls || [])
+      } finally {
+        if (!aborted) setIsLoadingDialpadCalls(false)
+      }
+    }
+    load()
+    return () => { aborted = true }
+  }, [activeTab, selectedPhoneNumber?.number])
+
   }, [hasActiveCall])
 
   // Clear local activeCall banner when backend shows no active call
@@ -196,7 +225,7 @@ export default function TeamCallsCenter() {
 
     setIsDialing(true)
     try {
-      const response = await fetch('/api/telnyx/make-call', {
+      const response = await fetch('/api/telnyx/calls', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -225,6 +254,7 @@ export default function TeamCallsCenter() {
       toast({
         title: "Error",
         description: "Failed to make call",
+
         variant: "destructive",
       })
     } finally {
@@ -253,49 +283,40 @@ export default function TeamCallsCenter() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-4 border-b border-gray-200">
-        <h2 className="text-xl font-semibold mb-4">Calls Center</h2>
 
-        {/* Phone Number Selection */}
-        <div className="mb-4">
-          <label className="text-sm font-medium mb-2 block">Your Assigned Phone Numbers</label>
-          <div className="flex gap-2 flex-wrap">
-            {assignedPhoneNumbers.map((phoneNumber) => (
-              <Button
-                key={phoneNumber.id}
-                variant={selectedPhoneNumber?.id === phoneNumber.id ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedPhoneNumber(phoneNumber)}
-                className="flex items-center gap-2"
-              >
-                <Phone className="h-4 w-4" />
-                {phoneNumber.number}
-                {phoneNumber.is_active && (
-                  <span className="text-xs">(Active)</span>
-                )}
-              </Button>
-            ))}
-          </div>
-          <div className="mt-2 text-xs text-gray-500">
-            Debug: {assignedPhoneNumbers.length} phone numbers loaded
-          </div>
-          {assignedPhoneNumbers.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No phone numbers assigned to you. Contact your administrator.
-            </p>
-          )}
-        </div>
+
+      {/* Tabs control */}
+      <div className="px-4 py-2 border-b">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+          <TabsList>
+            <TabsTrigger value="contacts">Contacts</TabsTrigger>
+            <TabsTrigger value="dialpad">Dialpad</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
+
 
       <div className="flex-1 flex">
         {/* Contacts List + Advanced Filters */}
-        <div className="w-1/3 border-r">
+        <div className="w-1/3 border-r" style={{ display: activeTab === 'dialpad' ? 'none' : undefined }}>
           <div className="p-4 space-y-4">
             <AdvancedContactFilter
               contacts={assignedContacts}
               onFilteredContactsChange={() => { /* ignore; we fetch server-side */ }}
               selectedContacts={[]}
               onSelectedContactsChange={() => {}}
+
+      {/* Tabs control */}
+      <div className="px-4 py-2 border-b">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+          <TabsList>
+            <TabsTrigger value="contacts">Contacts</TabsTrigger>
+            <TabsTrigger value="dialpad">Dialpad</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+
               showList={false}
               hideHeader
               hideSelectAllPagesButton
@@ -356,7 +377,7 @@ export default function TeamCallsCenter() {
         </div>
 
         {/* Call Details & Recent Calls */}
-        <div className="w-2/3 p-4">
+        <div className="w-2/3 p-4" style={{ display: activeTab === 'dialpad' ? 'none' : undefined }}>
           {selectedContact ? (
             <div className="space-y-6">
               {/* Selected Contact Call Interface */}
@@ -451,6 +472,117 @@ export default function TeamCallsCenter() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
+
+        {/* Dialpad section (team can dial any number) */}
+        {activeTab === 'dialpad' && (
+          <div className="flex-1 p-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Left: Keypad */}
+              <div className="w-full md:w-1/3">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Dialpad</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="max-w-sm">
+                      <Input placeholder="Enter number" value={dialpadNumber} onChange={(e) => setDialpadNumber(e.target.value)} className="mb-3" />
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {['1','2','3','4','5','6','7','8','9','*','0','#'].map((d) => (
+                          <Button key={d} variant="outline" onClick={() => setDialpadNumber((n) => n + d)}>{d}</Button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button disabled={!selectedPhoneNumber || !dialpadNumber} onClick={async () => {
+                          try {
+                            const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils')
+                            const toNumber = formatPhoneNumberForTelnyx(dialpadNumber) as any
+                            if (!toNumber) throw new Error('Enter a valid phone number')
+                            const resp = await fetch('/api/telnyx/calls', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ fromNumber: selectedPhoneNumber!.number, toNumber })
+                            })
+                            if (!resp.ok) {
+                              const e = await resp.json().catch(() => ({} as any))
+                              throw new Error(e.error || 'Failed to initiate call')
+                            }
+                            toast({ title: 'Call Initiated', description: toNumber })
+                          } catch (err: any) {
+                            toast({ title: 'Error', description: err?.message || 'Failed to call', variant: 'destructive' })
+                          }
+                        }}>
+                          <PhoneCall className="h-4 w-4 mr-2" /> Call
+                        </Button>
+                        <Button variant="secondary" onClick={() => setDialpadNumber(dialpadNumber.slice(0, -1))}>Backspace</Button>
+                        <Button variant="ghost" onClick={() => setDialpadNumber('')}>Clear</Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Right: Call Logs */}
+              <div className="w-full md:flex-1">
+                <Card className="h-full">
+                  <CardHeader>
+                    <CardTitle>Call Logs</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {isLoadingDialpadCalls && dialpadCalls.length === 0 ? (
+                      <div className="space-y-2">
+                        {[...Array(4)].map((_, i) => (
+                          <div key={i} className="animate-pulse p-3 border rounded-md">
+                            <div className="h-3 bg-muted rounded w-1/3 mb-2" />
+                            <div className="h-3 bg-muted rounded w-1/4" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {dialpadCalls.map((call) => (
+                          <div key={call.id} className="flex items-center justify-between p-3 border rounded-md">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-full ${call.direction === 'outbound' ? 'bg-blue-100' : 'bg-green-100'}`}>
+                                {call.direction === 'outbound' ? (
+                                  <PhoneCall className="h-4 w-4 text-blue-600" />
+                                ) : (
+                                  <Phone className="h-4 w-4 text-green-600" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {call.direction === 'outbound' ? 'Outbound' : 'Inbound'} • {call.status}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant="secondary">
+                                {call.status}
+                              </Badge>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {formatDuration(call.duration || 0)}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {dialpadCalls.length === 0 && !isLoadingDialpadCalls && (
+                          <div className="text-xs text-muted-foreground">No calls found for your assigned number.</div>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+        )}
+
                   <ScrollArea className="h-64">
                     {recentCalls
                       .filter(call => call.contactId === selectedContact.id)

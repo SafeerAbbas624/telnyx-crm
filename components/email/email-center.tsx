@@ -12,6 +12,7 @@ import EmailBlast from "./email-blast"
 import EmailAccountSetup from "./email-account-setup"
 import { EmailSettings } from "./email-settings"
 import { EmailConversationsGmail } from "./email-conversations-gmail"
+import RedesignedEmailConversations from "./redesigned-email-conversations"
 import type { Contact } from "@/lib/types"
 
 interface EmailCenterProps {
@@ -186,7 +187,7 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
 
           <div className="flex-1 overflow-hidden mt-4">
             <TabsContent value="conversations" className="h-full m-0">
-              <EmailConversationsGmail emailAccounts={emailAccounts} />
+              <RedesignedEmailConversations emailAccounts={emailAccounts} />
             </TabsContent>
             <TabsContent value="blast" className="h-full m-0">
               <EmailBlast emailAccounts={emailAccounts} />

@@ -16,13 +16,30 @@ export async function GET() {
       select: {
         id: true,
         name: true,
+        color: true,
+        description: true,
+        is_system: true,
+        _count: {
+          select: { contact_tags: true }
+        }
       },
-      orderBy: {
-        name: 'asc',
-      },
+      orderBy: [
+        { is_system: 'desc' }, // System tags first
+        { name: 'asc' }
+      ],
     });
 
-    return NextResponse.json(tags);
+    // Format response to include usage count
+    const formattedTags = tags.map(tag => ({
+      id: tag.id,
+      name: tag.name,
+      color: tag.color,
+      description: tag.description,
+      is_system: tag.is_system,
+      usage_count: tag._count.contact_tags
+    }));
+
+    return NextResponse.json(formattedTags);
   } catch (error) {
     console.error('Error fetching tags:', error);
     return NextResponse.json(

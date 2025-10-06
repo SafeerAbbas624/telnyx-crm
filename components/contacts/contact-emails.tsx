@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { PlusCircle, ArrowUpRight, ArrowDownLeft } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
 import type { Email } from "@/lib/types"
 
 interface ContactEmailsProps {
@@ -36,6 +37,7 @@ export default function ContactEmails({ contactId }: ContactEmailsProps) {
   })
   const [sending, setSending] = useState(false)
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
     const fetchEmails = async () => {
@@ -87,17 +89,11 @@ export default function ContactEmails({ contactId }: ContactEmailsProps) {
         return
       }
 
-      // Pre-fill the email form
-      setEmailForm({
-        to: contactEmail,
-        subject: `Follow-up: ${contact.firstName} ${contact.lastName}`,
-        body: `Hi ${contact.firstName},\n\n\n\nBest regards,\n[Your Name]`
-      })
-
-      setShowEmailDialog(true)
+      // Navigate to Email Center Conversations tab with this contact's email
+      router.push(`/dashboard?tab=email&subtab=conversations&email=${encodeURIComponent(contactEmail)}`)
 
     } catch (error) {
-      console.error('Error preparing email:', error)
+      console.error('Error navigating to email conversation:', error)
       toast({
         title: "Error",
         description: "Failed to prepare email",
@@ -172,8 +168,8 @@ export default function ContactEmails({ contactId }: ContactEmailsProps) {
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg font-semibold">Emails</CardTitle>
-        <Button variant="ghost" size="sm" onClick={handleSendEmail}>
-          <PlusCircle className="h-4 w-4 mr-2" /> Send Email
+        <Button variant="default" size="sm" onClick={handleSendEmail} className="bg-purple-600 hover:bg-purple-700">
+          <PlusCircle className="h-4 w-4 mr-2" /> Email
         </Button>
       </CardHeader>
       <CardContent className="flex-1 pt-4">

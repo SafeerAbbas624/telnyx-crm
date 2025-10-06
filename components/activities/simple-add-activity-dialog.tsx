@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format } from "date-fns"
-import type { Activity } from "@/lib/types"
+import { TagInput } from "@/components/ui/tag-input"
+import type { Activity, Tag } from "@/lib/types"
 
 interface SimpleAddActivityDialogProps {
   open: boolean
@@ -31,6 +32,7 @@ export default function SimpleAddActivityDialog({
   const [description, setDescription] = useState("")
   const [dueDate, setDueDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [dueTime, setDueTime] = useState("09:00")
+  const [tags, setTags] = useState<Tag[]>([])
 
   const handleSaveActivity = async () => {
     if (!title.trim() || !dueDate) return
@@ -47,6 +49,7 @@ export default function SimpleAddActivityDialog({
         description: description.trim() || '',
         dueDate: dueDateObj.toISOString(),
         status: 'planned' as const,
+        tags,
       }
 
       const response = await fetch('/api/activities', {
@@ -70,6 +73,7 @@ export default function SimpleAddActivityDialog({
       setDueDate(format(new Date(), "yyyy-MM-dd"))
       setDueTime("09:00")
       setActivityType('task')
+      setTags([])
       onOpenChange(false)
 
     } catch (error) {
@@ -87,6 +91,7 @@ export default function SimpleAddActivityDialog({
     setDueDate(format(new Date(), "yyyy-MM-dd"))
     setDueTime("09:00")
     setActivityType('task')
+    setTags([])
     onOpenChange(false)
   }
 
@@ -155,6 +160,19 @@ export default function SimpleAddActivityDialog({
                 onChange={(e) => setDueTime(e.target.value)} 
               />
             </div>
+          </div>
+
+          {/* Tags */}
+          <div className="space-y-2">
+            <Label>Tags</Label>
+            <TagInput
+              value={tags}
+              onChange={setTags}
+              contactId={contactId}
+              placeholder="Add tags to organize this activity..."
+              showSuggestions={true}
+              allowCreate={true}
+            />
           </div>
         </div>
         <DialogFooter>

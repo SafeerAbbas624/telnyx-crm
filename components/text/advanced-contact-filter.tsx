@@ -10,10 +10,19 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Slider } from "@/components/ui/slider"
-import { Search, X, Filter, Users, Check } from "lucide-react"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Search, X, Filter, Users, Check, Save, FolderOpen, Star, RefreshCw } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useDebounce } from "@/hooks/use-debounce"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+
 import { formatPhoneNumberForDisplay, getBestPhoneNumber } from "@/lib/phone-utils"
 import { useContacts } from "@/lib/context/contacts-context"
 import type { Contact } from "@/lib/types"
@@ -71,15 +80,38 @@ export default function AdvancedContactFilter({
   extraActions,
 }: AdvancedContactFilterProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedFilters, setSelectedFilters] = useState<{[key: string]: string[]}>({})
+
+  // Separate pending and applied filter states
+  const [pendingFilters, setPendingFilters] = useState<{[key: string]: string[]}>({})
+  const [appliedFilters, setAppliedFilters] = useState<{[key: string]: string[]}>({})
+
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
-  const [yearBuiltRange, setYearBuiltRange] = useState<[number, number]>([1900, 2024])
-  const [equityRange, setEquityRange] = useState<[number, number]>([0, 1000000])
-  const [valueRange, setValueRange] = useState<[number, number]>([0, 2000000])
-  const [isClearing, setIsClearing] = useState(false)
+
+  // Replace range sliders with individual number inputs
+  const [minValue, setMinValue] = useState<string>("")
+  const [maxValue, setMaxValue] = useState<string>("")
+  const [minEquity, setMinEquity] = useState<string>("")
+  const [maxEquity, setMaxEquity] = useState<string>("")
+
+  // Search within filter options
+  const [filterSearchQueries, setFilterSearchQueries] = useState<{[key: string]: string}>({
+    state: "",
+    city: "",
+    propertyCounty: "",
+    propertyType: "",
+    tags: ""
+  })
+
+  // Filter presets
+  const [filterPresets, setFilterPresets] = useState<any[]>([])
+  const [showSavePresetDialog, setShowSavePresetDialog] = useState(false)
+  const [showLoadPresetDialog, setShowLoadPresetDialog] = useState(false)
+  const [presetName, setPresetName] = useState("")
+  const [presetDescription, setPresetDescription] = useState("")
+  const [isDefaultPreset, setIsDefaultPreset] = useState(false)
 
   const { toast } = useToast()
-  const { filterOptions, searchContacts, contacts: contextContacts, pagination, currentQuery, currentFilters } = useContacts()
+  const { filterOptions, searchContacts, contacts: contextContacts, pagination, currentQuery, currentFilters, isLoading, refreshFilterOptions } = useContacts()
 
   // Get dynamic filter options from database
   const getDynamicFilterOptions = () => {
@@ -126,45 +158,43 @@ export default function AdvancedContactFilter({
     return uniqueValues
   }
 
-  // Get min/max values for sliders
-  const getMinMaxValues = (field: string) => {
-    const values = contacts
-      .map(contact => (contact as any)[field])
-      .filter(value => value !== null && value !== undefined && !isNaN(Number(value)))
-      .map(value => Number(value))
+  // Check if there are active filters (applied)
+  const hasActiveFilters = Object.values(appliedFilters).some(values => values.length > 0) ||
+    minValue !== "" || maxValue !== "" || minEquity !== "" || maxEquity !== ""
 
-    if (values.length === 0) return [0, 100]
-    return [Math.min(...values), Math.max(...values)]
-  }
+  // Check if there are pending changes
+  const hasPendingChanges = JSON.stringify(pendingFilters) !== JSON.stringify(appliedFilters) ||
+    minValue !== "" || maxValue !== "" || minEquity !== "" || maxEquity !== ""
 
-  // Initialize slider ranges based on actual data
-  const [minYearBuilt, maxYearBuilt] = getMinMaxValues('effectiveYearBuilt')
-  const [minEquity, maxEquity] = getMinMaxValues('estEquity')
+  // Count active filters for badge
+  const activeFilterCount = Object.values(appliedFilters).reduce((count, values) => count + values.length, 0) +
+    (minValue !== "" ? 1 : 0) + (maxValue !== "" ? 1 : 0) +
+    (minEquity !== "" ? 1 : 0) + (maxEquity !== "" ? 1 : 0)
 
-
-  // DB-backed ranges
-  const dbMinValue = filterOptions?.valueRange?.min ?? 0
-  const dbMaxValue = filterOptions?.valueRange?.max ?? 2000000
-  const dbMinEquity = filterOptions?.equityRange?.min ?? 0
-  const dbMaxEquity = filterOptions?.equityRange?.max ?? 1000000
-
-  const hasActiveFilters = Object.values(selectedFilters).some(values => values.length > 0)
-
-  // Apply filters and search
+  // Apply filters and search (using APPLIED filters only)
   const filteredContacts = useMemo(() => {
-    const base = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-    let result = base
+    // Choose the best available base pool to render immediately:
+    // - If searching or filters active: prefer contextContacts when it has data; otherwise fall back to props.contacts
+    // - If idle: prefer props.contacts; if empty for some reason, fall back to contextContacts
+    const hasSearch = Boolean(searchQuery && searchQuery.trim().length > 0)
+    const baseWhenActive = (Array.isArray(contextContacts) && contextContacts.length > 0) ? contextContacts : contacts
+    const baseWhenIdle = (Array.isArray(contacts) && contacts.length > 0) ? contacts : contextContacts
+    const base = (hasSearch || hasActiveFilters) ? baseWhenActive : baseWhenIdle
 
-    // Apply search query across multiple fields
-    if (searchQuery.trim()) {
+    let result = Array.isArray(base) ? base : []
+
+    // Apply search query across multiple fields (works with both DB and ES-shaped contacts)
+    if (hasSearch) {
       const query = searchQuery.toLowerCase()
       result = result.filter(contact =>
         contact.firstName?.toLowerCase().includes(query) ||
         contact.lastName?.toLowerCase().includes(query) ||
         contact.email1?.toLowerCase().includes(query) ||
+        (contact as any).email?.toLowerCase?.().includes(query) ||
         contact.email2?.toLowerCase().includes(query) ||
         contact.email3?.toLowerCase().includes(query) ||
         contact.phone1?.includes(query) ||
+        (contact as any).phone?.toLowerCase?.().includes(query) ||
         contact.phone2?.includes(query) ||
         contact.phone3?.includes(query) ||
         contact.propertyAddress?.toLowerCase().includes(query) ||
@@ -173,13 +203,13 @@ export default function AdvancedContactFilter({
       )
     }
 
-    // Apply selected filters
-    Object.entries(selectedFilters).forEach(([field, values]) => {
+    // Apply APPLIED filters (not pending)
+    Object.entries(appliedFilters).forEach(([field, values]) => {
       if (values.length > 0) {
         result = result.filter(contact => {
           if (field === 'tags') {
             const tagsArr = (contact as any).tags || []
-            const tagNames = Array.isArray(tagsArr) ? tagsArr.map((t: any) => t.name) : []
+            const tagNames = Array.isArray(tagsArr) ? tagsArr.map((t: any) => (typeof t === 'string' ? t : t.name)) : []
             return values.some(v => tagNames.includes(v))
           }
           const fieldValue = (contact as any)[field]?.toString() || ""
@@ -188,135 +218,244 @@ export default function AdvancedContactFilter({
       }
     })
 
-    // Apply year built range filter
-    if (yearBuiltRange[0] !== minYearBuilt || yearBuiltRange[1] !== maxYearBuilt) {
-      result = result.filter(contact => {
-        const yearBuilt = contact.effectiveYearBuilt
-        if (!yearBuilt) return false
-        return yearBuilt >= yearBuiltRange[0] && yearBuilt <= yearBuiltRange[1]
-      })
-    }
-
-    // Apply equity range filter
-    if (equityRange[0] !== minEquity || equityRange[1] !== maxEquity) {
-      result = result.filter(contact => {
-        const equity = contact.estEquity
-        if (!equity) return false
-        return equity >= equityRange[0] && equity <= equityRange[1]
-      })
-    }
-
     return result
-  }, [contacts, searchQuery, selectedFilters, yearBuiltRange, equityRange, minYearBuilt, maxYearBuilt, minEquity, maxEquity])
+  }, [contacts, contextContacts, searchQuery, appliedFilters, hasActiveFilters])
 
 
 
   // Update filtered contacts when they change
   useEffect(() => {
-    // Use context contacts when filters are applied (database search results)
-    // Otherwise use local contacts (for initial load)
-    const contactsToUse = (searchQuery || hasActiveFilters) ? contextContacts : filteredContacts
-    onFilteredContactsChange(contactsToUse)
-  }, [filteredContacts, contextContacts, searchQuery, hasActiveFilters, onFilteredContactsChange])
+    // Always show immediate local results for instant feedback
+    onFilteredContactsChange(filteredContacts)
+  }, [filteredContacts, onFilteredContactsChange])
 
-  // Initialize slider ranges when contacts load (year built only)
+
+
+  // If this filter UI is opened with no local query/filters, but the provider has active query/filters,
+  // reset the provider to the full, unfiltered list to avoid stale totals (e.g., Select All Pages count)
   useEffect(() => {
-    if (contacts.length > 0) {
-      setYearBuiltRange([minYearBuilt, maxYearBuilt])
+    const hasLocalActive = Boolean(searchQuery && searchQuery.trim().length > 0) ||
+      Object.values(appliedFilters).some(values => values.length > 0)
+    const hasProviderActive = Boolean(currentQuery && currentQuery.trim().length > 0) ||
+      (currentFilters && Object.keys(currentFilters).length > 0)
+    if (!hasLocalActive && hasProviderActive) {
+      searchContacts('', {})
     }
-  }, [contacts.length, minYearBuilt, maxYearBuilt])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Initialize sliders with "show all" ranges instead of restrictive database ranges
-  // This prevents default filters from excluding contacts when component loads
-  useEffect(() => {
-    // Only set ranges if they haven't been set yet (avoid overriding user changes)
-    if (valueRange[0] === 0 && valueRange[1] === 2000000) {
-      setValueRange([0, 5000000]) // Wide "show all" range
-    }
-    if (equityRange[0] === 0 && equityRange[1] === 1000000) {
-      setEquityRange([0, 2000000000]) // Wide "show all" range
-    }
-  }, [dbMinValue, dbMaxValue, dbMinEquity, dbMaxEquity, valueRange, equityRange])
-
-  // Debounced DB search when query changes
-  const debouncedSearch = useDebounce(searchQuery, 300)
-  const hasMountedRef = useRef(false)
-  useEffect(() => {
-    // Skip on first mount
-    if (!hasMountedRef.current) { hasMountedRef.current = true; return }
-    // No-op: immediate search is handled in handleSearch and handleFilterChange
-  }, [debouncedSearch, selectedFilters, valueRange, equityRange, isClearing])
-
-
-  // Re-run search when value/equity sliders change
-  useEffect(() => {
-    // Skip initial mount; ContactsProvider initial load covers the first fetch
-    if (!hasMountedRef.current) return
-    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
-      if (values.length > 0) acc[key] = values.join(',')
+  // Build filters object from current state
+  const buildFiltersObject = () => {
+    const filters = Object.entries(appliedFilters).reduce((acc, [key, values]) => {
+      if (values.length > 0) {
+        acc[key] = values.join(',')
+      }
       return acc
     }, {} as any)
-    filters.minValue = String(valueRange[0])
-    filters.maxValue = String(valueRange[1])
-    filters.minEquity = String(equityRange[0])
-    filters.maxEquity = String(equityRange[1])
-    searchContacts(searchQuery, filters)
-  }, [valueRange, equityRange])
 
-  const clearAllFilters = () => {
-    // Set clearing flag to prevent debounced search from interfering
-    setIsClearing(true)
+    if (minValue !== "") {
+      filters.minValue = minValue
+    }
+    if (maxValue !== "") {
+      filters.maxValue = maxValue
+    }
+    if (minEquity !== "") {
+      filters.minEquity = minEquity
+    }
+    if (maxEquity !== "") {
+      filters.maxEquity = maxEquity
+    }
 
-    // Clear all state first
-    setSearchQuery("")
-    setSelectedFilters({})
-    setShowAdvancedFilters(false)
-    setYearBuiltRange([minYearBuilt, maxYearBuilt])
-
-    // Reset to "show all" ranges instead of database min/max ranges
-    // This ensures no contacts are filtered out by value/equity constraints
-    setValueRange([0, 5000000]) // Very wide range to include all contacts
-    setEquityRange([0, 2000000000]) // Very wide range to include all contacts
-
-    // Immediately trigger search with empty query and no filters
-    // This prevents the debounced search from running with old values
-    // Don't send any value/equity filters since we're using default "show all" ranges
-    console.log(`🔍 [CLEAR FILTERS DEBUG] Clearing all filters and showing all contacts`)
-    searchContacts("", {})
-
-    // Reset clearing flag after a short delay to allow the search to complete
-    setTimeout(() => {
-      setIsClearing(false)
-    }, 1000)
+    return filters
   }
 
-  // Handle search input: trigger immediate DB search (previous results are auto-cancelled)
-  const handleSearch = (query: string) => {
-    setSearchQuery(query)
+  // Apply filters - triggers database search
+  const handleApplyFilters = () => {
+    // Validate number inputs
+    if (minValue !== "" && maxValue !== "" && Number(minValue) > Number(maxValue)) {
+      toast({
+        title: "Invalid Range",
+        description: "Minimum value cannot be greater than maximum value",
+        variant: "destructive"
+      })
+      return
+    }
+    if (minEquity !== "" && maxEquity !== "" && Number(minEquity) > Number(maxEquity)) {
+      toast({
+        title: "Invalid Range",
+        description: "Minimum equity cannot be greater than maximum equity",
+        variant: "destructive"
+      })
+      return
+    }
 
-    const filters = Object.entries(selectedFilters).reduce((acc, [key, values]) => {
-      if ((values as string[]).length > 0) acc[key] = (values as string[]).join(',')
+    // Apply pending filters
+    setAppliedFilters(pendingFilters)
+
+    // Build and execute search
+    const filters = Object.entries(pendingFilters).reduce((acc, [key, values]) => {
+      if (values.length > 0) {
+        acc[key] = values.join(',')
+      }
       return acc
     }, {} as any)
 
-    const isDefaultValueRange = valueRange[0] === 0 && valueRange[1] >= 5000000
-    const isDefaultEquityRange = equityRange[0] === 0 && equityRange[1] >= 2000000000
+    if (minValue !== "") filters.minValue = minValue
+    if (maxValue !== "") filters.maxValue = maxValue
+    if (minEquity !== "") filters.minEquity = minEquity
+    if (maxEquity !== "") filters.maxEquity = maxEquity
 
-    if (!isDefaultValueRange) {
-      filters.minValue = String(valueRange[0])
-      filters.maxValue = String(valueRange[1])
+    searchContacts(searchQuery, filters)
+
+    toast({
+      title: "Filters Applied",
+      description: `${Object.keys(filters).length} filter(s) active`,
+    })
+  }
+
+  // Reset all filters
+  const handleResetFilters = () => {
+    setPendingFilters({})
+    setAppliedFilters({})
+    setMinValue("")
+    setMaxValue("")
+    setMinEquity("")
+    setMaxEquity("")
+    setSearchQuery("")
+    searchContacts("", {})
+
+    toast({
+      title: "Filters Reset",
+      description: "All filters have been cleared",
+    })
+  }
+
+  // Fetch filter presets
+  const fetchPresets = async () => {
+    try {
+      const response = await fetch('/api/filter-presets')
+      if (response.ok) {
+        const presets = await response.json()
+        setFilterPresets(presets)
+      }
+    } catch (error) {
+      console.error('Error fetching presets:', error)
     }
-    if (!isDefaultEquityRange) {
-      filters.minEquity = String(equityRange[0])
-      filters.maxEquity = String(equityRange[1])
+  }
+
+  // Save current filters as preset
+  const handleSavePreset = async () => {
+    if (!presetName.trim()) {
+      toast({
+        title: "Name Required",
+        description: "Please enter a name for this preset",
+        variant: "destructive"
+      })
+      return
     }
 
+    try {
+      const filters = {
+        pendingFilters,
+        minValue,
+        maxValue,
+        minEquity,
+        maxEquity
+      }
+
+      const response = await fetch('/api/filter-presets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: presetName,
+          description: presetDescription,
+          filters,
+          isDefault: isDefaultPreset
+        })
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Preset Saved",
+          description: `Filter preset "${presetName}" has been saved`,
+        })
+        setShowSavePresetDialog(false)
+        setPresetName("")
+        setPresetDescription("")
+        setIsDefaultPreset(false)
+        fetchPresets()
+      } else {
+        throw new Error('Failed to save preset')
+      }
+    } catch (error) {
+      console.error('Error saving preset:', error)
+      toast({
+        title: "Error",
+        description: "Failed to save filter preset",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Load a preset
+  const handleLoadPreset = (preset: any) => {
+    const { pendingFilters: savedFilters, minValue: savedMinValue, maxValue: savedMaxValue, minEquity: savedMinEquity, maxEquity: savedMaxEquity } = preset.filters
+
+    setPendingFilters(savedFilters || {})
+    setMinValue(savedMinValue || "")
+    setMaxValue(savedMaxValue || "")
+    setMinEquity(savedMinEquity || "")
+    setMaxEquity(savedMaxEquity || "")
+
+    setShowLoadPresetDialog(false)
+
+    toast({
+      title: "Preset Loaded",
+      description: `Loaded "${preset.name}". Click Apply to activate filters.`,
+    })
+  }
+
+  // Delete a preset
+  const handleDeletePreset = async (presetId: string) => {
+    try {
+      const response = await fetch(`/api/filter-presets/${presetId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        toast({
+          title: "Preset Deleted",
+          description: "Filter preset has been deleted",
+        })
+        fetchPresets()
+      } else {
+        throw new Error('Failed to delete preset')
+      }
+    } catch (error) {
+      console.error('Error deleting preset:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete filter preset",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Load presets on mount
+  useEffect(() => {
+    fetchPresets()
+  }, [])
+
+  // Handle search input: trigger immediate DB search
+  const handleSearch = (query: string) => {
+    setSearchQuery(query)
+    const filters = buildFiltersObject()
     searchContacts(query, filters)
   }
 
-  // Handle filter changes with database search
+  // Handle filter checkbox changes (updates pending state only)
   const handleFilterChange = (field: string, value: string, checked: boolean) => {
-    const newFilters = { ...selectedFilters }
+    const newFilters = { ...pendingFilters }
     const currentValues = newFilters[field] || []
 
     if (checked) {
@@ -325,31 +464,47 @@ export default function AdvancedContactFilter({
       newFilters[field] = currentValues.filter(v => v !== value)
     }
 
-    setSelectedFilters(newFilters)
+    setPendingFilters(newFilters)
+  }
 
-    // Apply search with new filters
-    const filters = Object.entries(newFilters).reduce((acc, [key, values]) => {
-      if (values.length > 0) {
-        acc[key] = values.join(',')
+  // Remove individual filter chip
+  const handleRemoveFilter = (field: string, value?: string) => {
+    if (field === 'minValue') {
+      setMinValue("")
+    } else if (field === 'maxValue') {
+      setMaxValue("")
+    } else if (field === 'minEquity') {
+      setMinEquity("")
+    } else if (field === 'maxEquity') {
+      setMaxEquity("")
+    } else {
+      const newFilters = { ...appliedFilters }
+      if (value) {
+        newFilters[field] = (newFilters[field] || []).filter(v => v !== value)
+        if (newFilters[field].length === 0) {
+          delete newFilters[field]
+        }
+      } else {
+        delete newFilters[field]
       }
-      return acc
-    }, {} as any)
+      setAppliedFilters(newFilters)
+      setPendingFilters(newFilters)
 
-    // Only include value/equity filters if they're different from default "show all" ranges
-    const isDefaultValueRange = valueRange[0] === 0 && valueRange[1] >= 5000000
-    const isDefaultEquityRange = equityRange[0] === 0 && equityRange[1] >= 2000000000
+      // Re-apply search with updated filters
+      const filters = Object.entries(newFilters).reduce((acc, [key, values]) => {
+        if (values.length > 0) {
+          acc[key] = values.join(',')
+        }
+        return acc
+      }, {} as any)
 
-    if (!isDefaultValueRange) {
-      filters.minValue = String(valueRange[0])
-      filters.maxValue = String(valueRange[1])
+      if (minValue !== "" && field !== 'minValue') filters.minValue = minValue
+      if (maxValue !== "" && field !== 'maxValue') filters.maxValue = maxValue
+      if (minEquity !== "" && field !== 'minEquity') filters.minEquity = minEquity
+      if (maxEquity !== "" && field !== 'maxEquity') filters.maxEquity = maxEquity
+
+      searchContacts(searchQuery, filters)
     }
-
-    if (!isDefaultEquityRange) {
-      filters.minEquity = String(equityRange[0])
-      filters.maxEquity = String(equityRange[1])
-    }
-
-    searchContacts(searchQuery, filters)
   }
 
   const handleSelectAll = () => {
@@ -454,6 +609,59 @@ export default function AdvancedContactFilter({
           />
         </div>
 
+        {/* Active Filter Chips */}
+        {hasActiveFilters && (
+          <div className="flex gap-2 flex-wrap items-center">
+            {Object.entries(appliedFilters).map(([field, values]) =>
+              values.map((value) => (
+                <Badge key={`${field}-${value}`} variant="secondary" className="gap-1">
+                  {field}: {value}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-destructive"
+                    onClick={() => handleRemoveFilter(field, value)}
+                  />
+                </Badge>
+              ))
+            )}
+            {minValue !== "" && (
+              <Badge variant="secondary" className="gap-1">
+                Min Value: ${Number(minValue).toLocaleString()}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-destructive"
+                  onClick={() => handleRemoveFilter('minValue')}
+                />
+              </Badge>
+            )}
+            {maxValue !== "" && (
+              <Badge variant="secondary" className="gap-1">
+                Max Value: ${Number(maxValue).toLocaleString()}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-destructive"
+                  onClick={() => handleRemoveFilter('maxValue')}
+                />
+              </Badge>
+            )}
+            {minEquity !== "" && (
+              <Badge variant="secondary" className="gap-1">
+                Min Equity: ${Number(minEquity).toLocaleString()}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-destructive"
+                  onClick={() => handleRemoveFilter('minEquity')}
+                />
+              </Badge>
+            )}
+            {maxEquity !== "" && (
+              <Badge variant="secondary" className="gap-1">
+                Max Equity: ${Number(maxEquity).toLocaleString()}
+                <X
+                  className="h-3 w-3 cursor-pointer hover:text-destructive"
+                  onClick={() => handleRemoveFilter('maxEquity')}
+                />
+              </Badge>
+            )}
+          </div>
+        )}
+
         {/* Filter Controls */}
         <div className="flex gap-2 flex-wrap items-center">
           <Button
@@ -463,6 +671,11 @@ export default function AdvancedContactFilter({
           >
             <Filter className="h-4 w-4 mr-2" />
             Advanced Filters
+            {activeFilterCount > 0 && (
+              <Badge variant="default" className="ml-2">
+                {activeFilterCount}
+              </Badge>
+            )}
           </Button>
           <Button variant="outline" size="sm" onClick={handleSelectPage}>
             <Check className="h-4 w-4 mr-2" />
@@ -477,10 +690,10 @@ export default function AdvancedContactFilter({
           <Button variant="outline" size="sm" onClick={handleDeselectAll}>
             Deselect All
           </Button>
-          {(searchQuery || hasActiveFilters) && (
-            <Button variant="outline" size="sm" onClick={clearAllFilters}>
+          {hasActiveFilters && (
+            <Button variant="outline" size="sm" onClick={handleResetFilters}>
               <X className="h-4 w-4 mr-2" />
-              Clear Filters
+              Reset Filters
             </Button>
           )}
           {extraActions}
@@ -490,216 +703,436 @@ export default function AdvancedContactFilter({
         {showAdvancedFilters && (
           <Card>
             <CardContent className="p-6">
-              {/* Filter Grid - Two Columns (explicit grouping) */}
-              <div className="grid grid-cols-2 gap-8">
-                {/* Left Column */}
-                <div className="space-y-6">
-                  {/* State */}
-                  <div className="space-y-2">
-                    <h5 className="font-semibold text-sm text-gray-900">State</h5>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                      {(filterOptions?.states?.length ? filterOptions.states : getUniqueValues('state')).slice(0, 100).map((option: string) => {
-                        const pool = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-                        const count = Array.isArray(pool) ? pool.filter(c => (c as any)['state'] === option).length : 0
-                        const isSelected = selectedFilters['state']?.includes(option) || false
-                        return (
-                          <div key={`state-${option}`} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`state-${option}`}
-                              checked={isSelected}
-                              onCheckedChange={(checked) => handleFilterChange('state', option, checked as boolean)}
-                            />
-                            <Label htmlFor={`state-${option}`} className="text-sm cursor-pointer flex-1">
-                              {option} ({count})
-                            </Label>
+              {/* Collapsible Filter Sections with Accordion */}
+              <Accordion type="multiple" defaultValue={["location", "property", "tags"]} className="w-full">
+
+                {/* Location Section */}
+                <AccordionItem value="location">
+                  <AccordionTrigger className="text-base font-semibold">
+                    📍 Location Filters
+                    {(pendingFilters['state']?.length || pendingFilters['city']?.length || pendingFilters['propertyCounty']?.length) ? (
+                      <Badge variant="secondary" className="ml-2">
+                        {(pendingFilters['state']?.length || 0) + (pendingFilters['city']?.length || 0) + (pendingFilters['propertyCounty']?.length || 0)}
+                      </Badge>
+                    ) : null}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="grid grid-cols-3 gap-6 pt-2">
+                      {/* State */}
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm text-gray-700">State</h5>
+                        <Input
+                          placeholder="Search states..."
+                          value={filterSearchQueries.state}
+                          onChange={(e) => setFilterSearchQueries({...filterSearchQueries, state: e.target.value})}
+                          className="h-8 text-sm"
+                        />
+                        <ScrollArea className="h-40 pr-2">
+                          <div className="space-y-2">
+                            {(filterOptions?.states?.length ? filterOptions.states : getUniqueValues('state'))
+                              .filter((option: string) => option.toLowerCase().includes(filterSearchQueries.state.toLowerCase()))
+                              .slice(0, 100).map((option: string) => {
+                              const isSelected = pendingFilters['state']?.includes(option) || false
+                              return (
+                                <div key={`state-${option}`} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`state-${option}`}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => handleFilterChange('state', option, checked as boolean)}
+                                  />
+                                  <Label htmlFor={`state-${option}`} className="text-sm cursor-pointer flex-1">
+                                    {option}
+                                  </Label>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
+                        </ScrollArea>
+                      </div>
 
-                  {/* County */}
-                  <div className="space-y-2">
-                    <h5 className="font-semibold text-sm text-gray-900">County</h5>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                      {(filterOptions?.counties?.length ? filterOptions.counties : getUniqueValues('propertyCounty')).slice(0, 100).map((option: string) => {
-                        const pool = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-                        const count = Array.isArray(pool) ? pool.filter(c => (c as any)['propertyCounty'] === option).length : 0
-                        const isSelected = selectedFilters['propertyCounty']?.includes(option) || false
-                        return (
-                          <div key={`county-${option}`} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`county-${option}`}
-                              checked={isSelected}
-                              onCheckedChange={(checked) => handleFilterChange('propertyCounty', option, checked as boolean)}
-                            />
-                            <Label htmlFor={`county-${option}`} className="text-sm cursor-pointer flex-1">
-                              {option} ({count})
-                            </Label>
+                      {/* City */}
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm text-gray-700">City</h5>
+                        <Input
+                          placeholder="Search cities..."
+                          value={filterSearchQueries.city}
+                          onChange={(e) => setFilterSearchQueries({...filterSearchQueries, city: e.target.value})}
+                          className="h-8 text-sm"
+                        />
+                        <ScrollArea className="h-40 pr-2">
+                          <div className="space-y-2">
+                            {(filterOptions?.cities?.length ? filterOptions.cities : getUniqueValues('city'))
+                              .filter((option: string) => option.toLowerCase().includes(filterSearchQueries.city.toLowerCase()))
+                              .slice(0, 100).map((option: string) => {
+                              const isSelected = pendingFilters['city']?.includes(option) || false
+                              return (
+                                <div key={`city-${option}`} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`city-${option}`}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => handleFilterChange('city', option, checked as boolean)}
+                                  />
+                                  <Label htmlFor={`city-${option}`} className="text-sm cursor-pointer flex-1">
+                                    {option}
+                                  </Label>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
-                    </div>
-                  </div>
+                        </ScrollArea>
+                      </div>
 
-                  {/* Tags */}
-                  <div className="space-y-2">
-                    <h5 className="font-semibold text-sm text-gray-900">Tags</h5>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                      {(
-                        (filterOptions?.tags?.length ? filterOptions.tags.map((t: any) => t.name) : Array.from(new Set((contacts || []).flatMap((c: any) => (c.tags || []).map((t: any) => t.name)))) )
-                      ).slice(0, 200).map((tagName: string) => {
-                        const pool = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-                        const count = Array.isArray(pool) ? pool.filter(c => Array.isArray((c as any).tags) && (c as any).tags.some((t: any) => t.name === tagName)).length : 0
-                        const isSelected = selectedFilters['tags']?.includes(tagName) || false
-                        return (
-                          <div key={`tag-${tagName}`} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`tag-${tagName}`}
-                              checked={isSelected}
-                              onCheckedChange={(checked) => handleFilterChange('tags', tagName, checked as boolean)}
-                            />
-                            <Label htmlFor={`tag-${tagName}`} className="text-sm cursor-pointer flex-1">
-                              {tagName} ({count})
-                            </Label>
+                      {/* County */}
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm text-gray-700">County</h5>
+                        <Input
+                          placeholder="Search counties..."
+                          value={filterSearchQueries.propertyCounty}
+                          onChange={(e) => setFilterSearchQueries({...filterSearchQueries, propertyCounty: e.target.value})}
+                          className="h-8 text-sm"
+                        />
+                        <ScrollArea className="h-40 pr-2">
+                          <div className="space-y-2">
+                            {(filterOptions?.counties?.length ? filterOptions.counties : getUniqueValues('propertyCounty'))
+                              .filter((option: string) => option.toLowerCase().includes(filterSearchQueries.propertyCounty.toLowerCase()))
+                              .slice(0, 100).map((option: string) => {
+                              const isSelected = pendingFilters['propertyCounty']?.includes(option) || false
+                              return (
+                                <div key={`county-${option}`} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`county-${option}`}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => handleFilterChange('propertyCounty', option, checked as boolean)}
+                                  />
+                                  <Label htmlFor={`county-${option}`} className="text-sm cursor-pointer flex-1">
+                                    {option}
+                                  </Label>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
+                        </ScrollArea>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </AccordionContent>
+                </AccordionItem>
 
-                {/* Right Column */}
-                <div className="space-y-6">
-                  {/* Location (City) */}
-                  <div className="space-y-2">
-                    <h5 className="font-semibold text-sm text-gray-900">Location (City)</h5>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                      {(filterOptions?.cities?.length ? filterOptions.cities : getUniqueValues('city')).slice(0, 100).map((option: string) => {
-                        const pool = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-                        const count = Array.isArray(pool) ? pool.filter(c => (c as any)['city'] === option).length : 0
-                        const isSelected = selectedFilters['city']?.includes(option) || false
-                        return (
-                          <div key={`city-${option}`} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`city-${option}`}
-                              checked={isSelected}
-                              onCheckedChange={(checked) => handleFilterChange('city', option, checked as boolean)}
-                            />
-                            <Label htmlFor={`city-${option}`} className="text-sm cursor-pointer flex-1">
-                              {option} ({count})
-                            </Label>
+                {/* Property Section */}
+                <AccordionItem value="property">
+                  <AccordionTrigger className="text-base font-semibold">
+                    🏠 Property Filters
+                    {pendingFilters['propertyType']?.length ? (
+                      <Badge variant="secondary" className="ml-2">
+                        {pendingFilters['propertyType'].length}
+                      </Badge>
+                    ) : null}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="pt-2">
+                      {/* Property Type */}
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm text-gray-700">Property Type</h5>
+                        <Input
+                          placeholder="Search property types..."
+                          value={filterSearchQueries.propertyType}
+                          onChange={(e) => setFilterSearchQueries({...filterSearchQueries, propertyType: e.target.value})}
+                          className="h-8 text-sm"
+                        />
+                        <ScrollArea className="h-40 pr-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            {(filterOptions?.propertyTypes?.length ? filterOptions.propertyTypes : getUniqueValues('propertyType'))
+                              .filter((option: string) => option.toLowerCase().includes(filterSearchQueries.propertyType.toLowerCase()))
+                              .slice(0, 50).map((option: string) => {
+                              const isSelected = pendingFilters['propertyType']?.includes(option) || false
+                              return (
+                                <div key={`ptype-${option}`} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`ptype-${option}`}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => handleFilterChange('propertyType', option, checked as boolean)}
+                                  />
+                                  <Label htmlFor={`ptype-${option}`} className="text-sm cursor-pointer flex-1">
+                                    {option}
+                                  </Label>
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })}
+                        </ScrollArea>
+                      </div>
                     </div>
-                  </div>
+                  </AccordionContent>
+                </AccordionItem>
 
-                  {/* Property Type */}
-                  <div className="space-y-2">
-                    <h5 className="font-semibold text-sm text-gray-900">Property Type</h5>
-                    <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
-                      {(filterOptions?.propertyTypes?.length ? filterOptions.propertyTypes : getUniqueValues('propertyType')).slice(0, 50).map((option: string) => {
-                        const pool = (searchQuery || hasActiveFilters) ? contextContacts : contacts
-                        const count = Array.isArray(pool) ? pool.filter(c => (c as any)['propertyType'] === option).length : 0
-                        const isSelected = selectedFilters['propertyType']?.includes(option) || false
-                        return (
-                          <div key={`ptype-${option}`} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={`ptype-${option}`}
-                              checked={isSelected}
-                              onCheckedChange={(checked) => handleFilterChange('propertyType', option, checked as boolean)}
+                {/* Tags Section */}
+                <AccordionItem value="tags">
+                  <AccordionTrigger className="text-base font-semibold">
+                    🏷️ Tags
+                    {pendingFilters['tags']?.length ? (
+                      <Badge variant="secondary" className="ml-2">
+                        {pendingFilters['tags'].length}
+                      </Badge>
+                    ) : null}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="pt-2 space-y-2">
+                      <Input
+                        placeholder="Search tags..."
+                        value={filterSearchQueries.tags}
+                        onChange={(e) => setFilterSearchQueries({...filterSearchQueries, tags: e.target.value})}
+                        className="h-8 text-sm"
+                      />
+                      <ScrollArea className="h-40 pr-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          {(
+                            (filterOptions?.tags?.length ? filterOptions.tags.map((t: any) => t.name) : Array.from(new Set((contacts || []).flatMap((c: any) => (c.tags || []).map((t: any) => t.name)))) )
+                          ).filter((tagName: string) => tagName.toLowerCase().includes(filterSearchQueries.tags.toLowerCase()))
+                          .slice(0, 200).map((tagName: string) => {
+                            const isSelected = pendingFilters['tags']?.includes(tagName) || false
+                            return (
+                              <div key={`tag-${tagName}`} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`tag-${tagName}`}
+                                  checked={isSelected}
+                                  onCheckedChange={(checked) => handleFilterChange('tags', tagName, checked as boolean)}
+                                />
+                                <Label htmlFor={`tag-${tagName}`} className="text-sm cursor-pointer flex-1">
+                                  {tagName}
+                                </Label>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                {/* Value & Equity Ranges Section */}
+                <AccordionItem value="ranges">
+                  <AccordionTrigger className="text-base font-semibold">
+                    💰 Value & Equity Ranges
+                    {(minValue || maxValue || minEquity || maxEquity) ? (
+                      <Badge variant="secondary" className="ml-2">
+                        Active
+                      </Badge>
+                    ) : null}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-6 pt-2">
+                      {/* Estimated Value Range */}
+                      <div className="space-y-3">
+                        <h5 className="font-medium text-sm text-gray-700">Estimated Value</h5>
+                        <div className="flex gap-4 items-center">
+                          <div className="flex-1">
+                            <Label htmlFor="minValue" className="text-xs text-gray-600">Min Value</Label>
+                            <Input
+                              id="minValue"
+                              type="number"
+                              placeholder="e.g., 100000"
+                              value={minValue}
+                              onChange={(e) => setMinValue(e.target.value)}
+                              className="mt-1"
                             />
-                            <Label htmlFor={`ptype-${option}`} className="text-sm cursor-pointer flex-1">
-                              {option} ({count})
-                            </Label>
                           </div>
-                        )
-                      })}
+                          <span className="text-gray-500 mt-5">to</span>
+                          <div className="flex-1">
+                            <Label htmlFor="maxValue" className="text-xs text-gray-600">Max Value</Label>
+                            <Input
+                              id="maxValue"
+                              type="number"
+                              placeholder="e.g., 500000"
+                              value={maxValue}
+                              onChange={(e) => setMaxValue(e.target.value)}
+                              className="mt-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Estimated Equity Range */}
+                      <div className="space-y-3">
+                        <h5 className="font-medium text-sm text-gray-700">Estimated Equity</h5>
+                        <div className="flex gap-4 items-center">
+                          <div className="flex-1">
+                            <Label htmlFor="minEquity" className="text-xs text-gray-600">Min Equity</Label>
+                            <Input
+                              id="minEquity"
+                              type="number"
+                              placeholder="e.g., 50000"
+                              value={minEquity}
+                              onChange={(e) => setMinEquity(e.target.value)}
+                              className="mt-1"
+                            />
+                          </div>
+                          <span className="text-gray-500 mt-5">to</span>
+                          <div className="flex-1">
+                            <Label htmlFor="maxEquity" className="text-xs text-gray-600">Max Equity</Label>
+                            <Input
+                              id="maxEquity"
+                              type="number"
+                              placeholder="e.g., 200000"
+                              value={maxEquity}
+                              onChange={(e) => setMaxEquity(e.target.value)}
+                              className="mt-1"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
 
-              {/* Sliders Section */}
-              <div className="mt-8 space-y-6">
-                {/* Year Built Slider */}
-                {maxYearBuilt > minYearBuilt && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-semibold text-lg text-gray-900">Year Built</h4>
-                      <span className="text-sm text-gray-600">
-                        {yearBuiltRange[0]} - {yearBuiltRange[1]}
-                      </span>
-                    </div>
-                    <Slider
-                      value={yearBuiltRange}
-                      onValueChange={(value) => setYearBuiltRange(value as [number, number])}
-                      min={minYearBuilt}
-                      max={maxYearBuilt}
-                      step={1}
-                      className="w-full"
-                    />
-                  </div>
-                )}
-
-                {/* Estimated Value Slider */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-lg text-gray-900">Estimated Value</h4>
-                    <span className="text-sm text-gray-600">
-                      ${valueRange[0].toLocaleString()} - ${valueRange[1].toLocaleString()}
-                    </span>
-                  </div>
-                  <Slider
-                    value={valueRange}
-                    onValueChange={(value) => setValueRange(value as [number, number])}
-                    min={dbMinValue}
-                    max={dbMaxValue}
-                    step={1000}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Estimated Equity Slider */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-semibold text-lg text-gray-900">Estimated Equity</h4>
-                    <span className="text-sm text-gray-600">
-                      ${equityRange[0].toLocaleString()} - ${equityRange[1].toLocaleString()}
-                    </span>
-                  </div>
-                  <Slider
-                    value={equityRange}
-                    onValueChange={(value) => setEquityRange(value as [number, number])}
-                    min={dbMinEquity}
-                    max={dbMaxEquity}
-                    step={1000}
-                    className="w-full"
-                  />
-                </div>
-              </div>
-
-              {/* Clear All Button */}
-              {(hasActiveFilters ||
-                yearBuiltRange[0] !== minYearBuilt || yearBuiltRange[1] !== maxYearBuilt ||
-                valueRange[0] !== dbMinValue || valueRange[1] !== dbMaxValue ||
-                equityRange[0] !== dbMinEquity || equityRange[1] !== dbMaxEquity) && (
-                <div className="mt-6 flex justify-end">
+              {/* Preset Management Buttons */}
+              <div className="mt-6 flex justify-between items-center gap-2">
+                <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      setSelectedFilters({})
-                      setYearBuiltRange([minYearBuilt, maxYearBuilt])
-                      // Reset to "show all" ranges instead of database min/max ranges
-                      setValueRange([0, 5000000]) // Very wide range to include all contacts
-                      setEquityRange([0, 2000000000]) // Very wide range to include all contacts
+                    size="sm"
+                    onClick={async () => {
+                      await refreshFilterOptions()
+                      toast({
+                        title: "Filter Options Refreshed",
+                        description: "Latest tags, cities, and other options loaded",
+                      })
                     }}
                   >
-                    Clear All Filters
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh Options
+                  </Button>
+                  <Dialog open={showLoadPresetDialog} onOpenChange={setShowLoadPresetDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        <FolderOpen className="h-4 w-4 mr-2" />
+                        Load Preset
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Load Filter Preset</DialogTitle>
+                        <DialogDescription>
+                          Select a saved filter preset to load
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                        {filterPresets.length === 0 ? (
+                          <p className="text-sm text-gray-500 text-center py-4">No saved presets</p>
+                        ) : (
+                          filterPresets.map((preset) => (
+                            <div
+                              key={preset.id}
+                              className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-medium">{preset.name}</h4>
+                                  {preset.isDefault && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      <Star className="h-3 w-3 mr-1" />
+                                      Default
+                                    </Badge>
+                                  )}
+                                </div>
+                                {preset.description && (
+                                  <p className="text-sm text-gray-500">{preset.description}</p>
+                                )}
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleLoadPreset(preset)}
+                                >
+                                  Load
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeletePreset(preset.id)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+
+                  <Dialog open={showSavePresetDialog} onOpenChange={setShowSavePresetDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        <Save className="h-4 w-4 mr-2" />
+                        Save Preset
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Save Filter Preset</DialogTitle>
+                        <DialogDescription>
+                          Save your current filter configuration for quick access later
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="preset-name">Preset Name *</Label>
+                          <Input
+                            id="preset-name"
+                            value={presetName}
+                            onChange={(e) => setPresetName(e.target.value)}
+                            placeholder="e.g., High Value Florida Properties"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="preset-description">Description (Optional)</Label>
+                          <Input
+                            id="preset-description"
+                            value={presetDescription}
+                            onChange={(e) => setPresetDescription(e.target.value)}
+                            placeholder="Brief description of this filter preset"
+                          />
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="is-default"
+                            checked={isDefaultPreset}
+                            onCheckedChange={(checked) => setIsDefaultPreset(checked as boolean)}
+                          />
+                          <Label htmlFor="is-default" className="text-sm cursor-pointer">
+                            Set as default preset
+                          </Label>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowSavePresetDialog(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleSavePreset}>
+                          Save Preset
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+
+                {/* Apply and Reset Buttons */}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleResetFilters}
+                    disabled={!hasActiveFilters && !hasPendingChanges}
+                  >
+                    Reset Filters
+                  </Button>
+                  <Button
+                    onClick={handleApplyFilters}
+                    disabled={!hasPendingChanges}
+                  >
+                    Apply Filters
                   </Button>
                 </div>
-              )}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -710,6 +1143,7 @@ export default function AdvancedContactFilter({
             <div className="space-y-2">
               {filteredContacts.map(contact => {
                 const isSelected = selectedContacts.some(c => c.id === contact.id)
+                const contactTags = (contact as any).tags || []
                 return (
                   <div
                     key={contact.id}
@@ -724,13 +1158,36 @@ export default function AdvancedContactFilter({
                       <div className="text-sm text-gray-500 truncate">
                         {contact.email1 || formatPhoneNumberForDisplay(getBestPhoneNumber(contact))} • {contact.propertyAddress}
                       </div>
+                      {contactTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {contactTags.slice(0, 3).map((tag: any) => (
+                            <Badge
+                              key={tag.id}
+                              variant="secondary"
+                              className="text-xs px-1.5 py-0"
+                              style={{
+                                backgroundColor: tag.color ? `${tag.color}20` : undefined,
+                                color: tag.color || undefined,
+                                borderColor: tag.color || undefined,
+                              }}
+                            >
+                              {tag.name}
+                            </Badge>
+                          ))}
+                          {contactTags.length > 3 && (
+                            <Badge variant="outline" className="text-xs px-1.5 py-0">
+                              +{contactTags.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
               })}
               {filteredContacts.length === 0 && (
                 <div className="text-center text-gray-500 py-8">
-                  No contacts match your filters
+                  {isLoading ? "Searching..." : "No contacts match your filters"}
                 </div>
               )}
             </div>

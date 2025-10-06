@@ -1,122 +1,192 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns';
+import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    // Get basic contact stats
-    const totalContacts = await prisma.contact.count();
-    const recentContacts = await prisma.contact.count({
-      where: {
-        createdAt: {
-          gte: subMonths(new Date(), 1),
-        },
-      },
-    });
+    const url = new URL(req.url)
+    const parseDate = (k: string) => {
+      const v = url.searchParams.get(k)
+      return v ? new Date(v) : undefined
+    }
 
-    // Activity stats
-    const totalActivities = await prisma.activity.count();
-    const completedActivities = await prisma.activity.count({
-      where: { status: 'completed' },
-    });
-    const pendingActivities = await prisma.activity.count({
-      where: { status: 'planned' },
-    });
+    const now = parseDate('now') ?? new Date()
+    const todayStart = parseDate('todayStart') ?? startOfDay(now)
+    const todayEnd = parseDate('todayEnd') ?? endOfDay(now)
+    const weekStart = parseDate('weekStart') ?? startOfWeek(now)
+    const weekEnd = parseDate('weekEnd') ?? endOfWeek(now)
+    const monthStart = parseDate('monthStart') ?? startOfMonth(now)
+    const monthEnd = parseDate('monthEnd') ?? endOfMonth(now)
+    const recentGte = parseDate('recentGte') ?? subMonths(now, 1)
 
-    // Get contacts by property type
-    const contactsByPropertyType = await prisma.contact.groupBy({
-      by: ['propertyType'],
-      _count: {
-        id: true,
-      },
-      where: {
-        propertyType: {
-          not: null,
-        },
-      },
-    });
+    // Parallelize all counts for performance
+    const [
+      totalContacts,
+      recentContacts,
+      totalActivities,
+      completedActivities,
+      pendingActivities,
+      overdueActivities,
+      contactsByPropertyType,
+      // Telnyx messages
+      totalTelnyxMessages,
+      sentTelnyxMessages,
+      receivedTelnyxMessages,
+      todayTelnyxMessages,
+      weekTelnyxMessages,
+      monthTelnyxMessages,
+      // Telnyx calls
+      totalTelnyxCalls,
+      outboundTelnyxCalls,
+      inboundTelnyxCalls,
+      todayTelnyxCalls,
+      weekTelnyxCalls,
+      monthTelnyxCalls,
+      // Phone numbers & billing
+      activePhoneNumbers,
+      billingSum,
+      // Recent activities w/ contact
+      recentActivities,
+      // Distinct contacted contacts
+      msgContactIds,
+      callContactIds,
+      // Contacts created time windows
+      todayNewContacts,
+      weekNewContacts,
+      monthNewContacts,
+    ] = await Promise.all([
+      prisma.contact.count(),
+      prisma.contact.count({ where: { createdAt: { gte: recentGte } } }),
+      prisma.activity.count(),
+      prisma.activity.count({ where: { status: 'completed' } }),
+      prisma.activity.count({ where: { status: 'planned' } }),
+      prisma.activity.count({ where: { due_date: { lt: now }, status: { not: 'completed' } } }),
+      prisma.contact.groupBy({
+        by: ['propertyType'],
+        _count: { id: true },
+        where: { propertyType: { not: null } },
+      }),
 
-    // Get recent activities (increased limit for task management filtering)
-    const recentActivities = await prisma.activity.findMany({
-      take: 100, // Increased from 10 to 100 to support proper filtering
-      orderBy: {
-        created_at: 'desc',
-      },
-      include: {
-        contact: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            propertyAddress: true,
-            phone1: true,
-            email1: true,
+      // Telnyx messages
+      prisma.telnyxMessage.count(),
+      prisma.telnyxMessage.count({ where: { direction: 'outbound' } }),
+      prisma.telnyxMessage.count({ where: { direction: 'inbound' } }),
+      prisma.telnyxMessage.count({ where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+      prisma.telnyxMessage.count({ where: { createdAt: { gte: weekStart, lte: weekEnd } } }),
+      prisma.telnyxMessage.count({ where: { createdAt: { gte: monthStart, lte: monthEnd } } }),
+
+      // Telnyx calls
+      prisma.telnyxCall.count(),
+      prisma.telnyxCall.count({ where: { direction: 'outbound' } }),
+      prisma.telnyxCall.count({ where: { direction: 'inbound' } }),
+      prisma.telnyxCall.count({ where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+      prisma.telnyxCall.count({ where: { createdAt: { gte: weekStart, lte: weekEnd } } }),
+      prisma.telnyxCall.count({ where: { createdAt: { gte: monthStart, lte: monthEnd } } }),
+
+      // Phone numbers & billing
+      prisma.telnyxPhoneNumber.count({ where: { isActive: true } }),
+      prisma.telnyxBilling.aggregate({ _sum: { cost: true } }),
+
+      // Recent activities with basic contact (for task list and popups)
+      prisma.activity.findMany({
+        take: 100,
+        orderBy: { created_at: 'desc' },
+        include: {
+          contact: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              propertyAddress: true,
+              phone1: true,
+              email1: true,
+            },
           },
         },
-      },
-    });
+      }),
+
+      // Distinct contacts who have been contacted via SMS or calls
+      prisma.telnyxMessage.findMany({ where: { contactId: { not: null } }, distinct: ['contactId'], select: { contactId: true } }),
+      prisma.telnyxCall.findMany({ distinct: ['contactId'], select: { contactId: true } }),
+
+      // New contacts time windows
+      prisma.contact.count({ where: { createdAt: { gte: todayStart, lte: todayEnd } } }),
+      prisma.contact.count({ where: { createdAt: { gte: weekStart, lte: weekEnd } } }),
+      prisma.contact.count({ where: { createdAt: { gte: monthStart, lte: monthEnd } } }),
+    ])
+
+    // Build contacts array for dashboard (unique contacts referenced in recent activities)
+    const contactsMap = new Map<string, any>()
+    for (const act of recentActivities) {
+      if (act.contact) {
+        contactsMap.set(act.contact.id, act.contact)
+      }
+    }
+    const contacts = Array.from(contactsMap.values())
+
+    // Merge distinct contacted contact IDs from SMS and Calls
+    const contactedIds = new Set<string>()
+    for (const r of msgContactIds) if (r.contactId) contactedIds.add(r.contactId)
+    for (const r of callContactIds) if (r.contactId) contactedIds.add(r.contactId)
+    const totalContactsContacted = contactedIds.size
+
+    const telnyxCost = Number((billingSum?._sum?.cost as unknown as any) || 0)
 
     return NextResponse.json({
       // Contact stats
       totalContacts,
       recentContacts,
-      totalContactsContacted: 0, // Simplified for now
-      totalContactsLeftForContact: totalContacts,
+      totalContactsContacted,
+      totalContactsLeftForContact: Math.max(0, totalContacts - totalContactsContacted),
 
-      // Message stats (simplified)
-      totalMessages: 0,
-      totalMessagesSent: 0,
-      totalMessagesReceived: 0,
+      // Message stats
+      totalMessages: totalTelnyxMessages,
+      totalMessagesSent: sentTelnyxMessages,
+      totalMessagesReceived: receivedTelnyxMessages,
 
-      // Telnyx specific stats (simplified)
-      telnyxMessages: 0,
-      telnyxCalls: 0,
-      telnyxCost: 0,
-      telnyxPhoneNumbers: 0,
+      // Telnyx specific stats
+      telnyxMessages: totalTelnyxMessages,
+      telnyxCalls: totalTelnyxCalls,
+      telnyxCost,
+      telnyxPhoneNumbers: activePhoneNumbers,
 
-      // Call stats
-      totalCalls: 0,
-      totalOutboundCalls: 0,
-      totalInboundCalls: 0,
+      // Call stats (duplicated for clarity in UI)
+      totalCalls: totalTelnyxCalls,
+      totalOutboundCalls: outboundTelnyxCalls,
+      totalInboundCalls: inboundTelnyxCalls,
 
       // Activity stats
       totalActivities,
       completedActivities,
       pendingActivities,
-      overdueActivities: 0, // Simplified for now
+      overdueActivities,
 
-      // Deal stats
-      totalDeals: 0,
-      dealsValue: 0,
-      dealsWon: 0,
-      dealsLost: 0,
-
-      // Time-based stats (simplified)
+      // Time-based stats
       todayStats: {
-        messages: 0,
-        calls: 0,
-        activities: 0,
-        contacts: 0,
+        messages: todayTelnyxMessages,
+        calls: todayTelnyxCalls,
+        activities: await prisma.activity.count({ where: { created_at: { gte: todayStart, lte: todayEnd } } }),
+        contacts: todayNewContacts,
       },
       weekStats: {
-        messages: 0,
-        calls: 0,
-        activities: 0,
-        contacts: 0,
+        messages: weekTelnyxMessages,
+        calls: weekTelnyxCalls,
+        activities: await prisma.activity.count({ where: { created_at: { gte: weekStart, lte: weekEnd } } }),
+        contacts: weekNewContacts,
       },
       monthStats: {
-        messages: 0,
-        calls: 0,
-        activities: 0,
-        contacts: 0,
+        messages: monthTelnyxMessages,
+        calls: monthTelnyxCalls,
+        activities: await prisma.activity.count({ where: { created_at: { gte: monthStart, lte: monthEnd } } }),
+        contacts: monthNewContacts,
       },
 
       // Additional data
-      contactsByPropertyType: contactsByPropertyType.map(item => ({
+      contactsByPropertyType: contactsByPropertyType.map((item) => ({
         type: item.propertyType || 'Unknown',
         count: item._count.id,
       })),
-      recentActivities: recentActivities.map(activity => ({
+      recentActivities: recentActivities.map((activity) => ({
         id: activity.id,
         contactId: activity.contact_id,
         dealId: activity.deal_id,
@@ -146,12 +216,13 @@ export async function GET() {
           email1: activity.contact.email1,
         } : null,
       })),
-    });
+      contacts,
+    })
   } catch (error) {
-    console.error('Error fetching dashboard stats:', error);
+    console.error('Error fetching dashboard stats:', error)
     return NextResponse.json(
       { error: 'Failed to fetch dashboard stats' },
       { status: 500 }
-    );
+    )
   }
 }

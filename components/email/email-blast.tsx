@@ -69,7 +69,7 @@ export default function EmailBlast({ emailAccounts }: EmailBlastProps) {
     )
   }
   const { toast } = useToast()
-  const { contacts } = useContacts()
+  const { contacts, searchContacts } = useContacts()
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [selectedAccount, setSelectedAccount] = useState<string>("")
   const [subject, setSubject] = useState("")
@@ -92,6 +92,13 @@ export default function EmailBlast({ emailAccounts }: EmailBlastProps) {
   // Load active blasts
   useEffect(() => {
     loadActiveBlasts()
+  }, [])
+
+
+  // Reset contacts context to full, unfiltered list on mount so totals are accurate
+  useEffect(() => {
+    searchContacts('', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Poll for active blast updates only when there are active blasts
@@ -170,7 +177,7 @@ export default function EmailBlast({ emailAccounts }: EmailBlastProps) {
 
       if (response.ok) {
         const data = await response.json()
-        
+
         // Start the blast
         const startResponse = await fetch(`/api/email/blasts/${data.blast.id}/start`, {
           method: 'POST',
@@ -280,8 +287,8 @@ export default function EmailBlast({ emailAccounts }: EmailBlastProps) {
                         </Button>
                       </div>
                     </div>
-                    <Progress 
-                      value={(blast.sentCount / blast.totalContacts) * 100} 
+                    <Progress
+                      value={(blast.sentCount / blast.totalContacts) * 100}
                       className="h-2"
                     />
                   </div>

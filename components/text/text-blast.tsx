@@ -28,7 +28,7 @@ interface Template {
 
 
 export default function TextBlast() {
-  const { contacts } = useContacts()
+  const { contacts, searchContacts, pagination } = useContacts()
   const [message, setMessage] = useState("")
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true);
@@ -90,6 +90,13 @@ export default function TextBlast() {
 
     loadData();
   }, [toast]);
+
+
+  // Reset to full, unfiltered contacts pool on mount so totals (e.g., Select All Pages) match dashboard
+  useEffect(() => {
+    searchContacts('', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
 
   const addSenderNumber = async () => {
@@ -442,7 +449,7 @@ export default function TextBlast() {
                 <div className="flex items-center gap-2">
                   <Users size={18} className="text-muted-foreground" />
                   <span>
-                    {selectedContacts.length} of {filteredContacts.length} contacts selected ({contacts.length} total)
+                    {selectedContacts.length} of {filteredContacts.length} contacts selected ({pagination?.totalCount ?? contacts.length} total)
                   </span>
                 </div>
               </div>

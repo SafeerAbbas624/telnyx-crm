@@ -92,7 +92,7 @@ interface TextAutomation {
 }
 
 export default function TextAutomation() {
-  const { contacts } = useContacts()
+  const { contacts, searchContacts } = useContacts()
   const [automations, setAutomations] = useState<TextAutomation[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
@@ -110,6 +110,13 @@ export default function TextAutomation() {
   const [showContactSelection, setShowContactSelection] = useState(false)
   const { toast } = useToast()
 
+
+
+  // Ensure we start from the full contact list when opening Text Automation
+  useEffect(() => {
+    searchContacts('', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
 
   useEffect(() => {
@@ -406,8 +413,8 @@ export default function TextAutomation() {
                         <span>Progress</span>
                         <span>{automation.sentCount} / {automation.totalContacts}</span>
                       </div>
-                      <Progress 
-                        value={(automation.sentCount / automation.totalContacts) * 100} 
+                      <Progress
+                        value={(automation.sentCount / automation.totalContacts) * 100}
                         className="h-2"
                       />
                     </div>

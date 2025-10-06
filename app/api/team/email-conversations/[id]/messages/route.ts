@@ -9,7 +9,7 @@ export async function GET(
 ) {
   try {
     const session = await getServerSession(authOptions)
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -17,17 +17,129 @@ export async function GET(
       )
     }
 
-    // Only team members can access this endpoint
-    if (session.user.role !== 'TEAM_MEMBER') {
+    // Allow both team members and admins
+    if (session.user.role !== 'TEAM_USER' && session.user.role !== 'ADMIN') {
       return NextResponse.json(
-        { error: 'Forbidden - Only team members can access team email conversations' },
+        { error: 'Forbidden - Only team members and admins can access team email conversations' },
         { status: 403 }
       )
     }
 
     const conversationId = params.id
 
-    // First, verify the conversation belongs to an assigned contact
+    // Check if this is a synthetic ID (contactId-accountId format)
+    const parts = conversationId.split('-')
+
+    if (parts.length > 5) {
+      // Synthetic ID format
+      const contactId = parts.slice(0, 5).join('-')
+      const accountId = parts.slice(5).join('-')
+
+      console.log('Team synthetic ID detected:', { contactId, accountId })
+
+      // Get contact and verify assignment
+      const contact = await prisma.contact.findUnique({
+        where: { id: contactId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email1: true,
+          email2: true,
+          email3: true,
+          assignedUsers: {
+            where: { userId: session.user.id }
+          }
+        }
+      })
+
+      if (!contact) {
+        return NextResponse.json(
+          { error: 'Contact not found' },
+          { status: 404 }
+        )
+      }
+
+      // Check if contact is assigned (skip for admins)
+      if (session.user.role === 'TEAM_USER' && !contact.assignedUsers.length) {
+        return NextResponse.json(
+          { error: 'Forbidden - Contact not assigned to you' },
+          { status: 403 }
+        )
+      }
+
+      // Get all messages for this contact and account
+      const messages = await prisma.emailMessage.findMany({
+        where: {
+          contactId: contactId,
+          emailAccountId: accountId
+        },
+        orderBy: {
+          deliveredAt: 'asc'
+        },
+        select: {
+          id: true,
+          messageId: true,
+          fromEmail: true,
+          fromName: true,
+          toEmails: true,
+          ccEmails: true,
+          bccEmails: true,
+          subject: true,
+          content: true,
+          textContent: true,
+          direction: true,
+          status: true,
+          deliveredAt: true,
+          sentAt: true,
+          openedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        }
+      })
+
+      // Mark inbound messages as read
+      await prisma.emailMessage.updateMany({
+        where: {
+          contactId: contactId,
+          emailAccountId: accountId,
+          direction: 'inbound',
+          openedAt: null
+        },
+        data: {
+          openedAt: new Date()
+        }
+      })
+
+      return NextResponse.json({
+        success: true,
+        messages: messages.map(message => ({
+          id: message.id,
+          messageId: message.messageId,
+          from: message.fromEmail,
+          fromName: message.fromName || message.fromEmail,
+          to: message.toEmails,
+          cc: message.ccEmails,
+          bcc: message.bccEmails,
+          subject: message.subject,
+          content: message.content,
+          textContent: message.textContent,
+          direction: message.direction,
+          isRead: !!message.openedAt,
+          deliveredAt: message.deliveredAt,
+          sentAt: message.sentAt,
+          createdAt: message.createdAt,
+        })),
+        conversation: {
+          id: conversationId,
+          contact: contact,
+          emailAddress: contact.email1 || contact.email2 || contact.email3 || '',
+          message_count: messages.length
+        }
+      })
+    }
+
+    // Original logic for real conversation IDs (fallback)
     const conversation = await prisma.emailConversation.findUnique({
       where: { id: conversationId },
       include: {
@@ -48,47 +160,45 @@ export async function GET(
       )
     }
 
-    // Check if the contact is assigned to this team member
-    if (!conversation.contact?.assignedUsers.length) {
+    // Check if the contact is assigned (skip for admins)
+    if (session.user.role === 'TEAM_USER' && !conversation.contact?.assignedUsers.length) {
       return NextResponse.json(
         { error: 'Forbidden - Contact not assigned to you' },
         { status: 403 }
       )
     }
 
-    // Get messages for this conversation
-    const messages = await prisma.email.findMany({
+    // Get messages - use EmailMessage model
+    const messages = await prisma.emailMessage.findMany({
       where: {
-        conversationId: conversationId
+        OR: [
+          {
+            toEmails: {
+              has: conversation.emailAddress
+            }
+          },
+          {
+            fromEmail: conversation.emailAddress
+          }
+        ]
       },
       orderBy: {
-        timestamp: 'asc'
-      },
-      include: {
-        attachments: {
-          select: {
-            id: true,
-            filename: true,
-            size: true,
-            contentType: true
-          }
-        }
+        createdAt: 'asc'
       }
     })
 
     return NextResponse.json({
+      success: true,
       messages: messages.map(message => ({
         id: message.id,
         subject: message.subject,
         content: message.content,
-        fromEmail: message.fromEmail,
+        from: message.fromEmail,
         fromName: message.fromName,
-        toEmail: message.toEmail,
-        toName: message.toName,
+        to: message.toEmails,
         direction: message.direction,
-        timestamp: message.timestamp,
-        isRead: message.isRead,
-        attachments: message.attachments
+        createdAt: message.createdAt,
+        isRead: !!message.openedAt
       }))
     })
 

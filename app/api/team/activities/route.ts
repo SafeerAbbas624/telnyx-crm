@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
           created_by: userId,
           priority: priority || 'medium',
           due_date: dueDate ? new Date(dueDate) : null,
-          status: 'pending'
+          status: 'planned'
         },
         include: {
           contact: {

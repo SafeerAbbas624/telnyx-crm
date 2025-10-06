@@ -223,7 +223,8 @@ export default function NewTextMessageModal({
 
         if (response.ok) {
           const newContact = await response.json()
-          targetContact = newContact.contact
+          // API returns the created contact object directly
+          targetContact = newContact
         } else {
           throw new Error('Failed to create contact')
         }
@@ -408,28 +409,30 @@ export default function NewTextMessageModal({
               </ScrollArea>
             </TabsContent>
 
-            {/* Pagination + Page size */}
-            <div className="flex items-center justify-between pt-2 gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Rows:</span>
-                <select
-                  className="text-sm border rounded px-2 py-1"
-                  value={limit}
-                  onChange={(e) => { setPage(1); setLimit(parseInt(e.target.value)) }}
-                >
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={page <= 1 || isLoadingContacts} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
-                  <Button variant="outline" size="sm" disabled={page >= totalPages || isLoadingContacts} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+            {/* Pagination + Page size (only show on Existing tab) */}
+            {activeTab === "existing" && (
+              <div className="flex items-center justify-between pt-2 gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Rows:</span>
+                  <select
+                    className="text-sm border rounded px-2 py-1"
+                    value={limit}
+                    onChange={(e) => { setPage(1); setLimit(parseInt(e.target.value)) }}
+                  >
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">Page {page} of {totalPages}</span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={page <= 1 || isLoadingContacts} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
+                    <Button variant="outline" size="sm" disabled={page >= totalPages || isLoadingContacts} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <TabsContent value="new" className="space-y-3">
               <div className="grid grid-cols-2 gap-3">

@@ -261,22 +261,30 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
 
     try {
       setIsSyncing(true)
+
+      // Add timeout to fetch request - reduced to 25 seconds
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 25000) // 25 second timeout
+
       const response = await fetch('/api/email/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           accountId: selectedAccount.id
-        })
+        }),
+        signal: controller.signal
       })
+
+      clearTimeout(timeoutId)
 
       if (response.ok) {
         const data = await response.json()
         setLastSyncTime(new Date())
 
-        if (showToast && data.syncedCount > 0) {
+        if (showToast && data.synced > 0) {
           toast({
             title: 'New Emails',
-            description: `${data.syncedCount} new emails received`,
+            description: `${data.synced} new emails received`,
             duration: 3000
           })
         }
@@ -288,15 +296,56 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
         if (selectedConversation) {
           loadMessages()
         }
+      } else if (response.status === 504) {
+        // Gateway timeout - sync is still running in background
+        console.log('Sync timeout - will complete in background')
+        setLastSyncTime(new Date())
+
+        // Still refresh conversations after a delay
+        setTimeout(async () => {
+          await loadConversations()
+          if (selectedConversation) {
+            loadMessages()
+          }
+        }, 5000)
+
+        if (showToast) {
+          toast({
+            title: 'Sync In Progress',
+            description: 'Email sync is taking longer than usual. Emails will appear shortly.',
+            duration: 5000
+          })
+        }
       } else {
         throw new Error('Sync failed')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Sync error:', error)
-      if (showToast) {
+
+      // Handle abort/timeout
+      if (error.name === 'AbortError') {
+        console.log('Sync timeout - will complete in background')
+        setLastSyncTime(new Date())
+
+        // Still refresh conversations after a delay
+        setTimeout(async () => {
+          await loadConversations()
+          if (selectedConversation) {
+            loadMessages()
+          }
+        }, 5000)
+
+        if (showToast) {
+          toast({
+            title: 'Sync In Progress',
+            description: 'Email sync is taking longer than usual. Emails will appear shortly.',
+            duration: 5000
+          })
+        }
+      } else if (showToast) {
         toast({
           title: 'Error',
-          description: 'Failed to sync emails',
+          description: 'Failed to sync emails. Please try again.',
           variant: 'destructive',
         })
       }

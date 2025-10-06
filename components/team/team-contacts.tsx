@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,12 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Search, User, Phone, Mail, MapPin, Building, Eye } from "lucide-react"
+import { Search, User, Phone, Mail, MapPin, Building, Eye, Plus } from "lucide-react"
 
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import ContactName from "@/components/contacts/contact-name"
 
 import ContactDetails from "@/components/contacts/contact-details"
+import AddContactDialog from "@/components/contacts/add-contact-dialog"
 
 interface Contact {
   id: string
@@ -35,6 +36,7 @@ interface Contact {
   propertyType?: string
   estValue?: number
   estEquity?: number
+  tags?: { id: string; name: string; color: string }[]
   createdAt: string
   updatedAt: string
 }
@@ -47,22 +49,63 @@ export default function TeamContacts() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
+  const [showAddDialog, setShowAddDialog] = useState(false)
+
+  // Pagination state
+  const [contactsPage, setContactsPage] = useState(1)
+  const [contactsHasMore, setContactsHasMore] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  // Ref for scroll container
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   // Team members only see their assigned contacts via the API
 
   useEffect(() => {
     if (session?.user) {
-      loadContacts()
+      // Reset and load from page 1 when search changes
+      setContacts([])
+      setContactsPage(1)
+      setContactsHasMore(true)
+      loadContacts(true)
     }
   }, [session, searchQuery])
 
-  const loadContacts = async () => {
-    if (!session?.user) return
+  // Scroll handler for infinite scroll
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current
+    if (!scrollContainer) return
 
-    setIsLoading(true)
+    const handleScroll = () => {
+      const scrollTop = scrollContainer.scrollTop
+      const scrollHeight = scrollContainer.scrollHeight
+      const clientHeight = scrollContainer.clientHeight
+
+      // Load more when scrolled near bottom (within 200px)
+      if (scrollHeight - scrollTop - clientHeight < 200 && contactsHasMore && !isLoadingMore && !searchQuery) {
+        loadContacts(false)
+      }
+    }
+
+    scrollContainer.addEventListener('scroll', handleScroll)
+    return () => scrollContainer.removeEventListener('scroll', handleScroll)
+  }, [contactsHasMore, isLoadingMore, searchQuery, contactsPage])
+
+  const loadContacts = async (reset: boolean = false) => {
+    if (!session?.user) return
+    if (isLoadingMore) return
+
+    const loading = reset ? setIsLoading : setIsLoadingMore
+    loading(true)
+
     try {
+      const page = reset ? 1 : contactsPage
+      const limit = 100
+
       // Use team assigned contacts API
       const params = new URLSearchParams()
+      params.append('page', page.toString())
+      params.append('limit', limit.toString())
       if (searchQuery.trim()) {
         params.append('search', searchQuery.trim())
       }
@@ -70,7 +113,20 @@ export default function TeamContacts() {
       const response = await fetch(`/api/team/assigned-contacts?${params}`)
       if (response.ok) {
         const data = await response.json()
-        setContacts(data.contacts || [])
+        const newContacts = data.contacts || []
+
+        console.log(`Team contacts loaded (page ${page}):`, newContacts.length)
+
+        if (reset) {
+          setContacts(newContacts)
+          setContactsPage(1)
+        } else {
+          setContacts(prev => [...prev, ...newContacts])
+        }
+
+        // Check if there are more pages
+        setContactsHasMore(data.pagination?.hasMore || false)
+        setContactsPage(page + 1)
       } else {
         console.error('Failed to load assigned contacts')
       }
@@ -82,24 +138,12 @@ export default function TeamContacts() {
         variant: "destructive",
       })
     } finally {
-      setIsLoading(false)
+      loading(false)
     }
   }
 
-  // Filter contacts based on search query (with safety check)
-  const filteredContacts = Array.isArray(contacts) ? contacts.filter(contact => {
-    if (!searchQuery) return true
-    const query = searchQuery.toLowerCase()
-    return (
-      contact.firstName?.toLowerCase().includes(query) ||
-      contact.lastName?.toLowerCase().includes(query) ||
-      contact.phone1?.includes(query) ||
-      contact.email1?.toLowerCase().includes(query) ||
-      contact.llcName?.toLowerCase().includes(query) ||
-      contact.propertyAddress?.toLowerCase().includes(query) ||
-      contact.city?.toLowerCase().includes(query)
-    )
-  }) : []
+  // No need for client-side filtering since API handles search
+  const filteredContacts = Array.isArray(contacts) ? contacts : []
 
   const formatCurrency = (amount?: number) => {
     if (!amount) return "N/A"
@@ -116,59 +160,27 @@ export default function TeamContacts() {
 
   return (
     <div className="space-y-4">
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
-        <Input
-          placeholder="Search contacts..."
-          className="pl-8"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
+      {/* Search + Add Contact */}
+      <div className="flex gap-2 items-start">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+          <Input
+            placeholder="Search contacts..."
+            className="pl-8"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+        <Button
+          size="icon"
+          variant="outline"
+          onClick={() => setShowAddDialog(true)}
+          title="Add new contact"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
       </div>
 
-      {/* Contact Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <User className="h-5 w-5 text-blue-500" />
-              <div>
-                <p className="text-sm font-medium">Total Contacts</p>
-                <p className="text-2xl font-bold">{Array.isArray(contacts) ? contacts.length : 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Building className="h-5 w-5 text-green-500" />
-              <div>
-                <p className="text-sm font-medium">With LLC</p>
-                <p className="text-2xl font-bold">
-                  {Array.isArray(contacts) ? contacts.filter(c => c.llcName).length : 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Mail className="h-5 w-5 text-purple-500" />
-              <div>
-                <p className="text-sm font-medium">With Email</p>
-                <p className="text-2xl font-bold">
-                  {Array.isArray(contacts) ? contacts.filter(c => c.email1).length : 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Contacts List */}
       <Card>
@@ -179,7 +191,12 @@ export default function TeamContacts() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[600px]">
+          <div
+            ref={scrollContainerRef}
+            className="h-[600px] overflow-y-auto overflow-x-hidden"
+            style={{ scrollbarWidth: 'thin' }}
+          >
+            <div className="pb-40">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="text-center">
@@ -208,7 +225,7 @@ export default function TeamContacts() {
                     <div className="flex items-start gap-3">
                       <Avatar className="h-12 w-12">
                         <AvatarFallback className="text-sm">
-                          {contact.firstName?.[0]}{contact.lastName?.[0]}
+                          {(contact.firstName?.[0] || '?')}{(contact.lastName?.[0] || '?')}
                         </AvatarFallback>
                       </Avatar>
 
@@ -264,7 +281,7 @@ export default function TeamContacts() {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 mt-3">
+                        <div className="flex items-center gap-2 mt-3 flex-wrap">
                           {contact.propertyType && (
                             <Badge variant="outline" className="text-xs">
                               {contact.propertyType}
@@ -280,14 +297,34 @@ export default function TeamContacts() {
                               Est. Equity: {formatCurrency(contact.estEquity)}
                             </Badge>
                           )}
+                          {Array.isArray(contact.tags) && contact.tags.length > 0 && contact.tags.slice(0, 5).map((t) => (
+                            <Badge key={t.id} style={{ backgroundColor: t.color || '#3B82F6', color: '#fff' }} className="text-xs">
+                              {t.name}
+                            </Badge>
+                          ))}
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
+
+                {/* Loading indicator */}
+                {isLoadingMore && (
+                  <div className="flex justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-primary"></div>
+                  </div>
+                )}
+
+                {/* End of list indicator */}
+                {!contactsHasMore && filteredContacts.length > 0 && (
+                  <div className="text-center py-4 text-sm text-muted-foreground">
+                    All contacts loaded ({filteredContacts.length})
+                  </div>
+                )}
               </div>
             )}
-          </ScrollArea>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -398,6 +435,30 @@ export default function TeamContacts() {
           </CardContent>
         </Card>
       )}
+
+      {/* Add Contact Dialog */}
+      <AddContactDialog
+        open={showAddDialog}
+        onOpenChange={setShowAddDialog}
+        onAddContact={async (payload) => {
+          try {
+            const res = await fetch('/api/contacts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}))
+              throw new Error(err?.error || 'Failed to add contact')
+            }
+            toast({ title: 'Contact added', description: 'The contact has been created and assigned to you.' })
+            setShowAddDialog(false)
+            loadContacts()
+          } catch (e: any) {
+            toast({ title: 'Error', description: e.message || 'Failed to add contact', variant: 'destructive' })
+          }
+        }}
+      />
     </div>
   )
 }

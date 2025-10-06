@@ -135,14 +135,19 @@ async function processTextBlast(blastId: string) {
       }
     }
 
-    // Mark blast as completed
-    await prisma.textBlast.update({
+    // After loop, only mark as completed if we've actually finished and not paused/stopped
+    const finalBlast = await prisma.textBlast.findUnique({
       where: { id: blastId },
-      data: {
-        status: 'completed',
-        completedAt: new Date(),
-      },
     })
+    if (finalBlast && finalBlast.status === 'running' && (finalBlast.currentIndex >= contacts.length)) {
+      await prisma.textBlast.update({
+        where: { id: blastId },
+        data: {
+          status: 'completed',
+          completedAt: new Date(),
+        },
+      })
+    }
 
   } catch (error) {
     console.error('Error processing text blast:', error)

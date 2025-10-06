@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
+// Disable Next.js caching for this route - always fetch fresh data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET() {
   try {
+    console.log('🔄 [FILTER OPTIONS API] Fetching filter options from database...')
+
     // Get unique values for each filter field from the database
     const [
       cities,
@@ -21,7 +27,7 @@ export async function GET() {
         distinct: ['city'],
         orderBy: { city: 'asc' }
       }),
-      
+
       // States
       prisma.contact.findMany({
         select: { state: true },
@@ -29,7 +35,7 @@ export async function GET() {
         distinct: ['state'],
         orderBy: { state: 'asc' }
       }),
-      
+
       // Counties
       prisma.contact.findMany({
         select: { propertyCounty: true },
@@ -37,7 +43,7 @@ export async function GET() {
         distinct: ['propertyCounty'],
         orderBy: { propertyCounty: 'asc' }
       }),
-      
+
       // Property Types
       prisma.contact.findMany({
         select: { propertyType: true },
@@ -45,7 +51,7 @@ export async function GET() {
         distinct: ['propertyType'],
         orderBy: { propertyType: 'asc' }
       }),
-      
+
       // Deal Statuses
       prisma.contact.findMany({
         select: { dealStatus: true },
@@ -53,20 +59,25 @@ export async function GET() {
         distinct: ['dealStatus'],
         orderBy: { dealStatus: 'asc' }
       }),
-      
-      // Tags
-      prisma.tag.findMany({
-        select: { id: true, name: true, color: true },
-        orderBy: { name: 'asc' }
-      }),
-      
+
+      // Tags - ONLY tags that are actually attached to contacts
+      // Using raw SQL to bypass any Prisma caching issues
+      prisma.$queryRaw`
+        SELECT t.id, t.name, t.color
+        FROM tags t
+        WHERE EXISTS (
+          SELECT 1 FROM contact_tags ct WHERE ct.tag_id = t.id
+        )
+        ORDER BY t.name ASC
+      `,
+
       // Property Value Stats
       prisma.contact.aggregate({
         _min: { estValue: true },
         _max: { estValue: true },
         where: { estValue: { not: null } }
       }),
-      
+
       // Equity Stats
       prisma.contact.aggregate({
         _min: { estEquity: true },
@@ -74,6 +85,15 @@ export async function GET() {
         where: { estEquity: { not: null } }
       })
     ]);
+
+    console.log('✅ [FILTER OPTIONS API] Query results:', {
+      cities: cities.length,
+      states: states.length,
+      counties: counties.length,
+      propertyTypes: propertyTypes.length,
+      dealStatuses: dealStatuses.length,
+      tags: tags.length
+    })
 
     // Format the response
     const filterOptions = {
@@ -96,6 +116,8 @@ export async function GET() {
         max: equityStats._max.estEquity ? Number(equityStats._max.estEquity) : 1000000
       }
     };
+
+    console.log('📤 [FILTER OPTIONS API] Sending response with', filterOptions.tags.length, 'tags')
 
     return NextResponse.json(filterOptions);
   } catch (error) {

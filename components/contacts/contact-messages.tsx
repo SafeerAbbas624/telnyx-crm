@@ -51,17 +51,37 @@ export default function ContactMessages({ contactId }: ContactMessagesProps) {
 
   // Now using real data from API
 
-  const handleSendMessage = () => {
-    // Navigate to messaging section with this contact selected
-    router.push(`/dashboard?section=messaging&contactId=${contactId}`)
+  const handleSendMessage = async () => {
+    try {
+      // Get contact info to find phone number
+      const contactResponse = await fetch(`/api/contacts/${contactId}`)
+      if (!contactResponse.ok) {
+        console.error('Could not find contact information')
+        return
+      }
+
+      const contact = await contactResponse.json()
+      const phoneNumber = contact.phone1 || contact.phone2 || contact.phone3
+
+      if (!phoneNumber) {
+        console.error('This contact doesn\'t have a phone number')
+        return
+      }
+
+      // Navigate to Text Center Conversations tab with this contact's phone number
+      // The messaging section will automatically open the conversation for this number
+      router.push(`/dashboard?tab=messaging&subtab=conversations&phone=${encodeURIComponent(phoneNumber)}`)
+    } catch (error) {
+      console.error('Error navigating to conversation:', error)
+    }
   }
 
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg font-semibold">Messages</CardTitle>
-        <Button variant="ghost" size="sm" onClick={handleSendMessage}>
-          <PlusCircle className="h-4 w-4 mr-2" /> Send Message
+        <Button variant="default" size="sm" onClick={handleSendMessage} className="bg-blue-600 hover:bg-blue-700">
+          <PlusCircle className="h-4 w-4 mr-2" /> Message
         </Button>
       </CardHeader>
       <CardContent className="flex-1 pt-4">

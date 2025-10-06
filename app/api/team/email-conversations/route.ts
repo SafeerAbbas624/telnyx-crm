@@ -74,89 +74,137 @@ export async function GET(request: NextRequest) {
       assignedContactIds = allContacts.map(c => c.id)
     }
 
-    // Check if EmailConversation model exists
-    if (!prisma.emailConversation) {
-      console.warn('EmailConversation model not available in Prisma client. Returning empty data.')
+    // Check if EmailMessage model exists
+    if (!prisma.emailMessage) {
+      console.warn('EmailMessage model not available in Prisma client. Returning empty data.')
       return NextResponse.json({
         conversations: [],
       })
     }
-    // Build where clause for assigned contacts and search
-    const where: any = {
-      contactId: {
-        in: assignedContactIds
-      }
+
+    // Get unique contact IDs that have messages with this account
+    const contactIds = await prisma.emailMessage.findMany({
+      where: {
+        emailAccountId: accountId,
+        contactId: {
+          in: assignedContactIds,
+          not: null
+        }
+      },
+      select: { contactId: true },
+      distinct: ['contactId']
+    });
+
+    if (contactIds.length === 0) {
+      return NextResponse.json({
+        conversations: [],
+        total: 0
+      });
     }
+
+    const uniqueContactIds = contactIds.map(m => m.contactId).filter((id): id is string => id !== null);
+
+    // Build where clause for contacts
+    const contactWhere: any = {
+      id: { in: uniqueContactIds }
+    };
 
     if (search) {
-      where.AND = [
-        where,
-        {
-          OR: [
-            {
-              contact: {
-                OR: [
-                  { firstName: { contains: search, mode: 'insensitive' } },
-                  { lastName: { contains: search, mode: 'insensitive' } },
-                  { email1: { contains: search, mode: 'insensitive' } },
-                  { email2: { contains: search, mode: 'insensitive' } },
-                  { email3: { contains: search, mode: 'insensitive' } }
-                ]
-              }
-            }
-          ]
-        }
-      ]
+      contactWhere.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email1: { contains: search, mode: 'insensitive' } },
+        { email2: { contains: search, mode: 'insensitive' } },
+        { email3: { contains: search, mode: 'insensitive' } }
+      ];
     }
 
-    // Get email conversations for assigned contacts filtered by email account
-    const conversations = await prisma.emailConversation.findMany({
-      where,
-      include: {
-        contact: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email1: true,
-            email2: true,
-            email3: true
-          }
-        },
-
-      },
-      orderBy: {
-        lastMessageAt: 'desc'
+    // Get contacts
+    const contacts = await prisma.contact.findMany({
+      where: contactWhere,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email1: true,
+        email2: true,
+        email3: true
       },
       take: limit,
-      skip: offset
-    })
+      skip: offset,
+    });
 
-    // Transform the data to match admin Gmail component format
-    const transformedConversations = conversations.map(conv => ({
-      id: conv.id,
-      contact: {
-        id: conv.contact?.id || '',
-        firstName: conv.contact?.firstName || '',
-        lastName: conv.contact?.lastName || '',
-        email1: conv.contact?.email1 || ''
-      },
-      emailAddress: conv.emailAddress,
-      lastMessage: conv.lastMessageContent ? {
-        id: conv.lastMessageId || '',
-        subject: conv.lastMessageSubject || 'No Subject',
-        content: conv.lastMessageContent,
-        direction: conv.lastMessageDirection || 'inbound',
-        createdAt: conv.lastMessageAt?.toISOString() || new Date().toISOString()
-      } : undefined,
-      messageCount: conv.messageCount || 0,
-      unreadCount: conv.unreadCount || 0,
-      hasUnread: (conv.unreadCount || 0) > 0
-    }))
+    // For each contact, get their last message and stats
+    const conversations = await Promise.all(
+      contacts.map(async (contact) => {
+        // Get last message for this contact
+        const lastMessage = await prisma.emailMessage.findFirst({
+          where: {
+            emailAccountId: accountId,
+            contactId: contact.id
+          },
+          orderBy: { deliveredAt: 'desc' },
+          select: {
+            id: true,
+            subject: true,
+            content: true,
+            direction: true,
+            deliveredAt: true,
+            openedAt: true
+          }
+        });
+
+        // Count messages
+        const messageCount = await prisma.emailMessage.count({
+          where: {
+            emailAccountId: accountId,
+            contactId: contact.id
+          }
+        });
+
+        // Count unread messages
+        const unreadCount = await prisma.emailMessage.count({
+          where: {
+            emailAccountId: accountId,
+            contactId: contact.id,
+            direction: 'inbound',
+            openedAt: null
+          }
+        });
+
+        const emailAddress = contact.email1 || contact.email2 || contact.email3 || '';
+
+        return {
+          id: `${contact.id}-${accountId}`,
+          contact,
+          emailAddress,
+          lastMessage: lastMessage ? {
+            id: lastMessage.id,
+            subject: lastMessage.subject || 'No Subject',
+            content: lastMessage.content,
+            direction: lastMessage.direction,
+            createdAt: lastMessage.deliveredAt?.toISOString() || new Date().toISOString()
+          } : undefined,
+          messageCount,
+          unreadCount,
+          hasUnread: unreadCount > 0
+        };
+      })
+    );
+
+    // Sort by unread and last message time
+    conversations.sort((a, b) => {
+      if (a.unreadCount !== b.unreadCount) {
+        return b.unreadCount - a.unreadCount;
+      }
+      const aTime = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const bTime = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
 
     return NextResponse.json({
-      conversations: transformedConversations,
-      total: transformedConversations.length
+      conversations,
+      total: conversations.length
     })
 
   } catch (error) {

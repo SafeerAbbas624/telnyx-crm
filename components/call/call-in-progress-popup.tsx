@@ -64,11 +64,16 @@ export default function CallInProgressPopup() {
     return () => { active = false }
   }, [call?.mode, micVersion, selectedMic])
 
-  // Auto-close when backend reports call ended
+  // Detect call end (without closing) and auto-save notes once
+  const [hasEnded, setHasEnded] = useState(false)
+  const [activitySaved, setActivitySaved] = useState(false)
   useEffect(() => {
     if (!call) return
+    setHasEnded(false)
+    setActivitySaved(false)
     const iv = setInterval(async () => {
       try {
+        if (call.mode !== 'call_control' || !call.telnyxCallId) return
         const res = await fetch('/api/telnyx/calls')
         if (!res.ok) return
         const data = await res.json()
@@ -77,12 +82,42 @@ export default function CallInProgressPopup() {
         if (!thisCall) return
         const status = String(thisCall.status || '').toLowerCase()
         if (["hangup","failed","completed","ended"].includes(status)) {
-          close()
+          setHasEnded(true)
         }
       } catch {}
     }, 3000)
     return () => clearInterval(iv)
-  }, [call?.telnyxCallId])
+  }, [call?.telnyxCallId, call?.mode])
+
+  // When ended, save activity once
+  useEffect(() => {
+    const save = async () => {
+      if (!call || !hasEnded || activitySaved) return
+      try {
+        if (call.contact?.id) {
+          await fetch("/api/activities", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contactId: call.contact.id,
+              type: "call",
+              title: `Call with ${call.contact.firstName ?? "Contact"} ${call.contact.lastName ?? ""}`.trim(),
+              description: call.notes || undefined,
+              status: "completed",
+              dueDate: new Date(call.startedAt).toISOString(),
+              durationMinutes: Math.max(1, Math.round(elapsed / 60)),
+            }),
+          })
+        }
+        setActivitySaved(true)
+        toast({ title: "Call ended", description: "Call ended and notes saved." })
+      } catch (e: any) {
+        console.error(e)
+        toast({ title: "Failed to save call activity", description: e?.message || "Unknown error", variant: "destructive" })
+      }
+    }
+    save()
+  }, [hasEnded])
   // Mic level meter (WebRTC only)
   useEffect(() => {
     let ac: AudioContext | null = null
@@ -168,23 +203,9 @@ export default function CallInProgressPopup() {
         }
       }
 
-      // Log activity if we have notes or at least the event
-      if (call.contact?.id) {
-        await fetch("/api/activities", {
-          method: "POST",
-
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contactId: call.contact.id,
-            type: "call",
-            title: `Call with ${call.contact.firstName ?? "Contact"} ${call.contact.lastName ?? ""}`.trim(),
-            description: call.notes || undefined,
-            durationMinutes: Math.max(1, Math.round(elapsed / 60)),
-          }),
-        })
-      }
+      // Mark ended; activity will be saved by the hasEnded effect
+      setHasEnded(true)
       toast({ title: "Call ended", description: "Call ended and notes saved." })
-      close()
     } catch (e: any) {
       console.error(e)
       toast({ title: "Failed to end call", description: e?.message || "Unknown error", variant: "destructive" })
@@ -204,25 +225,21 @@ export default function CallInProgressPopup() {
         </div>
       )}
 
-      {/* Main dialog */}
-      <Dialog open={!call.isMinimized} onOpenChange={(o) => (o ? maximize() : minimize())}>
-        <DialogContent className="sm:max-w-[480px]" aria-describedby="call-dialog-desc">
-          <DialogHeader>
-            <DialogTitle>Call with {call.contact?.firstName} {call.contact?.lastName}</DialogTitle>
-            <DialogDescription id="call-dialog-desc" className="sr-only">
-              Active call dialog. Use End Call to finish and save notes.
-            </DialogDescription>
-          </DialogHeader>
-
+      {/* Floating panel (non-modal) */}
+      {!call.isMinimized && (
+        <div className="fixed bottom-4 right-4 z-50 w-[480px] max-w-[90vw] border bg-white dark:bg-neutral-900 shadow-lg rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium">Call with {call.contact?.firstName} {call.contact?.lastName}</div>
+            <button aria-label="Close" className="text-muted-foreground hover:text-foreground" onClick={close}>×</button>
+          </div>
           <div className="space-y-4">
             <div className="flex items-center gap-3">
               <Avatar>
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div>
-
                 <div className="font-medium">{call.toNumber}</div>
-                <div className="text-xs text-green-600">Call in progress</div>
+                <div className={`${hasEnded ? "text-red-600" : "text-green-600"} text-xs`}>{hasEnded ? "Call ended" : "Call in progress"}</div>
               </div>
               <div className="ml-auto text-sm text-muted-foreground">{formatDuration(elapsed)}</div>
             </div>
@@ -283,8 +300,6 @@ export default function CallInProgressPopup() {
               </div>
             )}
 
-
-
             <div>
               <label className="text-sm font-medium">Call Notes</label>
               <Textarea
@@ -301,13 +316,12 @@ export default function CallInProgressPopup() {
                 <Button variant="secondary" onClick={minimize}>Minimize</Button>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={close}>Close</Button>
-                <Button variant="destructive" onClick={endCall} disabled={ending}>End Call</Button>
+                <Button variant="destructive" onClick={endCall} disabled={ending || hasEnded}>End Call</Button>
               </div>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </>
   )
 }

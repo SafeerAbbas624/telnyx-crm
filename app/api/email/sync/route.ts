@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { broadcast } from '@/lib/server-events';
+import { queueEmailSync, getQueueStats } from '@/lib/queues/email-sync-queue';
 import crypto from 'crypto';
 
 // Dynamic import for imap-simple to avoid Next.js build issues
@@ -208,23 +209,11 @@ async function fetchEmailsFromIMAP(account: any) {
       imapModule = await import('imap-simple');
       imaps = imapModule.default || imapModule;
     } catch (importError) {
-      console.warn('imap-simple not available, creating test email:', importError.message);
-      // Create a test email to verify the system works
-      return [{
-        messageId: `<test-${Date.now()}@${account.imapHost}>`,
-        from: 'test@example.com',
-        fromName: 'Test Sender',
-        to: [account.emailAddress],
-        cc: [],
-        bcc: [],
-        subject: 'Test Email - System Working',
-        content: `<p>This is a test email to verify the email system is working.</p><p>Account: ${account.emailAddress}</p><p>Time: ${new Date().toISOString()}</p>`,
-        textContent: `This is a test email to verify the email system is working. Account: ${account.emailAddress}. Time: ${new Date().toISOString()}`,
-        receivedAt: new Date(),
-      }];
+      console.error('imap-simple not available:', importError.message);
+      throw new Error('IMAP library not available. Please install imap-simple package.');
     }
 
-    // IMAP configuration with improved timeout and connection settings
+    // IMAP configuration with very aggressive timeout
     const config = {
       imap: {
         user: account.imapUsername,
@@ -237,8 +226,8 @@ async function fetchEmailsFromIMAP(account: any) {
           servername: account.imapHost,
           secureProtocol: 'TLSv1_2_method'
         },
-        authTimeout: 30000,  // Increased from 15000
-        connTimeout: 30000,  // Increased from 15000
+        authTimeout: 5000,  // 5 seconds
+        connTimeout: 5000,  // 5 seconds
         keepalive: {
           interval: 10000,
           idleInterval: 300000,
@@ -291,7 +280,7 @@ async function fetchEmailsFromIMAP(account: any) {
         try {
           const connectPromise = imaps.connect(config);
           const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('IMAP connection timeout after 30 seconds')), 30000)
+            setTimeout(() => reject(new Error('IMAP connection timeout after 8 seconds')), 8000)
           );
 
           connection = await Promise.race([connectPromise, timeoutPromise]);
@@ -306,8 +295,8 @@ async function fetchEmailsFromIMAP(account: any) {
             throw connectError; // Re-throw if all retries exhausted
           }
 
-          // Wait before retry (exponential backoff)
-          const waitTime = Math.pow(2, retryCount) * 1000;
+          // Wait before retry (very short backoff)
+          const waitTime = 300; // Fixed 0.3 second wait
           console.log(`Retrying IMAP connection in ${waitTime}ms...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
@@ -513,23 +502,8 @@ async function fetchEmailsFromIMAP(account: any) {
       console.error(`IMAP Error Source: ${error.source}`);
     }
 
-    // Fallback: create a test email to verify the system is working
-    if (error.message && (error.message.includes('connect') || error.message.includes('timeout'))) {
-      console.log('Creating test email since IMAP connection failed');
-      return [{
-        messageId: `<test-${Date.now()}@${account.imapHost}>`,
-        from: 'test@example.com',
-        fromName: 'Test Sender',
-        to: [account.emailAddress],
-        cc: [],
-        bcc: [],
-        subject: 'Test Email - IMAP Connection Failed',
-        content: `<p>This is a test email created because IMAP connection to ${account.imapHost} failed.</p><p>Error: ${error.message}</p><p>Please check your IMAP settings and network connectivity.</p>`,
-        textContent: `This is a test email created because IMAP connection to ${account.imapHost} failed. Error: ${error.message}. Please check your IMAP settings and network connectivity.`,
-        receivedAt: new Date(),
-      }];
-    }
-
+    // Don't create fake test emails - just log the error and return empty array
+    console.error(`IMAP connection failed for ${account.emailAddress}:`, error.message);
     return [];
   }
 }
@@ -651,87 +625,32 @@ async function storeEmailInDatabase(email: any, accountId: string, contact: any)
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('Starting email sync...');
+    console.log('📬 Queueing email sync job...');
 
-    // Get all active email accounts
-    const emailAccounts = await prisma.emailAccount?.findMany({
-      where: { status: 'active' }
+    const body = await request.json().catch(() => ({}));
+    const { accountId } = body;
+
+    // Queue the sync job instead of doing it synchronously
+    const job = await queueEmailSync({
+      accountId: accountId || undefined,
+      userId: undefined, // TODO: Get from session
+      type: 'manual',
     });
 
-    if (!emailAccounts || emailAccounts.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'No email accounts to sync',
-        synced: 0
-      });
-    }
-
-    let totalSynced = 0;
-
-    for (const account of emailAccounts) {
-      try {
-        console.log(`Syncing account: ${account.emailAddress}`);
-
-        // Decrypt passwords
-        const imapPassword = account.imapPassword ? decrypt(account.imapPassword) : null;
-        
-        if (!account.imapHost || !account.imapPort || !account.imapUsername || !imapPassword) {
-          console.log(`Skipping ${account.emailAddress} - incomplete IMAP configuration`);
-          continue;
-        }
-
-        // Fetch emails from IMAP
-        const emails = await fetchEmailsFromIMAP({
-          ...account,
-          imapPassword
-        });
-
-        // Process each email
-        for (const email of emails) {
-          try {
-            // Find or create contact
-            const contact = await findOrCreateContact(email.from);
-
-            // Store email in database
-            const storedEmail = await storeEmailInDatabase(email, account.id, contact);
-
-            if (storedEmail) {
-              try {
-                const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || contact.email1 || email.from
-                const preview = (email.textContent || email.content || '').replace(/<[^>]*>/g, '').slice(0, 80)
-                broadcast('inbound_email', {
-                  contactId: contact.id,
-                  contactName,
-                  subject: email.subject,
-                  preview,
-                  fromEmail: email.from,
-                  receivedAt: email.receivedAt instanceof Date ? email.receivedAt.toISOString() : new Date().toISOString(),
-                })
-              } catch (e) {
-                console.warn('Failed to broadcast inbound_email:', e)
-              }
-              totalSynced++;
-            }
-          } catch (error) {
-            console.error(`Error processing email from ${email.from}:`, error);
-          }
-        }
-
-        console.log(`Synced ${emails.length} emails for ${account.emailAddress}`);
-      } catch (error) {
-        console.error(`Error syncing account ${account.emailAddress}:`, error);
-      }
-    }
+    // Get queue stats
+    const stats = await getQueueStats();
 
     return NextResponse.json({
       success: true,
-      message: `Email sync completed. Synced ${totalSynced} new emails.`,
-      synced: totalSynced
+      message: 'Email sync queued successfully',
+      jobId: job.id,
+      queueStats: stats,
+      note: 'Sync will complete in background. Emails will appear automatically.',
     });
   } catch (error) {
-    console.error('Error during email sync:', error);
+    console.error('Error queueing email sync:', error);
     return NextResponse.json(
-      { error: 'Email sync failed' },
+      { error: 'Failed to queue email sync' },
       { status: 500 }
     );
   }
@@ -739,13 +658,17 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Manual trigger for email sync
-    const response = await POST(request);
-    return response;
+    // Get queue stats
+    const stats = await getQueueStats();
+
+    return NextResponse.json({
+      success: true,
+      queueStats: stats,
+    });
   } catch (error) {
-    console.error('Error triggering email sync:', error);
+    console.error('Error getting queue stats:', error);
     return NextResponse.json(
-      { error: 'Failed to trigger email sync' },
+      { error: 'Failed to get queue stats' },
       { status: 500 }
     );
   }

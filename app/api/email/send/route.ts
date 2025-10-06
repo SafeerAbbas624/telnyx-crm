@@ -2,46 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db';
+import { decrypt } from '@/lib/encryption';
 import nodemailer from 'nodemailer';
-import crypto from 'crypto';
-
-// Simple decryption for passwords
-const ENCRYPTION_KEY = process.env.EMAIL_ENCRYPTION_KEY || 'your-32-char-secret-key-here-123456';
-const ALGORITHM = 'aes-256-cbc';
-
-// Ensure the key is exactly 32 bytes for AES-256
-function getKey(): Buffer {
-  const key = ENCRYPTION_KEY.padEnd(32, '0').substring(0, 32);
-  return Buffer.from(key, 'utf8');
-}
-
-function decrypt(encryptedText: string): string {
-  try {
-    // Try new format first (with IV)
-    const parts = encryptedText.split(':');
-    if (parts.length === 2) {
-      const iv = Buffer.from(parts[0], 'hex');
-      const encrypted = parts[1];
-      const decipher = crypto.createDecipheriv(ALGORITHM, getKey(), iv);
-      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-      decrypted += decipher.final('utf8');
-      return decrypted;
-    }
-  } catch (error) {
-    console.warn('Failed to decrypt with new method, trying legacy method:', error);
-  }
-
-  // Fallback to legacy method for backward compatibility
-  try {
-    const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (error) {
-    console.error('Failed to decrypt with both methods:', error);
-    return encryptedText; // Return as-is if decryption fails
-  }
-}
+import { emitToAccount } from '@/lib/socket-server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,18 +16,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
-    const {
-      emailAccountId,
-      contactId,
-      toEmails,
-      ccEmails = [],
-      bccEmails = [],
-      subject,
-      content,
-      textContent,
-      blastId,
-    } = body;
+    // Check if request is FormData (with attachments) or JSON
+    const contentType = request.headers.get('content-type') || '';
+    let emailAccountId, contactId, toEmails, ccEmails, bccEmails, subject, content, textContent, blastId;
+    let attachments: File[] = [];
+
+    if (contentType.includes('multipart/form-data')) {
+      // Handle FormData (with attachments)
+      const formData = await request.formData();
+      emailAccountId = formData.get('emailAccountId') as string;
+      contactId = formData.get('contactId') as string;
+      toEmails = JSON.parse(formData.get('toEmails') as string || '[]');
+      ccEmails = JSON.parse(formData.get('ccEmails') as string || '[]');
+      bccEmails = JSON.parse(formData.get('bccEmails') as string || '[]');
+      subject = formData.get('subject') as string;
+      content = formData.get('content') as string;
+      textContent = formData.get('textContent') as string;
+      blastId = formData.get('blastId') as string;
+
+      // Get attachments
+      const attachmentFiles = formData.getAll('attachments');
+      attachments = attachmentFiles.filter(f => f instanceof File) as File[];
+    } else {
+      // Handle JSON (no attachments)
+      const body = await request.json();
+      emailAccountId = body.emailAccountId;
+      contactId = body.contactId;
+      toEmails = body.toEmails;
+      ccEmails = body.ccEmails || [];
+      bccEmails = body.bccEmails || [];
+      subject = body.subject;
+      content = body.content;
+      textContent = body.textContent;
+      blastId = body.blastId;
+    }
 
     // Enforce team restriction: must send from assigned email account
     const session = await getServerSession(authOptions)
@@ -78,9 +63,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate required fields
-    if (!emailAccountId || !toEmails || !toEmails.length || !subject || !content) {
+    if (!emailAccountId) {
       return NextResponse.json(
-        { error: 'Missing required fields: emailAccountId, toEmails, subject, content' },
+        { error: 'Missing emailAccountId' },
+        { status: 400 }
+      );
+    }
+
+    if (!toEmails || (Array.isArray(toEmails) && toEmails.length === 0)) {
+      return NextResponse.json(
+        { error: 'Missing toEmails - at least one recipient is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!subject) {
+      return NextResponse.json(
+        { error: 'Missing subject' },
+        { status: 400 }
+      );
+    }
+
+    if (!content) {
+      return NextResponse.json(
+        { error: 'Missing content' },
         { status: 400 }
       );
     }
@@ -105,7 +111,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Decrypt password
-    const smtpPassword = decrypt(emailAccount.smtpPassword);
+    console.log('📧 Decrypting SMTP password for:', emailAccount.emailAddress);
+    let smtpPassword: string;
+    try {
+      smtpPassword = decrypt(emailAccount.smtpPassword, emailAccount.smtpPasswordIv);
+    } catch (decryptError) {
+      console.error('❌ Failed to decrypt SMTP password:', decryptError);
+      return NextResponse.json(
+        { error: 'Failed to decrypt email credentials. Please update your email account settings.' },
+        { status: 500 }
+      );
+    }
 
     // Configure SMTP transporter
     const smtpConfig: any = {
@@ -115,6 +131,9 @@ export async function POST(request: NextRequest) {
         user: emailAccount.smtpUsername,
         pass: smtpPassword,
       },
+      connectionTimeout: 10000, // 10 seconds
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
     };
 
     // Set security options
@@ -127,6 +146,7 @@ export async function POST(request: NextRequest) {
       smtpConfig.secure = false;
     }
 
+    console.log('📧 Creating SMTP transporter for:', emailAccount.emailAddress);
     const transporter = nodemailer.createTransport(smtpConfig);
 
     // Prepare email content
@@ -137,8 +157,20 @@ export async function POST(request: NextRequest) {
       emailHtml += `<br><br>---<br>${emailAccount.signature.replace(/\n/g, '<br>')}`;
     }
 
+    // Prepare attachments for nodemailer
+    const mailAttachments = await Promise.all(
+      attachments.map(async (file) => {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        return {
+          filename: file.name,
+          content: buffer,
+          contentType: file.type,
+        };
+      })
+    );
+
     // Prepare mail options
-    const mailOptions = {
+    const mailOptions: any = {
       from: `"${emailAccount.displayName}" <${emailAccount.emailAddress}>`,
       to: toEmails.join(', '),
       cc: ccEmails.length > 0 ? ccEmails.join(', ') : undefined,
@@ -148,8 +180,35 @@ export async function POST(request: NextRequest) {
       text: textContent || content.replace(/<[^>]*>/g, ''), // Strip HTML for text version
     };
 
+    // Add attachments if any
+    if (mailAttachments.length > 0) {
+      mailOptions.attachments = mailAttachments;
+    }
+
     // Send email
-    const info = await transporter.sendMail(mailOptions);
+    console.log('📧 Sending email via SMTP...');
+    let info;
+    try {
+      info = await transporter.sendMail(mailOptions);
+      console.log('✅ Email sent successfully:', info.messageId);
+    } catch (sendError: any) {
+      console.error('❌ Failed to send email:', sendError);
+      return NextResponse.json(
+        {
+          error: 'Failed to send email',
+          details: sendError.message,
+          code: sendError.code
+        },
+        { status: 500 }
+      );
+    }
+
+    // Prepare attachment metadata for database
+    const attachmentMetadata = attachments.map(file => ({
+      filename: file.name,
+      contentType: file.type,
+      size: file.size,
+    }));
 
     // Save to database
     let emailMessage: any = null
@@ -170,12 +229,29 @@ export async function POST(request: NextRequest) {
           direction: 'outbound',
           status: 'sent',
           sentAt: new Date(),
+          deliveredAt: new Date(),
           blastId: blastId || null,
+          attachments: attachmentMetadata.length > 0 ? attachmentMetadata : null,
         },
       })
+      console.log('✅ Email saved to database:', emailMessage.id);
     } catch (err) {
-      console.error('Warning: email sent but failed to persist emailMessage:', err)
+      console.error('⚠️ Warning: email sent but failed to persist emailMessage:', err)
       // Do not fail the request; email was sent successfully
+    }
+
+    // Emit Socket.IO event for real-time update
+    try {
+      emitToAccount(emailAccountId, 'email:sent', {
+        accountId: emailAccountId,
+        emailAddress: emailAccount.emailAddress,
+        messageId: info.messageId,
+        subject,
+        to: toEmails,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (socketError) {
+      console.error('⚠️ Failed to emit Socket.IO event:', socketError);
     }
 
     // Update or create conversation if contactId is provided
@@ -228,8 +304,15 @@ export async function POST(request: NextRequest) {
       }
     });
   } catch (error: any) {
-    console.error('Error sending email:', error);
-    
+    console.error('❌ Error sending email:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+      responseCode: error.responseCode,
+    });
+
     // Handle specific SMTP errors
     let errorMessage = 'Failed to send email';
     if (error.code === 'EAUTH') {

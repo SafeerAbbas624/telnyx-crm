@@ -24,6 +24,7 @@ interface ContactsContextType {
   loadMoreContacts: () => Promise<void>
   goToPage: (page: number) => Promise<void>
   searchContacts: (query: string, filters?: any) => Promise<void>
+  refreshFilterOptions: () => Promise<void>
   filterOptions: any
   currentQuery: string
   currentFilters: any
@@ -87,13 +88,14 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       console.log(`🔍 [FRONTEND DEBUG] Making search request: ${search ? `"${search}"` : 'no search'} with filters:`, filters)
       console.log(`🔍 [FRONTEND DEBUG] Full URL: /api/contacts?${params}`)
 
+      // Persist current query and filters immediately so UI can reflect active filtering while request is in-flight
+      setCurrentQuery(search)
+      setCurrentFilters(filters)
+
       const response = await fetch(`/api/contacts?${params}`, {
         signal: abortController.signal
       })
 
-      // Persist current query and filters
-      setCurrentQuery(search)
-      setCurrentFilters(filters)
       if (!response.ok) {
         console.error(`❌ [FRONTEND DEBUG] API request failed: ${response.status} ${response.statusText}`)
         throw new Error('Failed to fetch contacts')
@@ -134,12 +136,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
 
       // If it's page 1, replace contacts; otherwise append for infinite scroll
       if (page === 1) {
-        // Don't replace good data with empty data; also ignore empty after first successful load
-        if (contactsData.length === 0 && (contacts.length > 0 || hasLoadedOnceRef.current)) {
-          console.log(`⚠️ [FRONTEND DEBUG] Skipping empty response - keeping existing ${contacts.length} contacts (hasLoadedOnce=${hasLoadedOnceRef.current})`)
-          return
-        }
-
+        // Always reflect the server response, even when it's empty, so active filters/search can show 0 results
         setContacts(contactsData)
         if (contactsData.length > 0) {
           hasLoadedOnceRef.current = true
@@ -191,15 +188,35 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
 
   const fetchFilterOptions = async () => {
     try {
-      const response = await fetch('/api/contacts/filter-options')
+      console.log('🔄 [CONTACTS CONTEXT] Fetching filter options...')
+      // Add timestamp to prevent caching
+      const timestamp = new Date().getTime()
+      const response = await fetch(`/api/contacts/filter-options?t=${timestamp}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      })
       if (!response.ok) {
         throw new Error('Failed to fetch filter options')
       }
       const data = await response.json()
+      console.log('✅ [CONTACTS CONTEXT] Filter options loaded:', {
+        cities: data.cities?.length,
+        states: data.states?.length,
+        counties: data.counties?.length,
+        propertyTypes: data.propertyTypes?.length,
+        tags: data.tags?.length
+      })
       setFilterOptions(data)
     } catch (err) {
       console.error('Error fetching filter options:', err)
     }
+  }
+
+  const refreshFilterOptions = async () => {
+    console.log('🔄 [CONTACTS CONTEXT] Manual refresh triggered')
+    await fetchFilterOptions()
   }
 
   useEffect(() => {
@@ -225,8 +242,11 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
 
   const searchContacts = async (query: string, filters: any = {}) => {
     console.log('🔍 searchContacts called with:', { query, filters })
+    // Use a smaller page size for active search/filters to reduce payload and latency
+    const hasActive = (query && query.trim().length > 0) || (filters && Object.keys(filters).length > 0)
+    const limit = hasActive ? 25 : 50
     // Reset to page 1 for new search
-    await fetchContacts(1, 50, query, filters)
+    await fetchContacts(1, limit, query, filters)
   }
 
   const addContact = async (contact: Contact) => {
@@ -238,13 +258,17 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify(contact),
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to add contact')
       }
-      
+
       const newContact = await response.json()
       setContacts(prev => [...prev, newContact])
+
+      // Refresh filter options to include new cities, states, counties, tags, etc.
+      await refreshFilterOptions()
+
       return newContact
     } catch (err) {
       console.error('Error adding contact:', err)
@@ -254,6 +278,8 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
 
   const updateContact = async (id: string, updates: Partial<Contact>) => {
     try {
+      console.log('🔄 [CONTACTS CONTEXT] Updating contact:', { id, updates })
+
       const response = await fetch(`/api/contacts/${id}`, {
         method: 'PATCH',
         headers: {
@@ -261,15 +287,32 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify(updates),
       })
-      
+
       if (!response.ok) {
         throw new Error('Failed to update contact')
       }
-      
+
       const updatedContact = await response.json()
-      setContacts(prev => prev.map(contact => 
+      setContacts(prev => prev.map(contact =>
         contact.id === id ? { ...contact, ...updatedContact } : contact
       ))
+
+      // Check if we need to refresh filter options
+      const shouldRefresh = updates.tags || updates.city || updates.state || updates.propertyCounty || updates.propertyType
+      console.log('🔄 [CONTACTS CONTEXT] Should refresh filter options?', shouldRefresh, {
+        hasTags: !!updates.tags,
+        hasCity: !!updates.city,
+        hasState: !!updates.state,
+        hasCounty: !!updates.propertyCounty,
+        hasPropertyType: !!updates.propertyType
+      })
+
+      // Refresh filter options if tags were updated or location fields changed
+      if (shouldRefresh) {
+        console.log('🔄 [CONTACTS CONTEXT] Refreshing filter options after contact update...')
+        await refreshFilterOptions()
+      }
+
       return updatedContact
     } catch (err) {
       console.error('Error updating contact:', err)
@@ -316,6 +359,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         loadMoreContacts,
         goToPage,
         searchContacts,
+        refreshFilterOptions,
         currentQuery,
         currentFilters,
       }}

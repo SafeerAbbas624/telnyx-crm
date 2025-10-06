@@ -140,7 +140,18 @@ export function DashboardOverview() {
   const fetchDashboardStats = async (): Promise<DashboardStats | null> => {
     try {
       console.log('Fetching dashboard stats...')
-      const response = await fetch('/api/dashboard/stats')
+      const now = new Date()
+      const params = new URLSearchParams({
+        todayStart: startOfDay(now).toISOString(),
+        todayEnd: endOfDay(now).toISOString(),
+        weekStart: startOfWeek(now).toISOString(),
+        weekEnd: endOfWeek(now).toISOString(),
+        monthStart: startOfMonth(now).toISOString(),
+        monthEnd: endOfMonth(now).toISOString(),
+        recentGte: subMonths(now, 1).toISOString(),
+        now: now.toISOString(),
+      })
+      const response = await fetch(`/api/dashboard/stats?${params.toString()}`)
       console.log('Response status:', response.status, response.ok)
       if (!response.ok) {
         throw new Error('Failed to fetch dashboard stats')

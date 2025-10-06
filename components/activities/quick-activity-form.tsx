@@ -45,7 +45,7 @@ export default function QuickActivityForm() {
       title,
       description: "",
       dueDate: dueDateObj.toISOString(),
-      status: "pending" as const,
+      status: "planned" as const,
       createdAt: new Date().toISOString(),
     }
 
@@ -88,7 +88,6 @@ export default function QuickActivityForm() {
                 <SelectItem value="call">Call</SelectItem>
                 <SelectItem value="meeting">Meeting</SelectItem>
                 <SelectItem value="email">Email</SelectItem>
-                <SelectItem value="text">Text Message</SelectItem>
                 <SelectItem value="task">Task</SelectItem>
                 <SelectItem value="note">Note</SelectItem>
               </SelectContent>
