@@ -360,6 +360,18 @@ export default function TeamCallsCenter() {
         await rtcClient.ensureRegistered()
         const { sessionId } = await rtcClient.startCall({ toNumber: phoneToCall, fromNumber: selectedPhoneNumber.number })
 
+        // Log the call to database
+        fetch('/api/telnyx/webrtc-calls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webrtcSessionId: sessionId,
+            contactId: contact.id,
+            fromNumber: selectedPhoneNumber.number,
+            toNumber: phoneToCall,
+          })
+        }).catch(err => console.error('Failed to log call:', err))
+
         toast({ title: 'Calling (WebRTC)', description: `${contact.firstName} ${contact.lastName} at ${formatPhoneNumberForDisplay(phoneToCall)}` })
         openCall({
           contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
@@ -972,6 +984,19 @@ export default function TeamCallsCenter() {
                             const { rtcClient } = await import('@/lib/webrtc/rtc-client')
                             await rtcClient.ensureRegistered()
                             const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber: selectedPhoneNumber!.number })
+
+                            // Log the call to database
+                            fetch('/api/telnyx/webrtc-calls', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                webrtcSessionId: sessionId,
+                                contactId: resolvedContact?.id || null,
+                                fromNumber: selectedPhoneNumber!.number,
+                                toNumber,
+                              })
+                            }).catch(err => console.error('Failed to log call:', err))
+
                             toast({ title: 'Calling (WebRTC)', description: toNumber })
                             openCall({
                               fromNumber: selectedPhoneNumber!.number,
@@ -984,7 +1009,7 @@ export default function TeamCallsCenter() {
                             const resp = await fetch('/api/telnyx/calls', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ fromNumber: selectedPhoneNumber!.number, toNumber })
+                              body: JSON.stringify({ fromNumber: selectedPhoneNumber!.number, toNumber, contactId: resolvedContact?.id || null })
                             })
                             if (!resp.ok) { const e = await resp.json().catch(()=>({})); throw new Error(e.error || 'Failed to initiate call') }
                             const data = await resp.json()

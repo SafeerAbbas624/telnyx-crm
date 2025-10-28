@@ -83,10 +83,16 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
   // Real-time updates
   const { newEmailCount, resetCount } = useEmailUpdates(selectedAccount?.id)
 
+  // Log email accounts received
+  useEffect(() => {
+    console.log('📧 [REDESIGNED-CONVERSATIONS] Received email accounts:', emailAccounts.length, emailAccounts)
+  }, [emailAccounts])
+
   // Auto-select first account
   useEffect(() => {
     if (emailAccounts.length > 0 && !selectedAccount) {
       const defaultAccount = emailAccounts.find(acc => acc.isDefault) || emailAccounts[0]
+      console.log('📧 [REDESIGNED-CONVERSATIONS] Auto-selecting account:', defaultAccount)
       setSelectedAccount(defaultAccount)
     }
   }, [emailAccounts, selectedAccount])
@@ -118,6 +124,7 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
       )
       if (response.ok) {
         const data = await response.json()
+        console.log('📧 [LOAD-CONVERSATIONS] Loaded:', data.conversations?.length, 'conversations')
         setConversations(data.conversations || [])
         setCurrentPage(data.page || 1)
         setTotalPages(data.totalPages || 1)
@@ -174,6 +181,12 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
   const getInitials = (contact: Contact) => {
     return `${contact.firstName?.[0] || ''}${contact.lastName?.[0] || ''}`.toUpperCase() || 'U'
   }
+
+  // Debug: Log conversations count
+  useEffect(() => {
+    console.log('📧 [CONVERSATIONS] Total conversations:', filteredConversations.length)
+    console.log('📧 [CONVERSATIONS] Selected account:', selectedAccount?.displayName)
+  }, [filteredConversations, selectedAccount])
 
   return (
     <div className="flex h-[calc(100vh-200px)] bg-white rounded-lg shadow-sm border">
@@ -255,11 +268,10 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
           {/* Account Selector */}
           <div className="px-2 mt-6">
             <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Accounts
+              Accounts ({emailAccounts.length})
             </div>
-            <ScrollArea className="max-h-64">
-              <div className="space-y-1">
-                {emailAccounts.map((account) => (
+            <div className="space-y-1 max-h-96 overflow-y-auto">
+              {emailAccounts.map((account) => (
                 <button
                   key={account.id}
                   onClick={() => setSelectedAccount(account)}
@@ -289,16 +301,15 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
                   )}
                 </button>
               ))}
-              </div>
-            </ScrollArea>
+            </div>
           </div>
         </ScrollArea>
       </div>
 
       {/* Middle - Conversations List */}
-      <div className="w-96 border-r flex flex-col bg-white">
+      <div className="w-96 border-r flex flex-col bg-white overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b bg-white">
+        <div className="p-4 border-b bg-white flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-semibold text-gray-900">
               {view === 'inbox' ? 'Inbox' : view === 'starred' ? 'Starred' : 'Archived'}
@@ -331,7 +342,7 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
         </div>
 
         {/* Conversations List */}
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto min-h-0">
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
@@ -411,11 +422,11 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="border-t p-4 flex items-center justify-between bg-white">
+          <div className="border-t p-4 flex items-center justify-between bg-white flex-shrink-0">
             <Button
               variant="outline"
               size="sm"

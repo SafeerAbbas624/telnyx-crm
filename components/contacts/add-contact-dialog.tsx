@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,10 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { X } from "lucide-react"
+import { X, ChevronsUpDown, Check } from "lucide-react"
 import type { Contact, Tag } from "@/lib/types"
 import { useContacts } from "@/lib/context/contacts-context"
 import { TagInput } from "@/components/ui/tag-input"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
 
 interface AddContactDialogProps {
   open: boolean
@@ -22,8 +26,25 @@ interface AddContactDialogProps {
   onAddContact: (contact: Omit<Contact, "id" | "createdAt">) => void
 }
 
+interface ExistingContact {
+  id: string
+  firstName: string
+  lastName: string
+  llcName?: string
+  phone1?: string
+  email1?: string
+  propertyAddress?: string
+  estValue?: number
+}
+
 export default function AddContactDialog({ open, onOpenChange, onAddContact }: AddContactDialogProps) {
   const { tags } = useContacts()
+  const [existingContacts, setExistingContacts] = useState<ExistingContact[]>([])
+  const [selectedExistingContact, setSelectedExistingContact] = useState<ExistingContact | null>(null)
+  const [openContactPopover, setOpenContactPopover] = useState(false)
+  const [contactSearch, setContactSearch] = useState("")
+  const [useExisting, setUseExisting] = useState(false)
+
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -52,6 +73,44 @@ export default function AddContactDialog({ open, onOpenChange, onAddContact }: A
     notes: "",
     tags: [] as Tag[],
   })
+
+  // Fetch existing contacts when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetchExistingContacts()
+    }
+  }, [open])
+
+  const fetchExistingContacts = async () => {
+    try {
+      const response = await fetch('/api/contacts?limit=1000')
+      if (response.ok) {
+        const data = await response.json()
+        setExistingContacts(data.contacts || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch contacts:', error)
+    }
+  }
+
+  const handleSelectExistingContact = (contact: ExistingContact) => {
+    setSelectedExistingContact(contact)
+    setFormData(prev => ({
+      ...prev,
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      llcName: contact.llcName || "",
+      phone1: contact.phone1 || "",
+      propertyAddress: contact.propertyAddress || "",
+      estValue: contact.estValue?.toString() || "",
+    }))
+    setOpenContactPopover(false)
+  }
+
+  const filteredContacts = existingContacts.filter(c =>
+    `${c.firstName} ${c.lastName}`.toLowerCase().includes(contactSearch.toLowerCase()) ||
+    c.llcName?.toLowerCase().includes(contactSearch.toLowerCase())
+  )
 
   const propertyTypes = [
     "Single-family (SFR)",
@@ -161,6 +220,72 @@ export default function AddContactDialog({ open, onOpenChange, onAddContact }: A
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Option to select from existing contacts */}
+          <div className="space-y-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Select from Existing Contacts</Label>
+              <Badge variant={useExisting ? "default" : "outline"} className="cursor-pointer" onClick={() => setUseExisting(!useExisting)}>
+                {useExisting ? "Using Existing" : "Create New"}
+              </Badge>
+            </div>
+            {useExisting && (
+              <Popover open={openContactPopover} onOpenChange={setOpenContactPopover}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={openContactPopover}
+                    className="w-full justify-between"
+                  >
+                    {selectedExistingContact
+                      ? `${selectedExistingContact.firstName} ${selectedExistingContact.lastName}`
+                      : existingContacts.length === 0 ? "Loading contacts..." : "Select contact..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search contacts..."
+                      value={contactSearch}
+                      onValueChange={setContactSearch}
+                    />
+                    {filteredContacts.length === 0 ? (
+                      <CommandEmpty>
+                        {existingContacts.length === 0 ? "No contacts available" : "No contacts found."}
+                      </CommandEmpty>
+                    ) : (
+                      <CommandGroup>
+                        <div className="max-h-[250px] overflow-y-auto">
+                          {filteredContacts.map((contact) => (
+                            <CommandItem
+                              key={contact.id}
+                              value={contact.id}
+                              onSelect={() => handleSelectExistingContact(contact)}
+                              className="cursor-pointer"
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedExistingContact?.id === contact.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium">{contact.firstName} {contact.lastName}</div>
+                                {contact.llcName && <div className="text-sm text-gray-500">{contact.llcName}</div>}
+                                {contact.phone1 && <div className="text-xs text-gray-400">{contact.phone1}</div>}
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </div>
+                      </CommandGroup>
+                    )}
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="firstName">First Name *</Label>

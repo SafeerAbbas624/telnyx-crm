@@ -231,167 +231,198 @@ export default function BillingDashboard() {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Billing Dashboard</h2>
-          <Button onClick={exportData} disabled={isExporting} className="flex items-center gap-2">
+    <div className="h-full flex flex-col bg-background">
+      {/* Header */}
+      <div className="border-b bg-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Billing</h1>
+            <p className="text-muted-foreground">Track your communication costs and usage</p>
+          </div>
+          <Button onClick={exportData} disabled={isExporting} className="bg-primary hover:bg-primary/90">
             {isExporting ? (
               <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
             ) : (
-              <Download className="h-4 w-4" />
+              <Download className="mr-2 h-4 w-4" />
             )}
-            Export CSV
+            {isExporting ? "Exporting..." : "Export CSV"}
           </Button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+        {/* Summary Cards */}
+        <div className="grid gap-4 md:grid-cols-3 mb-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Cost</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                ${summary?.totalCost.toFixed(2) || '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                All communication costs
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">SMS Cost</CardTitle>
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                ${summary?.breakdown.find(b => b.type === 'sms')?.cost.toFixed(2) || '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {summary?.breakdown.find(b => b.type === 'sms')?.count || 0} messages sent
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Call Cost</CardTitle>
+              <Phone className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                ${summary?.breakdown.find(b => b.type === 'call')?.cost.toFixed(2) || '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {summary?.breakdown.find(b => b.type === 'call')?.count || 0} calls made
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <div>
-            <Label>Phone Number</Label>
-            <Select value={selectedPhoneNumber} onValueChange={setSelectedPhoneNumber}>
-              <SelectTrigger>
-                <SelectValue placeholder="All numbers" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All numbers</SelectItem>
-                {phoneNumbers.map((phone) => (
-                  <SelectItem key={phone.id} value={phone.phoneNumber}>
-                    {phone.phoneNumber} {phone.state && `(${phone.state})`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>Record Type</Label>
-            <Select value={selectedRecordType} onValueChange={setSelectedRecordType}>
-              <SelectTrigger>
-                <SelectValue placeholder="All types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                <SelectItem value="sms">SMS</SelectItem>
-                <SelectItem value="call">Calls</SelectItem>
-                <SelectItem value="number_rental">Number Rental</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>Date Range</Label>
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="last_7_days">Last 7 days</SelectItem>
-                <SelectItem value="last_30_days">Last 30 days</SelectItem>
-                <SelectItem value="last_week">Last week</SelectItem>
-                <SelectItem value="last_month">Last month</SelectItem>
-                <SelectItem value="custom">Custom range</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {dateRange === 'custom' && (
-            <div className="grid grid-cols-2 gap-2">
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Filters
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <Label>Start Date</Label>
-                <Input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                />
+                <Label>Phone Number</Label>
+                <Select value={selectedPhoneNumber} onValueChange={setSelectedPhoneNumber}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All numbers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All numbers</SelectItem>
+                    {phoneNumbers.map((phone) => (
+                      <SelectItem key={phone.id} value={phone.phoneNumber}>
+                        {phone.phoneNumber} {phone.state && `(${phone.state})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <Label>End Date</Label>
-                <Input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
 
-        {/* Summary Cards */}
-        {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
+              <div>
+                <Label>Record Type</Label>
+                <Select value={selectedRecordType} onValueChange={setSelectedRecordType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="sms">SMS</SelectItem>
+                    <SelectItem value="call">Calls</SelectItem>
+                    <SelectItem value="number_rental">Number Rental</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Date Range</Label>
+                <Select value={dateRange} onValueChange={setDateRange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="last_7_days">Last 7 days</SelectItem>
+                    <SelectItem value="last_30_days">Last 30 days</SelectItem>
+                    <SelectItem value="last_week">Last week</SelectItem>
+                    <SelectItem value="last_month">Last month</SelectItem>
+                    <SelectItem value="custom">Custom range</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {dateRange === 'custom' && (
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Total Cost</p>
-                    <p className="text-2xl font-bold">${Number(summary.totalCost).toFixed(4)}</p>
+                    <Label>Start Date</Label>
+                    <Input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                    />
                   </div>
-                  <DollarSign className="h-8 w-8 text-muted-foreground" />
+                  <div>
+                    <Label>End Date</Label>
+                    <Input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                    />
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
-            {summary.breakdown.map((item) => (
-              <Card key={item.type}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground capitalize">
-                        {item.type.replace('_', ' ')}
-                      </p>
-                      <p className="text-xl font-bold">${Number(item.cost).toFixed(4)}</p>
-                      <p className="text-xs text-muted-foreground">{item.count} records</p>
-                    </div>
-                    {getRecordTypeIcon(item.type)}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Billing Records */}
-      <div className="flex-1 p-4">
+        {/* Billing Records */}
         <Card>
           <CardHeader>
             <CardTitle>Billing Records</CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[calc(100vh-400px)]">
+            <ScrollArea className="h-[calc(100vh-500px)]">
               <div className="space-y-2">
-                {billingRecords.map((record) => (
-                  <div key={record.id} className="flex items-center justify-between p-3 border rounded-md">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${getRecordTypeColor(record.recordType)}`}>
-                        {getRecordTypeIcon(record.recordType)}
+                {billingRecords.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium mb-2">No billing records found</p>
+                    <p className="text-sm">Try adjusting your filters</p>
+                  </div>
+                ) : (
+                  billingRecords.map((record) => (
+                    <div key={record.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className={`p-2 rounded-full ${getRecordTypeColor(record.recordType)}`}>
+                          {getRecordTypeIcon(record.recordType)}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">{record.phoneNumber}</p>
+                          <p className="text-xs text-muted-foreground">{record.description}</p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                            <Calendar className="h-3 w-3" />
+                            {format(new Date(record.billingDate), 'MMM d, yyyy h:mm a')}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium text-sm">{record.phoneNumber}</p>
-                        <p className="text-xs text-muted-foreground">{record.description}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(record.billingDate), 'MMM d, yyyy h:mm a')}
+                      <div className="text-right">
+                        <Badge className={getRecordTypeColor(record.recordType)}>
+                          {record.recordType.toUpperCase()}
+                        </Badge>
+                        <p className="text-sm font-bold mt-1">
+                          ${Number(record.cost).toFixed(4)} {record.currency}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <Badge className={getRecordTypeColor(record.recordType)}>
-                        {record.recordType.toUpperCase()}
-                      </Badge>
-                      <p className="text-sm font-medium mt-1">
-                        ${Number(record.cost).toFixed(4)} {record.currency}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-
-                {billingRecords.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No billing records found for the selected criteria</p>
-                  </div>
+                  ))
                 )}
               </div>
             </ScrollArea>

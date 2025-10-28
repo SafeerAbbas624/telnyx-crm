@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
 import { X, Send } from 'lucide-react'
+import { isValidEmail, getEmailValidationError } from '@/lib/email-validation'
 
 interface Contact {
   id: string
@@ -31,12 +32,60 @@ interface NewEmailModalProps {
 
 export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: NewEmailModalProps) {
   const [toEmail, setToEmail] = useState('')
+  const [ccEmail, setCcEmail] = useState('')
+  const [bccEmail, setBccEmail] = useState('')
+  const [showCc, setShowCc] = useState(false)
+  const [showBcc, setShowBcc] = useState(false)
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const { toast } = useToast()
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    if (isOpen && emailAccount) {
+      const draftKey = `email-draft-${emailAccount.id}`
+      const savedDraft = localStorage.getItem(draftKey)
+      if (savedDraft) {
+        try {
+          const draft = JSON.parse(savedDraft)
+          setToEmail(draft.toEmail || '')
+          setCcEmail(draft.ccEmail || '')
+          setBccEmail(draft.bccEmail || '')
+          setSubject(draft.subject || '')
+          setMessage(draft.message || '')
+          setShowCc(!!draft.ccEmail)
+          setShowBcc(!!draft.bccEmail)
+        } catch (err) {
+          console.error('Failed to load draft:', err)
+        }
+      }
+    }
+  }, [isOpen, emailAccount])
+
+  // Auto-save draft to localStorage every 5 seconds
+  useEffect(() => {
+    if (!isOpen || !emailAccount) return
+
+    const draftKey = `email-draft-${emailAccount.id}`
+    const saveDraft = () => {
+      const draft = {
+        toEmail,
+        ccEmail,
+        bccEmail,
+        subject,
+        message,
+        timestamp: Date.now()
+      }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+    }
+
+    const intervalId = setInterval(saveDraft, 5000) // Save every 5 seconds
+
+    return () => clearInterval(intervalId)
+  }, [isOpen, emailAccount, toEmail, ccEmail, bccEmail, subject, message])
 
   // Live suggestions from database (debounced query)
   useEffect(() => {
@@ -92,6 +141,43 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
       return
     }
 
+    // Validate email addresses
+    const emailToValidate = toEmail.trim()
+    if (!isValidEmail(emailToValidate)) {
+      toast({
+        title: "Invalid Email",
+        description: getEmailValidationError([emailToValidate]),
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Validate CC emails if present
+    const ccEmails = ccEmail.trim() ? ccEmail.split(',').map(e => e.trim()).filter(e => e) : []
+    for (const email of ccEmails) {
+      if (!isValidEmail(email)) {
+        toast({
+          title: "Invalid CC Email",
+          description: getEmailValidationError([email]),
+          variant: "destructive"
+        })
+        return
+      }
+    }
+
+    // Validate BCC emails if present
+    const bccEmails = bccEmail.trim() ? bccEmail.split(',').map(e => e.trim()).filter(e => e) : []
+    for (const email of bccEmails) {
+      if (!isValidEmail(email)) {
+        toast({
+          title: "Invalid BCC Email",
+          description: getEmailValidationError([email]),
+          variant: "destructive"
+        })
+        return
+      }
+    }
+
     setIsSending(true)
     try {
       const response = await fetch('/api/email/send', {
@@ -102,6 +188,8 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
         body: JSON.stringify({
           emailAccountId: emailAccount.id,
           toEmails: [toEmail.trim()],
+          ccEmails,
+          bccEmails,
           subject: subject.trim(),
           content: message.replace(/\n/g, '<br>'),
           textContent: message.trim()
@@ -117,8 +205,18 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
           description: data?.message || "Email sent successfully"
         })
 
+        // Clear draft from localStorage
+        if (emailAccount) {
+          const draftKey = `email-draft-${emailAccount.id}`
+          localStorage.removeItem(draftKey)
+        }
+
         // Reset form
         setToEmail('')
+        setCcEmail('')
+        setBccEmail('')
+        setShowCc(false)
+        setShowBcc(false)
         setSubject('')
         setMessage('')
         onEmailSent()
@@ -177,9 +275,31 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
 
           {/* To Field with Suggestions */}
           <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              To
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium text-gray-700">
+                To
+              </label>
+              <div className="flex gap-2">
+                {!showCc && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCc(true)}
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    Cc
+                  </button>
+                )}
+                {!showBcc && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBcc(true)}
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    Bcc
+                  </button>
+                )}
+              </div>
+            </div>
             <Input
               type="email"
               value={toEmail}
@@ -187,7 +307,7 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
               placeholder="Enter email address..."
               className="w-full"
             />
-            
+
             {/* Email Suggestions Dropdown */}
             {showSuggestions && (
               <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 overflow-y-auto">
@@ -209,7 +329,63 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
             )}
           </div>
 
-          {/* Subject Field */}
+          {/* CC Field */}
+          {showCc && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Cc
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCc(false)
+                    setCcEmail('')
+                  }}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Remove
+                </button>
+              </div>
+              <Input
+                type="email"
+                value={ccEmail}
+                onChange={(e) => setCcEmail(e.target.value)}
+                placeholder="Comma-separated email addresses..."
+                className="w-full"
+              />
+            </div>
+          )}
+
+          {/* BCC Field */}
+          {showBcc && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-sm font-medium text-gray-700">
+                  Bcc
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBcc(false)
+                    setBccEmail('')
+                  }}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Remove
+                </button>
+              </div>
+              <Input
+                type="email"
+                value={bccEmail}
+                onChange={(e) => setBccEmail(e.target.value)}
+                placeholder="Comma-separated email addresses..."
+                className="w-full"
+              />
+            </div>
+          )}
+
+          {/* Subject Field */}}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Subject

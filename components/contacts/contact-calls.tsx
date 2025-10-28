@@ -112,48 +112,31 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
       // Use the first available phone number
       const fromNumber = phoneNumbers[0].phoneNumber
 
-      // Try WebRTC first
-      try {
-        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-        await rtcClient.ensureRegistered()
-        const { sessionId } = await rtcClient.startCall({ toNumber: phoneNumber, fromNumber })
+      // Start WebRTC call
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      await rtcClient.ensureRegistered()
+      const { sessionId } = await rtcClient.startCall({ toNumber: phoneNumber, fromNumber })
 
-        openCall({
-          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-          fromNumber,
-          toNumber: phoneNumber,
-          mode: 'webrtc',
-          webrtcSessionId: sessionId,
-        })
-        toast({ title: 'Call Started (WebRTC)', description: `Calling ${contact.firstName} ${contact.lastName}` })
-        return
-      } catch (webrtcErr) {
-        console.warn('WebRTC attempt failed, falling back to Call Control:', webrtcErr)
-      }
-
-      // Fallback: Start the call using Telnyx Call Control API
-      const callResponse = await fetch('/api/telnyx/calls', {
+      // Log the call to database
+      fetch('/api/telnyx/webrtc-calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromNumber, toNumber: phoneNumber, contactId }),
-      })
-
-      if (!callResponse.ok) {
-        const error = await callResponse.json()
-        throw new Error(error.error || 'Failed to initiate call')
-      }
-
-      const callData = await callResponse.json()
+        body: JSON.stringify({
+          webrtcSessionId: sessionId,
+          contactId: contact.id,
+          fromNumber,
+          toNumber: phoneNumber,
+        })
+      }).catch(err => console.error('Failed to log call:', err))
 
       openCall({
         contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
         fromNumber,
         toNumber: phoneNumber,
-        mode: 'call_control',
-        telnyxCallId: callData.telnyxCallId,
+        mode: 'webrtc',
+        webrtcSessionId: sessionId,
       })
-
-      toast({ title: 'Call Started', description: `Calling ${contact.firstName} ${contact.lastName} via Telnyx` })
+      toast({ title: 'Call Started', description: `Calling ${contact.firstName} ${contact.lastName}` })
 
     } catch (error) {
       console.error('Error starting call:', error)

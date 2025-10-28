@@ -163,11 +163,34 @@ async function processTextBlast(blastId: string) {
 
 function formatMessage(template: string, contact: any): string {
   return template
+    // Name fields
     .replace(/\{firstName\}/g, contact.firstName || '')
     .replace(/\{lastName\}/g, contact.lastName || '')
     .replace(/\{fullName\}/g, `${contact.firstName || ''} ${contact.lastName || ''}`.trim())
-    .replace(/\{email\}/g, contact.email1 || contact.email2 || contact.email3 || '')
-    .replace(/\{phone\}/g, contact.phone1 || contact.phone2 || contact.phone3 || '')
     .replace(/\{llcName\}/g, contact.llcName || '')
+    // Phone fields
+    .replace(/\{phone1\}/g, contact.phone1 || '')
+    .replace(/\{phone2\}/g, contact.phone2 || '')
+    .replace(/\{phone3\}/g, contact.phone3 || '')
+    .replace(/\{phone\}/g, contact.phone1 || contact.phone2 || contact.phone3 || '')
+    // Email fields
+    .replace(/\{email1\}/g, contact.email1 || '')
+    .replace(/\{email2\}/g, contact.email2 || '')
+    .replace(/\{email3\}/g, contact.email3 || '')
+    .replace(/\{email\}/g, contact.email1 || contact.email2 || contact.email3 || '')
+    // Address fields
     .replace(/\{propertyAddress\}/g, contact.propertyAddress || '')
+    .replace(/\{contactAddress\}/g, contact.contactAddress || '')
+    .replace(/\{city\}/g, contact.city || '')
+    .replace(/\{state\}/g, contact.state || '')
+    // Property fields
+    .replace(/\{propertyType\}/g, contact.propertyType || '')
+    .replace(/\{propertyCounty\}/g, contact.propertyCounty || '')
+    .replace(/\{bedrooms\}/g, contact.bedrooms ? contact.bedrooms.toString() : '')
+    .replace(/\{totalBathrooms\}/g, contact.totalBathrooms ? contact.totalBathrooms.toString() : '')
+    .replace(/\{buildingSqft\}/g, contact.buildingSqft ? contact.buildingSqft.toString() : '')
+    .replace(/\{effectiveYearBuilt\}/g, contact.effectiveYearBuilt ? contact.effectiveYearBuilt.toString() : '')
+    // Financial fields
+    .replace(/\{estValue\}/g, contact.estValue ? contact.estValue.toString() : '')
+    .replace(/\{estEquity\}/g, contact.estEquity ? contact.estEquity.toString() : '')
 }

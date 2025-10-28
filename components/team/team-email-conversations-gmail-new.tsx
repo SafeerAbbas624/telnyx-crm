@@ -21,12 +21,16 @@ import {
   Clock,
   Trash2,
   Plus,
-  RefreshCw
+  RefreshCw,
+  Paperclip,
+  Download,
+  X
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import SimpleAddActivityDialog from "@/components/activities/simple-add-activity-dialog"
 import { NewEmailModal } from '../email/new-email-modal'
+import { validateEmails, getEmailValidationError } from '@/lib/email-validation'
 
 // Format email content to handle quoted replies properly
 function formatEmailContent(content: string): string {
@@ -168,6 +172,58 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
   const replyCardRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+
+  // Phase 2 features: CC/BCC fields
+  const [showCc, setShowCc] = useState(false)
+  const [showBcc, setShowBcc] = useState(false)
+  const [ccEmail, setCcEmail] = useState('')
+  const [bccEmail, setBccEmail] = useState('')
+
+  // Phase 2 features: Attachments
+  const [attachments, setAttachments] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Phase 2: Load draft from localStorage on conversation change
+  useEffect(() => {
+    if (selectedConversation && selectedAccount) {
+      const draftKey = `team-email-draft-reply-${selectedAccount.id}-${selectedConversation.id}`
+      const savedDraft = localStorage.getItem(draftKey)
+      if (savedDraft) {
+        try {
+          const draft = JSON.parse(savedDraft)
+          setReplySubject(draft.subject || '')
+          setReplyMessage(draft.message || '')
+          setCcEmail(draft.ccEmail || '')
+          setBccEmail(draft.bccEmail || '')
+          setShowCc(!!draft.ccEmail)
+          setShowBcc(!!draft.bccEmail)
+        } catch (err) {
+          console.error('Failed to load draft:', err)
+        }
+      }
+    }
+  }, [selectedConversation, selectedAccount])
+
+  // Phase 2: Auto-save draft to localStorage every 5 seconds
+  useEffect(() => {
+    if (!selectedConversation || !selectedAccount) return
+
+    const draftKey = `team-email-draft-reply-${selectedAccount.id}-${selectedConversation.id}`
+    const saveDraft = () => {
+      const draft = {
+        subject: replySubject,
+        message: replyMessage,
+        ccEmail,
+        bccEmail,
+        timestamp: Date.now()
+      }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+    }
+
+    const intervalId = setInterval(saveDraft, 5000) // Save every 5 seconds
+
+    return () => clearInterval(intervalId)
+  }, [selectedConversation, selectedAccount, replySubject, replyMessage, ccEmail, bccEmail])
 
   // Handle reply card resizing
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -397,6 +453,17 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
       if (response.ok) {
         const data = await response.json()
         setMessages(data.messages || [])
+
+        // Phase 1: Auto-mark all unread messages as read
+        if (data.messages && data.messages.length > 0) {
+          const unreadMessageIds = data.messages
+            .filter((msg: EmailMessage) => !msg.isRead && msg.direction === 'inbound')
+            .map((msg: EmailMessage) => msg.id)
+
+          if (unreadMessageIds.length > 0) {
+            markMessagesAsRead(unreadMessageIds)
+          }
+        }
       } else {
         throw new Error('Failed to load messages')
       }
@@ -409,6 +476,21 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
       })
     } finally {
       setIsLoadingMessages(false)
+    }
+  }
+
+  // Phase 1: Mark messages as read
+  const markMessagesAsRead = async (messageIds: string[]) => {
+    try {
+      await fetch('/api/email/messages/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageIds })
+      })
+      // Refresh conversations to update unread counts
+      loadConversations()
+    } catch (error) {
+      console.error('Error marking messages as read:', error)
     }
   }
 
@@ -757,6 +839,32 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                           }}
                         />
                       </div>
+
+                      {/* Phase 2: Display attachments */}
+                      {message.attachments && message.attachments.length > 0 && (
+                        <div className="mt-4 pt-4 border-t">
+                          <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                            <Paperclip className="h-4 w-4" />
+                            Attachments ({message.attachments.length})
+                          </p>
+                          <div className="space-y-2">
+                            {message.attachments.map((attachment: any, idx: number) => (
+                              <div key={idx} className="flex items-center justify-between bg-gray-50 p-2 rounded border">
+                                <span className="text-sm truncate flex-1">{attachment.filename}</span>
+                                <a
+                                  href={`/api/email/attachments/download?url=${encodeURIComponent(attachment.url)}`}
+                                  download={attachment.filename}
+                                  className="ml-2"
+                                >
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                    <Download className="h-4 w-4" />
+                                  </Button>
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                   ))}
@@ -801,6 +909,83 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                         placeholder={selectedConversation ? "Reply subject..." : "Email subject..."}
                       />
                     </div>
+
+                    {/* Phase 2: CC/BCC Fields */}
+                    <div className="flex gap-2 text-sm">
+                      {!showCc && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowCc(true)}
+                          className="h-7 px-2"
+                        >
+                          Cc
+                        </Button>
+                      )}
+                      {!showBcc && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowBcc(true)}
+                          className="h-7 px-2"
+                        >
+                          Bcc
+                        </Button>
+                      )}
+                    </div>
+
+                    {showCc && (
+                      <div className="flex gap-2 items-center">
+                        <label className="text-sm font-medium text-gray-700 w-12">Cc:</label>
+                        <Input
+                          type="text"
+                          value={ccEmail}
+                          onChange={(e) => setCcEmail(e.target.value)}
+                          placeholder="Cc email addresses (comma-separated)"
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowCc(false)
+                            setCcEmail('')
+                          }}
+                          className="h-8 w-8 p-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
+                    {showBcc && (
+                      <div className="flex gap-2 items-center">
+                        <label className="text-sm font-medium text-gray-700 w-12">Bcc:</label>
+                        <Input
+                          type="text"
+                          value={bccEmail}
+                          onChange={(e) => setBccEmail(e.target.value)}
+                          placeholder="Bcc email addresses (comma-separated)"
+                          className="flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowBcc(false)
+                            setBccEmail('')
+                          }}
+                          className="h-8 w-8 p-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Message
@@ -813,6 +998,50 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                         placeholder={selectedConversation ? "Type your reply..." : "Type your message..."}
                       />
                     </div>
+
+                    {/* Phase 2: Attachments */}
+                    <div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        onChange={(e) => {
+                          if (e.target.files) {
+                            setAttachments(prev => [...prev, ...Array.from(e.target.files!)])
+                          }
+                        }}
+                        className="hidden"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full"
+                      >
+                        <Paperclip className="h-4 w-4 mr-2" />
+                        Attach Files
+                      </Button>
+
+                      {attachments.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {attachments.map((file, index) => (
+                            <div key={index} className="flex items-center justify-between bg-white p-2 rounded border">
+                              <span className="text-sm truncate flex-1">{file.name}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setAttachments(prev => prev.filter((_, i) => i !== index))}
+                                className="h-6 w-6 p-0"
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <div className="flex justify-between items-center">
                       <div className="text-sm text-gray-500">
                         {selectedConversation ? `Replying to: ${selectedConversation.contact.email1}` : 'New Email'}
@@ -823,6 +1052,11 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                           onClick={() => {
                             setReplySubject('')
                             setReplyMessage('')
+                            setCcEmail('')
+                            setBccEmail('')
+                            setAttachments([])
+                            setShowCc(false)
+                            setShowBcc(false)
                           }}
                         >
                           Cancel
@@ -840,21 +1074,78 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                               return
                             }
 
+                            // Phase 1: Email validation
+                            const toEmail = selectedConversation?.contact.email1 || ''
+                            const toValidation = getEmailValidationError([toEmail])
+                            if (toValidation) {
+                              toast({
+                                title: "Invalid Email",
+                                description: toValidation,
+                                variant: "destructive"
+                              })
+                              return
+                            }
+
+                            // Validate CC emails
+                            if (ccEmail.trim()) {
+                              const ccEmails = ccEmail.split(',').map(e => e.trim()).filter(Boolean)
+                              const ccValidation = getEmailValidationError(ccEmails)
+                              if (ccValidation) {
+                                toast({
+                                  title: "Invalid CC Email",
+                                  description: ccValidation,
+                                  variant: "destructive"
+                                })
+                                return
+                              }
+                            }
+
+                            // Validate BCC emails
+                            if (bccEmail.trim()) {
+                              const bccEmails = bccEmail.split(',').map(e => e.trim()).filter(Boolean)
+                              const bccValidation = getEmailValidationError(bccEmails)
+                              if (bccValidation) {
+                                toast({
+                                  title: "Invalid BCC Email",
+                                  description: bccValidation,
+                                  variant: "destructive"
+                                })
+                                return
+                              }
+                            }
+
                             setIsSending(true)
                             try {
+                              // Phase 2: Handle attachments
+                              const formData = new FormData()
+                              formData.append('emailAccountId', selectedAccount.id)
+                              if (selectedConversation?.contact.id) {
+                                formData.append('contactId', selectedConversation.contact.id)
+                              }
+                              formData.append('toEmails', JSON.stringify([toEmail]))
+
+                              // Add CC/BCC
+                              if (ccEmail.trim()) {
+                                const ccEmails = ccEmail.split(',').map(e => e.trim()).filter(Boolean)
+                                formData.append('ccEmails', JSON.stringify(ccEmails))
+                              }
+                              if (bccEmail.trim()) {
+                                const bccEmails = bccEmail.split(',').map(e => e.trim()).filter(Boolean)
+                                formData.append('bccEmails', JSON.stringify(bccEmails))
+                              }
+
+                              formData.append('subject', replySubject)
+                              formData.append('content', replyMessage.replace(/\n/g, '<br>'))
+                              formData.append('textContent', replyMessage)
+
+                              // Add attachments
+                              attachments.forEach(file => {
+                                formData.append('attachments', file)
+                              })
+
                               const response = await fetch('/api/email/send', {
                                 method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({
-                                  emailAccountId: selectedAccount.id,
-                                  contactId: selectedConversation?.contact.id,
-                                  toEmails: [selectedConversation?.contact.email1 || ''],
-                                  subject: replySubject,
-                                  content: replyMessage.replace(/\n/g, '<br>'),
-                                  textContent: replyMessage
-                                })
+                                body: formData
                               })
 
                               let data: any = null
@@ -864,8 +1155,21 @@ export function TeamEmailConversationsGmail({ emailAccounts }: TeamEmailConversa
                                   title: "Success",
                                   description: data?.message || (selectedConversation ? "Reply sent successfully" : "Email sent successfully")
                                 })
+
+                                // Clear draft from localStorage
+                                if (selectedConversation && selectedAccount) {
+                                  const draftKey = `team-email-draft-reply-${selectedAccount.id}-${selectedConversation.id}`
+                                  localStorage.removeItem(draftKey)
+                                }
+
                                 setReplySubject('')
                                 setReplyMessage('')
+                                setCcEmail('')
+                                setBccEmail('')
+                                setAttachments([])
+                                setShowCc(false)
+                                setShowBcc(false)
+
                                 // Refresh messages if replying
                                 if (selectedConversation) {
                                   loadMessages()

@@ -1,18 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/hooks/use-toast"
-import { Users, Phone, Mail, User, Calendar, Activity, MessageSquare, PhoneCall, UserPlus, Settings } from "lucide-react"
-import { formatDistanceToNow } from "date-fns"
-import AssignContactModal from "./assign-contact-modal"
-import { useContacts } from "@/lib/context/contacts-context"
-import type { Contact } from "@/lib/types"
+import { Phone, Mail, MessageSquare, UserPlus, Users2 } from "lucide-react"
+import EditResourcesDialog from "./edit-resources-dialog"
+import AddTeamMemberDialog from "./add-team-member-dialog"
+import AssignContactsToTeamDialog from "./assign-contacts-to-team-dialog"
 
 interface TeamUser {
   id: string
@@ -32,34 +28,57 @@ interface TeamUser {
   lastLoginAt?: string
 }
 
-interface ContactAssignment {
-  id: string
-  contact: {
-    id: string
-    firstName: string
-    lastName: string
-    email1?: string
-    phone1?: string
-  }
-  assignedAt: string
-}
-
-interface TeamUserWithAssignments extends TeamUser {
-  assignedContacts: ContactAssignment[]
+interface TeamUserWithStats extends TeamUser {
   stats: {
-    totalActivities: number
-    totalMessages: number
-    totalCalls: number
-    totalEmails: number
+    calls: number
+    messages: number
+    emails: number
   }
 }
 
 export default function TeamOverview() {
   const { toast } = useToast()
-  const { contacts } = useContacts()
-  const [teamUsers, setTeamUsers] = useState<TeamUserWithAssignments[]>([])
+  const [teamUsers, setTeamUsers] = useState<TeamUserWithStats[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedUser, setSelectedUser] = useState<TeamUserWithAssignments | null>(null)
+  const [showAddMemberDialog, setShowAddMemberDialog] = useState(false)
+  const [showEditResourcesDialog, setShowEditResourcesDialog] = useState(false)
+  const [showAssignContactsDialog, setShowAssignContactsDialog] = useState(false)
+  const [editingUser, setEditingUser] = useState<TeamUserWithStats | null>(null)
+  const [assigningToUser, setAssigningToUser] = useState<TeamUserWithStats | null>(null)
+
+  // Helper function to check if user is online
+  // User is online if their last activity (heartbeat) was within last 5 minutes
+  const isUserOnline = (lastLoginAt?: string) => {
+    if (!lastLoginAt) return false
+    const lastLogin = new Date(lastLoginAt)
+    const now = new Date()
+    const diffMinutes = (now.getTime() - lastLogin.getTime()) / (1000 * 60)
+    // Consider online if activity within last 5 minutes (heartbeat runs every 2 minutes)
+    return diffMinutes < 5
+  }
+
+  // Helper function to format last login time
+  const formatLastLogin = (lastLoginAt?: string) => {
+    if (!lastLoginAt) return 'Never'
+
+    const lastLogin = new Date(lastLoginAt)
+    const now = new Date()
+    const diffMs = now.getTime() - lastLogin.getTime()
+    const diffMinutes = Math.floor(diffMs / (1000 * 60))
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+    if (diffMinutes < 1) return 'Just now'
+    if (diffMinutes < 60) return `${diffMinutes}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+
+    return lastLogin.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: lastLogin.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+    })
+  }
 
   useEffect(() => {
     loadTeamOverview()
@@ -70,47 +89,49 @@ export default function TeamOverview() {
     try {
       // Load team users
       const usersResponse = await fetch('/api/admin/team-users')
-      if (!usersResponse.ok) throw new Error('Failed to load team users')
-      
+
+      if (!usersResponse.ok) {
+        const errorData = await usersResponse.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to load team users')
+      }
+
       const usersData = await usersResponse.json()
       const users = usersData.users || []
 
-      // Load assignments and stats for each user
-      const usersWithData = await Promise.all(
+      // Load stats for each user (last 30 days)
+      const usersWithStats = await Promise.all(
         users.map(async (user: TeamUser) => {
           try {
-            // Load user's assigned contacts
-            const assignmentsResponse = await fetch(`/api/admin/assign-contacts?userId=${user.id}`)
-            const assignmentsData = assignmentsResponse.ok ? await assignmentsResponse.json() : { assignments: [] }
-
-            // Load user stats (you might want to create this API endpoint)
-            const statsResponse = await fetch(`/api/admin/team-users/${user.id}/stats`)
-            const statsData = statsResponse.ok ? await statsResponse.json() : { 
-              stats: { totalActivities: 0, totalMessages: 0, totalCalls: 0, totalEmails: 0 }
+            // Load user stats for last 30 days
+            const statsResponse = await fetch(`/api/admin/team-users/${user.id}/stats?days=30`)
+            const statsData = statsResponse.ok ? await statsResponse.json() : {
+              stats: { calls: 0, messages: 0, emails: 0 }
             }
 
             return {
               ...user,
-              assignedContacts: assignmentsData.assignments || [],
-              stats: statsData.stats || { totalActivities: 0, totalMessages: 0, totalCalls: 0, totalEmails: 0 }
+              stats: {
+                calls: statsData.stats.totalCalls || 0,
+                messages: statsData.stats.totalMessages || 0,
+                emails: statsData.stats.totalEmails || 0
+              }
             }
           } catch (error) {
-            console.error(`Error loading data for user ${user.id}:`, error)
+            console.error(`Error loading stats for user ${user.id}:`, error)
             return {
               ...user,
-              assignedContacts: [],
-              stats: { totalActivities: 0, totalMessages: 0, totalCalls: 0, totalEmails: 0 }
+              stats: { calls: 0, messages: 0, emails: 0 }
             }
           }
         })
       )
 
-      setTeamUsers(usersWithData)
+      setTeamUsers(usersWithStats)
     } catch (error) {
       console.error('Error loading team overview:', error)
       toast({
         title: 'Error',
-        description: 'Failed to load team overview',
+        description: error instanceof Error ? error.message : 'Failed to load team overview',
         variant: 'destructive',
       })
     } finally {
@@ -118,31 +139,31 @@ export default function TeamOverview() {
     }
   }
 
-  const handleRemoveAssignment = async (userId: string, contactId: string) => {
-    try {
-      const response = await fetch(`/api/admin/assign-contacts?userId=${userId}&contactId=${contactId}`, {
-        method: 'DELETE',
-      })
+  const handleEditResources = (user: TeamUserWithStats) => {
+    setEditingUser(user)
+    setShowEditResourcesDialog(true)
+  }
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to remove assignment')
-      }
+  const handleResourcesUpdated = () => {
+    setShowEditResourcesDialog(false)
+    setEditingUser(null)
+    loadTeamOverview()
+  }
 
-      toast({
-        title: 'Success',
-        description: 'Contact assignment removed successfully',
-      })
+  const handleMemberAdded = () => {
+    setShowAddMemberDialog(false)
+    loadTeamOverview()
+  }
 
-      // Reload data
-      loadTeamOverview()
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to remove assignment',
-        variant: 'destructive',
-      })
-    }
+  const handleAssignContacts = (user: TeamUserWithStats) => {
+    setAssigningToUser(user)
+    setShowAssignContactsDialog(true)
+  }
+
+  const handleContactsAssigned = () => {
+    setShowAssignContactsDialog(false)
+    setAssigningToUser(null)
+    loadTeamOverview()
   }
 
   if (isLoading) {
@@ -154,216 +175,201 @@ export default function TeamOverview() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="h-full flex flex-col bg-[#f8f9fa]">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Team Overview</h1>
-          <p className="text-muted-foreground">
-            Manage your team members, their resources, and client assignments
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="flex items-center gap-1">
-            <Users className="h-3 w-3" />
-            {teamUsers.length} Team Members
-          </Badge>
+      <div className="border-b bg-white p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Team Overview</h1>
+            <p className="text-sm text-gray-600">Manage team members and their assigned resources</p>
+          </div>
+          <Button
+            onClick={() => setShowAddMemberDialog(true)}
+            className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white"
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            Add Team Member
+          </Button>
         </div>
       </div>
 
-      {teamUsers.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <Users className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Team Members</h3>
-            <p className="text-muted-foreground text-center mb-4">
-              Create team members in Settings to start assigning contacts and resources.
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+        {teamUsers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <Users2 className="h-16 w-16 text-gray-400 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Team Members</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Add team members to start assigning contacts and resources.
             </p>
-            <Button onClick={() => window.location.href = '/dashboard?tab=settings'}>
-              <Settings className="h-4 w-4 mr-2" />
-              Go to Settings
+            <Button
+              onClick={() => setShowAddMemberDialog(true)}
+              className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white"
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Add Team Member
             </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6">
-          {teamUsers.map((user) => (
-            <Card key={user.id} className="overflow-hidden">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="h-12 w-12">
-                      <AvatarFallback className="text-lg font-semibold">
-                        {user.firstName[0]}{user.lastName[0]}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        {user.firstName} {user.lastName}
-                        <Badge variant={user.status === 'active' ? 'default' : 'secondary'}>
-                          {user.status}
-                        </Badge>
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          Joined {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true })}
-                        </span>
-                        {user.lastLoginAt && (
-                          <span className="flex items-center gap-1">
-                            <Activity className="h-3 w-3" />
-                            Last active {formatDistanceToNow(new Date(user.lastLoginAt), { addSuffix: true })}
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {teamUsers.map((user) => {
+              const initials = `${user.firstName[0]}${user.lastName[0]}`
+              const isOnline = isUserOnline(user.lastLoginAt)
+
+              return (
+                <Card key={user.id} className="bg-white border border-gray-200 hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    {/* Avatar and Name */}
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="relative">
+                        <Avatar className="h-12 w-12 bg-[#2563eb] text-white">
+                          <AvatarFallback className="bg-[#2563eb] text-white text-base font-semibold">
+                            {initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        {/* Online/Offline Status Indicator */}
+                        <div className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
+                          isOnline ? 'bg-green-500' : 'bg-gray-400'
+                        }`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-semibold text-gray-900 truncate">
+                            {user.firstName} {user.lastName}
+                          </h3>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            isOnline
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {isOnline ? 'Online' : 'Offline'}
                           </span>
-                        )}
+                        </div>
+                        <p className="text-sm text-gray-600 truncate">{user.email}</p>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <AssignContactModal
-                      contacts={contacts}
-                      onAssignmentComplete={loadTeamOverview}
-                      buttonVariant="outline"
-                      buttonSize="sm"
-                      buttonText="Assign Contacts"
-                      trigger={
-                        <Button variant="outline" size="sm">
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          Assign Contacts
-                        </Button>
-                      }
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Resources Section */}
-                <div>
-                  <h4 className="font-medium mb-3 flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    Assigned Resources
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-                      <Phone className="h-4 w-4 text-blue-600" />
-                      <div>
-                        <p className="text-sm font-medium">Phone Number</p>
-                        <p className="text-xs text-muted-foreground">
-                          {user.assignedPhoneNumber || 'Not assigned'}
+
+                    {/* Assigned Resources */}
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-start gap-2">
+                        <Phone className="h-4 w-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-500">Assigned Phone</p>
+                          <p className="text-sm text-gray-900 truncate">
+                            {user.assignedPhoneNumber || 'Not assigned'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <Mail className="h-4 w-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-500">Assigned Email</p>
+                          <p className="text-sm text-gray-900 truncate">
+                            {user.assignedEmail?.emailAddress || 'Not assigned'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Activity Stats */}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs text-gray-500">Activity (Last 30 Days)</p>
+                        <p className="text-xs text-gray-500">
+                          Last login: <span className="font-medium text-gray-700">{formatLastLogin(user.lastLoginAt)}</span>
                         </p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
-                      <Mail className="h-4 w-4 text-green-600" />
-                      <div>
-                        <p className="text-sm font-medium">Email Account</p>
-                        <p className="text-xs text-muted-foreground">
-                          {user.assignedEmail?.emailAddress || 'Not assigned'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Statistics Section */}
-                <div>
-                  <h4 className="font-medium mb-3 flex items-center gap-2">
-                    <Activity className="h-4 w-4" />
-                    Activity Statistics
-                  </h4>
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="text-center p-3 bg-blue-50 rounded-lg">
-                      <div className="flex items-center justify-center mb-1">
-                        <Activity className="h-4 w-4 text-blue-600" />
-                      </div>
-                      <p className="text-lg font-semibold text-blue-600">{user.stats.totalActivities}</p>
-                      <p className="text-xs text-blue-600">Activities</p>
-                    </div>
-                    <div className="text-center p-3 bg-green-50 rounded-lg">
-                      <div className="flex items-center justify-center mb-1">
-                        <MessageSquare className="h-4 w-4 text-green-600" />
-                      </div>
-                      <p className="text-lg font-semibold text-green-600">{user.stats.totalMessages}</p>
-                      <p className="text-xs text-green-600">Messages</p>
-                    </div>
-                    <div className="text-center p-3 bg-purple-50 rounded-lg">
-                      <div className="flex items-center justify-center mb-1">
-                        <PhoneCall className="h-4 w-4 text-purple-600" />
-                      </div>
-                      <p className="text-lg font-semibold text-purple-600">{user.stats.totalCalls}</p>
-                      <p className="text-xs text-purple-600">Calls</p>
-                    </div>
-                    <div className="text-center p-3 bg-orange-50 rounded-lg">
-                      <div className="flex items-center justify-center mb-1">
-                        <Mail className="h-4 w-4 text-orange-600" />
-                      </div>
-                      <p className="text-lg font-semibold text-orange-600">{user.stats.totalEmails}</p>
-                      <p className="text-xs text-orange-600">Emails</p>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                {/* Assigned Contacts Section */}
-                <div>
-                  <h4 className="font-medium mb-3 flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    Assigned Contacts ({user.assignedContacts.length})
-                  </h4>
-                  {user.assignedContacts.length === 0 ? (
-                    <div className="text-center py-6 text-muted-foreground">
-                      <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No contacts assigned</p>
-                    </div>
-                  ) : (
-                    <ScrollArea className="h-32">
-                      <div className="space-y-2">
-                        {user.assignedContacts.map((assignment) => (
-                          <div
-                            key={assignment.id}
-                            className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Avatar className="h-6 w-6">
-                                <AvatarFallback className="text-xs">
-                                  {assignment.contact.firstName[0]}{assignment.contact.lastName[0]}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {assignment.contact.firstName} {assignment.contact.lastName}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {assignment.contact.email1 || assignment.contact.phone1}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-muted-foreground">
-                                {formatDistanceToNow(new Date(assignment.assignedAt), { addSuffix: true })}
-                              </span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveAssignment(user.id, assignment.contact.id)}
-                                className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                ×
-                              </Button>
-                            </div>
+                      <div className="grid grid-cols-4 gap-2">
+                        <div className="text-center">
+                          <div className="flex items-center justify-center mb-1">
+                            <Phone className="h-4 w-4 text-gray-400" />
                           </div>
-                        ))}
+                          <p className="text-lg font-semibold text-gray-900">{user.stats.calls}</p>
+                          <p className="text-xs text-gray-500">Calls</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center mb-1">
+                            <MessageSquare className="h-4 w-4 text-gray-400" />
+                          </div>
+                          <p className="text-lg font-semibold text-gray-900">{user.stats.messages}</p>
+                          <p className="text-xs text-gray-500">Messages</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center mb-1">
+                            <Mail className="h-4 w-4 text-gray-400" />
+                          </div>
+                          <p className="text-lg font-semibold text-gray-900">{user.stats.emails}</p>
+                          <p className="text-xs text-gray-500">Emails</p>
+                        </div>
+                        <div className="text-center">
+                          <div className="flex items-center justify-center mb-1">
+                            <Users2 className="h-4 w-4 text-gray-400" />
+                          </div>
+                          <p className="text-lg font-semibold text-gray-900">{user.assignedContactsCount}</p>
+                          <p className="text-xs text-gray-500">Contacts</p>
+                        </div>
                       </div>
-                    </ScrollArea>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-sm"
+                        onClick={() => handleAssignContacts(user)}
+                      >
+                        <Users2 className="h-4 w-4 mr-1" />
+                        Assign Contacts
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-sm"
+                        onClick={() => handleEditResources(user)}
+                      >
+                        Edit Resources
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Edit Resources Dialog */}
+      {editingUser && (
+        <EditResourcesDialog
+          isOpen={showEditResourcesDialog}
+          onClose={() => {
+            setShowEditResourcesDialog(false)
+            setEditingUser(null)
+          }}
+          user={editingUser}
+          onSuccess={handleResourcesUpdated}
+        />
+      )}
+
+      {/* Add Team Member Dialog */}
+      <AddTeamMemberDialog
+        isOpen={showAddMemberDialog}
+        onClose={() => setShowAddMemberDialog(false)}
+        onSuccess={handleMemberAdded}
+      />
+
+      {/* Assign Contacts Dialog */}
+      {assigningToUser && (
+        <AssignContactsToTeamDialog
+          isOpen={showAssignContactsDialog}
+          onClose={() => {
+            setShowAssignContactsDialog(false)
+            setAssigningToUser(null)
+          }}
+          teamMember={assigningToUser}
+          onSuccess={handleContactsAssigned}
+        />
       )}
     </div>
   )

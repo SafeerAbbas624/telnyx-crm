@@ -42,9 +42,10 @@ interface TelnyxPhoneNumber {
 interface EnhancedConversationProps {
   contact: Contact
   onBack?: () => void
+  onConversationRead?: () => void  // Callback to refresh conversations list
 }
 
-export default function EnhancedConversation({ contact, onBack }: EnhancedConversationProps) {
+export default function EnhancedConversation({ contact, onBack, onConversationRead }: EnhancedConversationProps) {
   const { data: session } = useSession()
   const { openCall } = useCallUI()
   const [messages, setMessages] = useState<Message[]>([])
@@ -56,6 +57,7 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
   const [showContactInfo, setShowContactInfo] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+  const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false)  // Track if we've marked messages as read
 
   // Check if current user is admin
   const isAdmin = session?.user?.role === 'ADMIN'
@@ -134,6 +136,22 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
         if (data.suggestedSenderNumber) {
           setSelectedSenderNumber(data.suggestedSenderNumber)
           console.log(`Auto-selected sender number: ${data.suggestedSenderNumber} for contact ${contact.firstName} ${contact.lastName}`)
+        }
+
+        // FIX: Trigger callback to refresh conversations list after marking as read
+        if (!hasMarkedAsRead && data.messages?.length > 0) {
+          setHasMarkedAsRead(true)
+          // Emit event to refresh conversations list
+          if (onConversationRead) {
+            onConversationRead()
+          }
+          // Also broadcast via SSE to update other components
+          try {
+            const event = new CustomEvent('conversationRead', { detail: { contactId: contact.id } })
+            window.dispatchEvent(event)
+          } catch (e) {
+            // ignore
+          }
         }
       }
     } catch (error) {
@@ -260,6 +278,19 @@ export default function EnhancedConversation({ contact, onBack }: EnhancedConver
         const { rtcClient } = await import('@/lib/webrtc/rtc-client')
         await rtcClient.ensureRegistered()
         const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber: selectedSenderNumber })
+
+        // Log the call to database
+        fetch('/api/telnyx/webrtc-calls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webrtcSessionId: sessionId,
+            contactId: contact.id,
+            fromNumber: selectedSenderNumber,
+            toNumber,
+          })
+        }).catch(err => console.error('Failed to log call:', err))
+
         openCall({
           contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
           fromNumber: selectedSenderNumber,

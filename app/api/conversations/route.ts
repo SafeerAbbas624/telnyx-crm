@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const search = searchParams.get('search') || ''
     const limit = parseInt(searchParams.get('limit') || '50')
+    const offset = parseInt(searchParams.get('offset') || '0')
 
     // Build search conditions
     const searchConditions = search.trim() ? {
@@ -23,8 +24,9 @@ export async function GET(request: NextRequest) {
       ]
     } : {}
 
-    // Get conversations with contact info and last message
-    const conversations = await prisma.conversation.findMany({
+    // FIX: Get ALL conversations first (without pagination), then deduplicate, then apply pagination
+    // This ensures we don't return duplicates due to deduplication logic
+    const allConversations = await prisma.conversation.findMany({
       where: {
         contact: searchConditions,
       },
@@ -46,12 +48,33 @@ export async function GET(request: NextRequest) {
         { last_message_at: 'desc' }, // Then by most recent message
         { updated_at: 'desc' }
       ],
-      take: limit,
     })
 
-    // Get the latest messages for each conversation
+    // FIX: Deduplicate FIRST (before pagination)
+    const dedupedMap = new Map<string, any>()
+    for (const c of allConversations) {
+      const normalized = formatPhoneNumberForTelnyx(c.phone_number) || c.phone_number
+      const key = `${c.contact_id}-${last10Digits(normalized) || normalized}`
+      const existing = dedupedMap.get(key)
+      if (!existing) {
+        dedupedMap.set(key, c)
+      } else {
+        // Keep the one with the most recent activity
+        const a = existing.last_message_at || existing.updated_at
+        const b = c.last_message_at || c.updated_at
+        if ((b ? new Date(b).getTime() : 0) > (a ? new Date(a).getTime() : 0)) {
+          dedupedMap.set(key, c)
+        }
+      }
+    }
+    const deduped = Array.from(dedupedMap.values())
+
+    // Now apply pagination to deduplicated list
+    const paginatedConversations = deduped.slice(offset, offset + limit)
+
+    // Get the latest messages for each conversation in this page
     const conversationsWithMessages = await Promise.all(
-      conversations.map(async (conversation) => {
+      paginatedConversations.map(async (conversation) => {
         // Get the latest message for this contact
         const latestMessage = await prisma.telnyxMessage.findFirst({
           where: {
@@ -83,10 +106,26 @@ export async function GET(request: NextRequest) {
           }
         })
 
+        // Skip conversations with no messages
+        if (!latestMessage) {
+          console.log(`Skipping conversation ${conversation.id} for contact ${conversation.contact_id} - no messages found`)
+          // Also reset unread count if it exists
+          if (conversation.unread_count > 0) {
+            try {
+              await prisma.conversation.update({
+                where: { id: conversation.id },
+                data: { unread_count: 0 }
+              })
+            } catch (error) {
+              console.error('Error resetting unread count for conversation:', conversation.id, error)
+            }
+          }
+          return null
+        }
+
         return {
           ...conversation,
           lastMessage: latestMessage,
-          // Calculate unread status based on latest message
           hasUnread: conversation.unread_count > 0,
           // Show new message indicator if last message is inbound and recent
           isNewMessage: latestMessage?.direction === 'inbound' &&
@@ -96,28 +135,15 @@ export async function GET(request: NextRequest) {
       })
     )
 
-    // Guard: collapse duplicate conversations for the same contact/number (e.g., pre-normalization entries)
-    const dedupedMap = new Map<string, any>()
-    for (const c of conversationsWithMessages) {
-      const normalized = formatPhoneNumberForTelnyx(c.phone_number) || c.phone_number
-      const key = `${c.contact_id}-${last10Digits(normalized) || normalized}`
-      const existing = dedupedMap.get(key)
-      if (!existing) {
-        dedupedMap.set(key, c)
-      } else {
-        // Keep the one with the most recent activity
-        const a = existing.last_message_at || existing.updated_at
-        const b = c.last_message_at || c.updated_at
-        if ((b ? new Date(b).getTime() : 0) > (a ? new Date(a).getTime() : 0)) {
-          dedupedMap.set(key, c)
-        }
-      }
-    }
-    const deduped = Array.from(dedupedMap.values())
+    // Filter out null entries (conversations with no messages)
+    const validConversations = conversationsWithMessages.filter(c => c !== null)
 
     return NextResponse.json({
-      conversations: deduped,
-      total: deduped.length
+      conversations: validConversations,
+      total: deduped.length, // Total after deduplication
+      limit,
+      offset,
+      hasMore: offset + limit < deduped.length
     })
   } catch (error) {
     console.error('Error fetching conversations:', error)

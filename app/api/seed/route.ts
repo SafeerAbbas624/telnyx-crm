@@ -261,6 +261,13 @@ export async function POST() {
               status: 'active',
               priority: ['low', 'normal', 'high'][Math.floor(Math.random() * 3)] as any,
             }
+          }).catch((e) => {
+            // Ignore unique constraint errors when rerunning seed
+            if (e && (e.code === 'P2002' || (e.meta && e.meta.target && String(e.meta.target).includes('contact_id_phone_number')))) {
+              return null;
+            }
+            console.error('Error creating conversation for contact', contact.id, e);
+            return null;
           })
         );
       }

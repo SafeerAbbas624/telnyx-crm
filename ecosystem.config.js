@@ -2,10 +2,10 @@ module.exports = {
   apps: [
     {
       name: 'nextjs-crm',
-      script: 'node',
-      args: 'server.js',
+      script: 'server.js',
       cwd: '/var/www/adlercapitalcrm.com',
       instances: 1,
+      exec_mode: 'cluster',
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
@@ -41,6 +41,27 @@ module.exports = {
       error_file: '/var/www/adlercapitalcrm.com/logs/email-worker-error.log',
       out_file: '/var/www/adlercapitalcrm.com/logs/email-worker-out.log',
       log_file: '/var/www/adlercapitalcrm.com/logs/email-worker-combined.log',
+      time: true
+    },
+    {
+      name: 'email-idle-worker',
+      script: 'npx',
+      args: 'tsx workers/email-idle-worker.ts',
+      cwd: '/var/www/adlercapitalcrm.com',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '512M',
+      min_uptime: '10s',
+      max_restarts: 5,
+      restart_delay: 4000,
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: '/var/www/adlercapitalcrm.com/logs/email-idle-error.log',
+      out_file: '/var/www/adlercapitalcrm.com/logs/email-idle-out.log',
+      log_file: '/var/www/adlercapitalcrm.com/logs/email-idle-combined.log',
       time: true
     }
   ]

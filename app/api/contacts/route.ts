@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100) // Cap at 100 for performance
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 20000) // Cap at 20000 to allow loading all contacts
     const search = searchParams.get('search')
     const dealStatus = searchParams.get('dealStatus')
     const propertyType = searchParams.get('propertyType')
@@ -254,18 +254,21 @@ export async function GET(request: NextRequest) {
       if (maxEquity !== undefined) where.estEquity.lte = maxEquity
     }
 
-    // Fast path: when searching or filtering, skip expensive totalCount and just detect hasMore with limit+1 fetch
-    const fastMode = Boolean(hasActiveSearch || hasExplicitFilters)
-
+    // Always get accurate count for proper pagination
     let totalCount: number
     let contacts: any[]
     let hasMore: boolean
 
-    if (fastMode) {
-      const rows = await prisma.contact.findMany({
+    // Determine which fields to select based on whether we have active filters
+    const hasActiveFilters = hasActiveSearch || hasExplicitFilters
+
+    // Get accurate total count and contacts in parallel
+    const [exactTotal, rows] = await Promise.all([
+      prisma.contact.count({ where }),
+      prisma.contact.findMany({
         where,
-        select: {
-          // Slim payload for fast search typing
+        select: hasActiveFilters ? {
+          // Slim payload for filtered results
           id: true,
           firstName: true,
           lastName: true,
@@ -277,10 +280,53 @@ export async function GET(request: NextRequest) {
           state: true,
           propertyCounty: true,
           propertyType: true,
+          bedrooms: true,
           estValue: true,
           estEquity: true,
           dnc: true,
           dealStatus: true,
+          createdAt: true,
+          updatedAt: true,
+          contact_tags: {
+            select: {
+              tag: {
+                select: {
+                  id: true,
+                  name: true,
+                  color: true,
+                },
+              },
+            },
+          },
+        } : {
+          // Full details for browsing all contacts
+          id: true,
+          firstName: true,
+          lastName: true,
+          llcName: true,
+          phone1: true,
+          phone2: true,
+          phone3: true,
+          email1: true,
+          email2: true,
+          email3: true,
+          propertyAddress: true,
+          contactAddress: true,
+          city: true,
+          state: true,
+          propertyCounty: true,
+          propertyType: true,
+          bedrooms: true,
+          totalBathrooms: true,
+          buildingSqft: true,
+          effectiveYearBuilt: true,
+          estValue: true,
+          estEquity: true,
+          dnc: true,
+          dncReason: true,
+          dealStatus: true,
+          notes: true,
+          avatarUrl: true,
           createdAt: true,
           updatedAt: true,
           contact_tags: {
@@ -299,73 +345,15 @@ export async function GET(request: NextRequest) {
           createdAt: 'desc',
         },
         skip: offset,
-        take: limit + 1,
+        take: limit,
       })
-      hasMore = rows.length > limit
-      contacts = hasMore ? rows.slice(0, limit) : rows
-      // Provide a minimal lower-bound totalCount to keep pagination UI sane without an expensive COUNT(*) scan
-      totalCount = (page - 1) * limit + contacts.length + (hasMore ? 1 : 0)
-    } else {
-      // Full path with exact total when just browsing without active search/filters
-      const [exactTotal, rows] = await Promise.all([
-        prisma.contact.count({ where }),
-        prisma.contact.findMany({
-          where,
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            llcName: true,
-            phone1: true,
-            phone2: true,
-            phone3: true,
-            email1: true,
-            email2: true,
-            email3: true,
-            propertyAddress: true,
-            contactAddress: true,
-            city: true,
-            state: true,
-            propertyCounty: true,
-            propertyType: true,
-            bedrooms: true,
-            totalBathrooms: true,
-            buildingSqft: true,
-            effectiveYearBuilt: true,
-            estValue: true,
-            estEquity: true,
-            dnc: true,
-            dncReason: true,
-            dealStatus: true,
-            notes: true,
-            avatarUrl: true,
-            createdAt: true,
-            updatedAt: true,
-            contact_tags: {
-              select: {
-                tag: {
-                  select: {
-                    id: true,
-                    name: true,
-                    color: true,
-                  },
-                },
-              },
-            },
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-          skip: offset,
-          take: limit,
-        })
-      ])
-      totalCount = exactTotal
-      contacts = rows
-      hasMore = page * limit < totalCount
-    }
+    ])
 
-    console.log(`✅ [API DEBUG] Database query completed: ${totalCount} total (approx=${fastMode}), ${contacts.length} returned for "${search}" in ${Date.now() - startTime}ms`)
+    totalCount = exactTotal
+    contacts = rows
+    hasMore = offset + contacts.length < totalCount
+
+    console.log(`✅ [API DEBUG] Database query completed: ${totalCount} total, ${contacts.length} returned for "${search}" in ${Date.now() - startTime}ms`)
 
     if (contacts.length === 0) {
       console.log(`⚠️ [API DEBUG] No contacts returned from database query - this might indicate an issue with the query or filters`)

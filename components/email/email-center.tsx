@@ -54,9 +54,15 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
   const loadEmailAccounts = async () => {
     try {
       setIsLoading(true)
-      const response = await fetch('/api/email/accounts')
+      const response = await fetch('/api/email/accounts', {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        }
+      })
       if (response.ok) {
         const data = await response.json()
+        console.log('📧 [EMAIL-CENTER] Loaded email accounts:', data.accounts?.length, data.accounts)
         setEmailAccounts(data.accounts || [])
       }
     } catch (error) {
@@ -133,18 +139,13 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Mail className="h-6 w-6 text-primary" />
-            <div>
-              <h1 className="text-xl font-semibold">Email Center</h1>
-              <p className="text-sm text-muted-foreground">
-                Manage email conversations and send email blasts
-              </p>
-            </div>
+      <div className="border-b bg-card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Email Center</h1>
+            <p className="text-muted-foreground">Manage email conversations and campaigns</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="flex items-center gap-1">

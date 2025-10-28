@@ -24,12 +24,23 @@ export default function CallInProgressPopup() {
   const [selectedMic, setSelectedMic] = useState<string>("")
   const [micVersion, setMicVersion] = useState(0)
 
+  // Detect call end (without closing) and auto-save notes once
+  const [hasEnded, setHasEnded] = useState(false)
+  const [activitySaved, setActivitySaved] = useState(false)
+
+  // Timer (Issue #3 fix: Stop timer when call ends)
   useEffect(() => {
-    if (!call) return
+    if (!call || hasEnded) return
     setElapsed(Math.floor((Date.now() - call.startedAt) / 1000))
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - call.startedAt) / 1000)), 1000)
+    const t = setInterval(() => {
+      if (hasEnded) {
+        clearInterval(t)
+        return
+      }
+      setElapsed(Math.floor((Date.now() - call.startedAt) / 1000))
+    }, 1000)
     return () => clearInterval(t)
-  }, [call?.startedAt])
+  }, [call?.startedAt, hasEnded])
 
   // Load available microphones for selection (WebRTC only)
   useEffect(() => {
@@ -64,9 +75,7 @@ export default function CallInProgressPopup() {
     return () => { active = false }
   }, [call?.mode, micVersion, selectedMic])
 
-  // Detect call end (without closing) and auto-save notes once
-  const [hasEnded, setHasEnded] = useState(false)
-  const [activitySaved, setActivitySaved] = useState(false)
+  // Detect call end status
   useEffect(() => {
     if (!call) return
     setHasEnded(false)

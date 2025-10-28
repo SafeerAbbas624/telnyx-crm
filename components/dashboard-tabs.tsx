@@ -2,14 +2,17 @@
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import ContactsSection from "./contacts/contacts-section"
+import ContactsRedesign from "./contacts-redesign"
 import TextCenter from "./text/text-center"
 import EmailCenter from "./email/email-center"
-import DashboardOverview from "./dashboard-overview"
+import DashboardOverviewFigma from "./dashboard-overview-figma"
 import CallsCenter from "./calls/calls-center"
-import BillingDashboard from "./billing/billing-dashboard"
+import BillingRedesign from "./billing/billing-redesign"
 import SettingsPage from "./settings/settings-page"
 import TeamOverview from "./admin/team-overview"
+import DealsPipeline from "./deals/deals-pipeline"
+import LoanCoPilot from "./loan-copilot/loan-copilot"
+import Sequences from "./sequences/sequences"
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from "react";
 
@@ -52,9 +55,15 @@ export default function DashboardTabs({ activeTab, setActiveTab, selectedContact
   const renderContent = () => {
     switch (activeTab) {
       case "dashboard":
-        return <DashboardOverview />
+        return <DashboardOverviewFigma />
       case "contacts":
-        return <ContactsSection />
+        return <ContactsRedesign />
+      case "deals":
+        return <DealsPipeline />
+      case "loan-copilot":
+        return <LoanCoPilot />
+      case "sequences":
+        return <Sequences />
       case "messaging":
         return <TextCenter selectedContactId={selectedContactId} />
       case "email":
@@ -62,7 +71,7 @@ export default function DashboardTabs({ activeTab, setActiveTab, selectedContact
       case "calls":
         return <CallsCenter />
       case "billing":
-        return <BillingDashboard />
+        return <BillingRedesign />
       case "import":
         return <ImportPage />
       case "team-overview":
@@ -70,7 +79,7 @@ export default function DashboardTabs({ activeTab, setActiveTab, selectedContact
       case "settings":
         return <SettingsPage />
       default:
-        return <DashboardOverview />
+        return <DashboardOverviewFigma />
     }
   }
 

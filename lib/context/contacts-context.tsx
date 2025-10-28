@@ -237,14 +237,14 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
   }
 
   const goToPage = async (page: number) => {
-    await fetchContacts(page, pagination?.limit || 50)
+    // Preserve current search query and filters when navigating pages
+    await fetchContacts(page, pagination?.limit || 50, currentQuery, currentFilters)
   }
 
   const searchContacts = async (query: string, filters: any = {}) => {
     console.log('🔍 searchContacts called with:', { query, filters })
-    // Use a smaller page size for active search/filters to reduce payload and latency
-    const hasActive = (query && query.trim().length > 0) || (filters && Object.keys(filters).length > 0)
-    const limit = hasActive ? 25 : 50
+    // Always use 50 items per page for consistent pagination
+    const limit = 50
     // Reset to page 1 for new search
     await fetchContacts(1, limit, query, filters)
   }

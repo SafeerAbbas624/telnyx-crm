@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useRef } from "react"
+import { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -52,20 +52,32 @@ interface EnhancedConversationsListProps {
   onSelectContact: (contact: Contact) => void
 }
 
-export default function EnhancedConversationsList({
-  selectedContactId,
-  onSelectContact,
-}: EnhancedConversationsListProps) {
-  const [searchQuery, setSearchQuery] = useState("")
-  const [conversations, setConversations] = useState<ConversationData[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [showNewMessageModal, setShowNewMessageModal] = useState(false)
-  const debouncedSearchQuery = useDebounce(searchQuery, 150)
-  const fetchAbortRef = useRef<AbortController | null>(null)
-  const cacheRef = useRef<Map<string, any>>(new Map())
-  const [isSearching, setIsSearching] = useState(false)
-  const { toast } = useToast()
-  const { add: addNotification } = useNotifications()
+const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps>(
+  ({ selectedContactId, onSelectContact }, ref) => {
+    const [searchQuery, setSearchQuery] = useState("")
+    const [conversations, setConversations] = useState<ConversationData[]>([])
+    const [isLoading, setIsLoading] = useState(false)
+    const [showNewMessageModal, setShowNewMessageModal] = useState(false)
+    const debouncedSearchQuery = useDebounce(searchQuery, 150)
+    const fetchAbortRef = useRef<AbortController | null>(null)
+    const cacheRef = useRef<Map<string, any>>(new Map())
+    const [isSearching, setIsSearching] = useState(false)
+    const { toast } = useToast()
+    const { add: addNotification } = useNotifications()
+
+    // Pagination state
+    const [offset, setOffset] = useState(0)
+    const [hasMore, setHasMore] = useState(true)
+    const [isLoadingMore, setIsLoadingMore] = useState(false)
+    const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+    // FIX: Expose refresh method via ref
+    useImperativeHandle(ref, () => ({
+      refreshConversations: () => {
+        console.log('Refreshing conversations list from ref')
+        loadConversations()
+      }
+    }))
 
   // Load conversations with live search
   useEffect(() => {
@@ -79,6 +91,39 @@ export default function EnhancedConversationsList({
     }, 30000)
     return () => clearInterval(interval)
   }, [debouncedSearchQuery])
+
+  // Infinite scroll handler
+  useEffect(() => {
+    const handleScroll = (e: Event) => {
+      const scrollArea = e.target as HTMLDivElement
+      const { scrollTop, scrollHeight, clientHeight } = scrollArea
+
+      // Load more when user scrolls near the bottom (within 200px)
+      if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !isLoadingMore && !isLoading) {
+        console.log('Loading more conversations...')
+        loadConversations(true)
+      }
+    }
+
+    const scrollElement = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+    if (scrollElement) {
+      scrollElement.addEventListener('scroll', handleScroll)
+      return () => scrollElement.removeEventListener('scroll', handleScroll)
+    }
+  }, [hasMore, isLoadingMore, isLoading])
+
+  // FIX: Listen for conversationRead event to refresh conversations list
+  useEffect(() => {
+    const handleConversationRead = () => {
+      console.log('Conversation marked as read, refreshing conversations list')
+      loadConversations()
+    }
+
+    window.addEventListener('conversationRead', handleConversationRead as EventListener)
+    return () => {
+      window.removeEventListener('conversationRead', handleConversationRead as EventListener)
+    }
+  }, [])
 
   // Real-time updates via SSE
   useEffect(() => {
@@ -160,37 +205,57 @@ export default function EnhancedConversationsList({
     }
   }, [])
 
-  const loadConversations = async () => { setIsSearching(true)
-    setIsLoading(true)
+  const loadConversations = async (loadMore = false) => {
+    if (loadMore) {
+      setIsLoadingMore(true)
+    } else {
+      setIsSearching(true)
+      setIsLoading(true)
+      setOffset(0)
+      setConversations([])
+    }
+
     try {
       const params = new URLSearchParams()
       if (debouncedSearchQuery.trim()) {
         params.set('search', debouncedSearchQuery.trim())
       }
 
+      const currentOffset = loadMore ? offset : 0
+      params.set('offset', currentOffset.toString())
+      params.set('limit', '50')
+
       if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
       const controller = new AbortController()
       fetchAbortRef.current = controller
-
-      const cacheKey = params.toString()
-      const cached = cacheRef.current.get(cacheKey)
-      if (cached) {
-        setConversations(cached.conversations || [])
-      }
 
       const response = await fetch(`/api/conversations?${params}`, { signal: controller.signal })
       if (response.ok && !controller.signal.aborted) {
         const data = await response.json()
         if (!controller.signal.aborted) {
-          setConversations(data.conversations || [])
-          cacheRef.current.set(cacheKey, { conversations: data.conversations || [] })
+          if (loadMore) {
+            // FIX: Deduplicate conversations when appending
+            setConversations(prev => {
+              const existingIds = new Set(prev.map(c => c.id))
+              const newConversations = (data.conversations || []).filter(c => !existingIds.has(c.id))
+              return [...prev, ...newConversations]
+            })
+            setOffset(data.offset + (data.conversations || []).length)
+          } else {
+            setConversations(data.conversations || [])
+            setOffset((data.conversations || []).length)
+          }
+          setHasMore(data.hasMore || false)
         }
       }
     } catch (error) {
-      console.error('Error loading conversations:', error)
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Error loading conversations:', error)
+      }
     } finally {
       setIsLoading(false)
       setIsSearching(false)
+      setIsLoadingMore(false)
     }
   }
 
@@ -311,7 +376,7 @@ export default function EnhancedConversationsList({
         )}
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1" ref={scrollAreaRef}>
         <div className="divide-y">
           {sortedConversations.map((conversation) => {
             const preview = getMessagePreview(conversation)
@@ -421,6 +486,16 @@ export default function EnhancedConversationsList({
               </p>
             </div>
           )}
+
+          {/* Loading more indicator */}
+          {isLoadingMore && (
+            <div className="p-4 text-center">
+              <div className="inline-block">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">Loading more conversations...</p>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
@@ -435,4 +510,8 @@ export default function EnhancedConversationsList({
       />
     </div>
   )
-}
+})
+
+EnhancedConversationsList.displayName = 'EnhancedConversationsList'
+
+export default EnhancedConversationsList

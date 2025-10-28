@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { fetchAndUpdateCallCost } from '@/lib/jobs/fetch-call-cost';
 
 // Healthcheck endpoints so Telnyx can validate the webhook URL when toggling features like call cost
 export async function GET() {
@@ -93,18 +94,53 @@ async function handleCallInitiated(data: any) {
   try {
     if (!prisma.telnyxCall) return;
 
-    console.log('[TELNYX WEBHOOK][CALL] -> initiated', { callControlId: data.call_control_id })
+    console.log('[TELNYX WEBHOOK][CALL] -> initiated', { callControlId: data.call_control_id, sessionId: data.call_session_id })
 
-    const updateInitiated: any = {
-      status: 'initiated',
-      webhookData: data,
-      updatedAt: new Date(),
-      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
-    }
-    await prisma.telnyxCall.updateMany({
-      where: { telnyxCallId: data.call_control_id },
-      data: updateInitiated,
+    // Check if call record exists
+    const existingCall = await prisma.telnyxCall.findFirst({
+      where: {
+        OR: [
+          { telnyxCallId: data.call_control_id },
+          ...(data.call_session_id ? [{ telnyxSessionId: data.call_session_id }] : [])
+        ]
+      }
     });
+
+    if (existingCall) {
+      // Update existing record
+      const updateInitiated: any = {
+        status: 'initiated',
+        webhookData: data,
+        updatedAt: new Date(),
+        ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+        ...(data.call_control_id ? { telnyxCallId: data.call_control_id } : {}),
+      }
+      await prisma.telnyxCall.update({
+        where: { id: existingCall.id },
+        data: updateInitiated,
+      });
+      console.log('[TELNYX WEBHOOK][CALL] -> updated existing call', { id: existingCall.id })
+    } else {
+      // Create new record for WebRTC calls that don't have a record yet
+      console.log('[TELNYX WEBHOOK][CALL] -> creating new call record for WebRTC call')
+
+      const from = data.from || data.sip_from || 'unknown';
+      const to = data.to || data.sip_to || 'unknown';
+      const direction = data.call_direction || 'outbound';
+
+      await prisma.telnyxCall.create({
+        data: {
+          telnyxCallId: data.call_control_id,
+          telnyxSessionId: data.call_session_id || null,
+          fromNumber: from,
+          toNumber: to,
+          direction: direction,
+          status: 'initiated',
+          webhookData: data,
+        }
+      });
+      console.log('[TELNYX WEBHOOK][CALL] -> created new call record', { from, to, direction })
+    }
   } catch (error) {
     console.error('Error handling call initiated:', error);
   }
@@ -113,16 +149,48 @@ async function handleCallInitiated(data: any) {
 async function handleCallRinging(data: any) {
   try {
     console.log('[TELNYX WEBHOOK][CALL] -> ringing', { callControlId: data.call_control_id })
-    const updateRinging: any = {
-      status: 'ringing',
-      webhookData: data,
-      updatedAt: new Date(),
-      ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
-    }
-    await prisma.telnyxCall.updateMany({
-      where: { telnyxCallId: data.call_control_id },
-      data: updateRinging,
+
+    // Check if call record exists
+    const existingCall = await prisma.telnyxCall.findFirst({
+      where: {
+        OR: [
+          { telnyxCallId: data.call_control_id },
+          ...(data.call_session_id ? [{ telnyxSessionId: data.call_session_id }] : [])
+        ]
+      }
     });
+
+    if (existingCall) {
+      const updateRinging: any = {
+        status: 'ringing',
+        webhookData: data,
+        updatedAt: new Date(),
+        ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
+        ...(data.call_control_id ? { telnyxCallId: data.call_control_id } : {}),
+      }
+      await prisma.telnyxCall.update({
+        where: { id: existingCall.id },
+        data: updateRinging,
+      });
+    } else {
+      // Create new record if it doesn't exist (fallback for WebRTC)
+      console.log('[TELNYX WEBHOOK][CALL] -> creating new call record at ringing stage')
+      const from = data.from || data.sip_from || 'unknown';
+      const to = data.to || data.sip_to || 'unknown';
+      const direction = data.call_direction || 'outbound';
+
+      await prisma.telnyxCall.create({
+        data: {
+          telnyxCallId: data.call_control_id,
+          telnyxSessionId: data.call_session_id || null,
+          fromNumber: from,
+          toNumber: to,
+          direction: direction,
+          status: 'ringing',
+          webhookData: data,
+        }
+      });
+    }
   } catch (error) {
     console.error('Error handling call ringing:', error);
   }
@@ -242,6 +310,17 @@ async function handleCallHangup(data: any) {
     } catch (e) {
       console.error('Failed to enqueue Telnyx CDR reconcile job', e)
     }
+
+    // Also try to fetch cost immediately from Detail Records API
+    // This runs in background and doesn't block webhook response
+    setTimeout(async () => {
+      try {
+        console.log('[TELNYX WEBHOOK][CALL] Fetching cost from Detail Records API:', data.call_control_id)
+        await fetchAndUpdateCallCost(data.call_control_id)
+      } catch (error) {
+        console.error('[TELNYX WEBHOOK][CALL] Error fetching cost from Detail Records API:', error)
+      }
+    }, 5000) // Wait 5 seconds before fetching (give Telnyx time to process)
 
 
     // Update billing if cost is available

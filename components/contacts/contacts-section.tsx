@@ -226,16 +226,16 @@ export default function ContactsSection() {
 
 
   return (
-    <div className="min-h-full bg-white">
+    <div className="min-h-full bg-background">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200">
+      <div className="p-6 border-b bg-card">
         <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Manage Contacts</h1>
-            <p className="text-gray-600">View, filter, and manage your property contacts</p>
+            <h1 className="text-3xl font-bold tracking-tight">Contacts</h1>
+            <p className="text-muted-foreground">Manage your contacts and track interactions</p>
           </div>
-          <Button onClick={() => setShowAddDialog(true)} className="flex items-center gap-2">
-            <Plus size={16} />
+          <Button onClick={() => setShowAddDialog(true)} className="bg-primary hover:bg-primary/90">
+            <Plus className="mr-2 h-4 w-4" />
             Add Contact
           </Button>
         </div>
@@ -331,21 +331,21 @@ export default function ContactsSection() {
 
 
       {/* Results Summary */}
-      <div className="px-6 py-3 bg-gray-50 border-b">
+      <div className="px-6 py-3 bg-muted/50 border-b">
         <div className="flex justify-between items-center">
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-muted-foreground">
             {pagination ? (
               <>
                 Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
                 {selectedContactIds.length > 0 && (
-                  <span className="ml-2 text-blue-600">• {selectedContactIds.length} selected</span>
+                  <span className="ml-2 text-primary font-medium">• {selectedContactIds.length} selected</span>
                 )}
               </>
             ) : (
               <>
                 Showing {finalFilteredContacts.length} of {contacts.length} contacts
                 {selectedContactIds.length > 0 && (
-                  <span className="ml-2 text-blue-600">• {selectedContactIds.length} selected</span>
+                  <span className="ml-2 text-primary font-medium">• {selectedContactIds.length} selected</span>
                 )}
               </>
             )}

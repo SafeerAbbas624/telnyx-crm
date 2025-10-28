@@ -228,10 +228,18 @@ export default function ImportPage() {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'text/csv': ['.csv'] }, maxFiles: 1 });
 
   return (
-    <div className="container mx-auto p-4 md:p-6 lg:p-8">
-      <div className="max-w-6xl mx-auto flex flex-col h-[calc(100vh-10rem)]">
-        <h1 className="text-3xl font-bold mb-2">Import Contacts</h1>
-        <p className="text-muted-foreground mb-6">Upload a CSV file to import new contacts.</p>
+    <div className="h-full flex flex-col bg-background">
+      {/* Header */}
+      <div className="border-b bg-card p-6">
+        <div className="mb-4">
+          <h1 className="text-3xl font-bold tracking-tight">Import Contacts</h1>
+          <p className="text-muted-foreground">Upload CSV files to import new contacts</p>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <div className="max-w-6xl mx-auto">
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-col flex-1 overflow-hidden">
           <TabsList className="grid w-full grid-cols-2">
@@ -419,6 +427,7 @@ export default function ImportPage() {
             </Card>
           </TabsContent>
         </Tabs>
+        </div>
       </div>
     </div>
   );

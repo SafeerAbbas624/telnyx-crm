@@ -439,7 +439,7 @@ export default function TemplateManager({
                     className="min-h-[200px]"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Use curly braces to add variables: {`{firstName}`}, {`{propertyAddress}`}, {`{cityState}`}, etc.
+                    Use curly braces to add variables: {`{firstName}`}, {`{propertyAddress}`}, {`{city}`}, {`{state}`}, etc.
                   </p>
                 </div>
 
@@ -449,21 +449,30 @@ export default function TemplateManager({
                     <div className="space-y-1">
                       <div className="text-gray-700">{`{firstName}`}</div>
                       <div className="text-gray-700">{`{lastName}`}</div>
+                      <div className="text-gray-700">{`{fullName}`}</div>
                       <div className="text-gray-700">{`{llcName}`}</div>
                       <div className="text-gray-700">{`{phone1}`}</div>
-                      <div className="text-gray-700">{`{email1}`}</div>
+                      <div className="text-gray-700">{`{phone2}`}</div>
+                      <div className="text-gray-700">{`{phone3}`}</div>
+                      <div className="text-gray-700">{`{phone}`}</div>
                     </div>
                     <div className="space-y-1">
+                      <div className="text-gray-700">{`{email1}`}</div>
+                      <div className="text-gray-700">{`{email2}`}</div>
+                      <div className="text-gray-700">{`{email3}`}</div>
+                      <div className="text-gray-700">{`{email}`}</div>
                       <div className="text-gray-700">{`{propertyAddress}`}</div>
                       <div className="text-gray-700">{`{contactAddress}`}</div>
                       <div className="text-gray-700">{`{city}`}</div>
                       <div className="text-gray-700">{`{state}`}</div>
-                      <div className="text-gray-700">{`{zipCode}`}</div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-gray-700">{`{propertyType}`}</div>
                       <div className="text-gray-700">{`{propertyCounty}`}</div>
                       <div className="text-gray-700">{`{bedrooms}`}</div>
+                      <div className="text-gray-700">{`{totalBathrooms}`}</div>
+                      <div className="text-gray-700">{`{buildingSqft}`}</div>
+                      <div className="text-gray-700">{`{effectiveYearBuilt}`}</div>
                       <div className="text-gray-700">{`{estValue}`}</div>
                       <div className="text-gray-700">{`{estEquity}`}</div>
                     </div>
@@ -525,7 +534,7 @@ export default function TemplateManager({
                   className="min-h-[200px]"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Use curly braces to add variables: {`{firstName}`}, {`{propertyAddress}`}, {`{cityState}`}, etc.
+                  Use curly braces to add variables: {`{firstName}`}, {`{propertyAddress}`}, {`{city}`}, {`{state}`}, etc.
                 </p>
               </div>
 
@@ -535,21 +544,30 @@ export default function TemplateManager({
                   <div className="space-y-1">
                     <div className="text-gray-700">{`{firstName}`}</div>
                     <div className="text-gray-700">{`{lastName}`}</div>
+                    <div className="text-gray-700">{`{fullName}`}</div>
                     <div className="text-gray-700">{`{llcName}`}</div>
                     <div className="text-gray-700">{`{phone1}`}</div>
-                    <div className="text-gray-700">{`{email1}`}</div>
+                    <div className="text-gray-700">{`{phone2}`}</div>
+                    <div className="text-gray-700">{`{phone3}`}</div>
+                    <div className="text-gray-700">{`{phone}`}</div>
                   </div>
                   <div className="space-y-1">
+                    <div className="text-gray-700">{`{email1}`}</div>
+                    <div className="text-gray-700">{`{email2}`}</div>
+                    <div className="text-gray-700">{`{email3}`}</div>
+                    <div className="text-gray-700">{`{email}`}</div>
                     <div className="text-gray-700">{`{propertyAddress}`}</div>
                     <div className="text-gray-700">{`{contactAddress}`}</div>
                     <div className="text-gray-700">{`{city}`}</div>
                     <div className="text-gray-700">{`{state}`}</div>
-                    <div className="text-gray-700">{`{zipCode}`}</div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-gray-700">{`{propertyType}`}</div>
                     <div className="text-gray-700">{`{propertyCounty}`}</div>
                     <div className="text-gray-700">{`{bedrooms}`}</div>
+                    <div className="text-gray-700">{`{totalBathrooms}`}</div>
+                    <div className="text-gray-700">{`{buildingSqft}`}</div>
+                    <div className="text-gray-700">{`{effectiveYearBuilt}`}</div>
                     <div className="text-gray-700">{`{estValue}`}</div>
                     <div className="text-gray-700">{`{estEquity}`}</div>
                   </div>

@@ -46,6 +46,8 @@ model Contact {
   email_conversations EmailConversation[]
   assignments        ContactAssignment[]
   properties         ContactProperty[]
+  powerDialerQueue   PowerDialerQueue[]
+  powerDialerCalls   PowerDialerCall[]
 
   // Performance indexes for common queries
   @@index([createdAt(sort: Desc)], name: "idx_contacts_created_at")
@@ -545,7 +547,7 @@ model TelnyxCall {
   id                String         @id @default(uuid()) @db.Uuid
   telnyxCallId      String?        @unique @map("telnyx_call_id")
   telnyxSessionId   String?        @unique @map("telnyx_session_id")
-  contactId         String         @map("contact_id") @db.Uuid
+  contactId         String?        @map("contact_id") @db.Uuid
   initiatedBy       String?        @map("initiated_by") @db.Uuid
   fromNumber        String         @map("from_number")
   toNumber          String         @map("to_number")
@@ -1014,6 +1016,11 @@ model EmailMessage {
   // Blast Association
   blastId           String?             @map("blast_id") @db.Uuid
 
+  // Email Threading
+  threadId          String?             @map("thread_id") // Thread identifier for grouping related emails
+  inReplyTo         String?             @map("in_reply_to") // Message-ID of the email this is replying to
+  references        String[]            @default([]) // Array of Message-IDs in the thread
+
   // Metadata
   headers           Json?               // Email headers
   attachments       Json?               // Attachment info
@@ -1148,6 +1155,7 @@ model User {
   accounts          Account[]           @relation("UserAccounts")
   automations       TextAutomation[]    @relation("UserAutomations")
   filterPresets     FilterPreset[]      @relation("UserFilterPresets")
+  powerDialerSessions PowerDialerSession[] @relation("PowerDialerSessions")
 
   @@map("users")
 }
@@ -1227,4 +1235,146 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@map("verification_tokens")
+}
+
+// Power Dialer Models
+model PowerDialerSession {
+  id                String              @id @default(uuid()) @db.Uuid
+  userId            String              @map("user_id") @db.Uuid
+  user              User                @relation("PowerDialerSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Session configuration
+  concurrentLines   Int                 @default(1) @map("concurrent_lines")
+  selectedNumbers   String[]            @map("selected_numbers") // Array of phone numbers to use for outbound
+
+  // Session status
+  status            PowerDialerStatus   @default(IDLE)
+
+  // Statistics
+  totalCalls        Int                 @default(0) @map("total_calls")
+  totalContacted    Int                 @default(0) @map("total_contacted")
+  totalAnswered     Int                 @default(0) @map("total_answered")
+  totalNoAnswer     Int                 @default(0) @map("total_no_answer")
+  totalTalkTime     Int                 @default(0) @map("total_talk_time") // in seconds
+
+  // Timestamps
+  startedAt         DateTime?           @map("started_at")
+  pausedAt          DateTime?           @map("paused_at")
+  completedAt       DateTime?           @map("completed_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  queueItems        PowerDialerQueue[]
+  calls             PowerDialerCall[]
+
+  @@index([userId, status])
+  @@index([createdAt(sort: Desc)])
+  @@map("power_dialer_sessions")
+}
+
+model PowerDialerQueue {
+  id                String              @id @default(uuid()) @db.Uuid
+  sessionId         String              @map("session_id") @db.Uuid
+  session           PowerDialerSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  contactId         String              @map("contact_id") @db.Uuid
+  contact           Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Queue status
+  status            QueueItemStatus     @default(PENDING)
+  priority          Int                 @default(0) // Higher priority = called first
+
+  // Retry tracking
+  attemptCount      Int                 @default(0) @map("attempt_count")
+  maxAttempts       Int                 @default(3) @map("max_attempts")
+  lastAttemptAt     DateTime?           @map("last_attempt_at")
+
+  // Result tracking
+  wasContacted      Boolean             @default(false) @map("was_contacted")
+  wasAnswered       Boolean             @default(false) @map("was_answered")
+
+  // Timestamps
+  addedAt           DateTime            @default(now()) @map("added_at")
+  completedAt       DateTime?           @map("completed_at")
+
+  // Relations
+  calls             PowerDialerCall[]
+
+  @@index([sessionId, status])
+  @@index([sessionId, priority(sort: Desc)])
+  @@map("power_dialer_queue")
+}
+
+model PowerDialerCall {
+  id                String              @id @default(uuid()) @db.Uuid
+  sessionId         String              @map("session_id") @db.Uuid
+  session           PowerDialerSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  queueItemId       String              @map("queue_item_id") @db.Uuid
+  queueItem         PowerDialerQueue    @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+
+  contactId         String              @map("contact_id") @db.Uuid
+  contact           Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Call details
+  fromNumber        String              @map("from_number")
+  toNumber          String              @map("to_number")
+
+  // Call tracking
+  webrtcSessionId   String?             @map("webrtc_session_id")
+  telnyxCallId      String?             @map("telnyx_call_id")
+
+  // Call status
+  status            PowerDialerCallStatus @default(INITIATED)
+
+  // Call outcome
+  answered          Boolean             @default(false)
+  droppedBusy       Boolean             @default(false) @map("dropped_busy") // Dropped because admin was busy
+  duration          Int?                // in seconds
+
+  // Timestamps
+  initiatedAt       DateTime            @default(now()) @map("initiated_at")
+  answeredAt        DateTime?           @map("answered_at")
+  endedAt           DateTime?           @map("ended_at")
+
+  @@index([sessionId, status])
+  @@index([queueItemId])
+  @@index([contactId])
+  @@map("power_dialer_calls")
+}
+
+enum PowerDialerStatus {
+  IDLE
+  RUNNING
+  PAUSED
+  COMPLETED
+  STOPPED
+}
+
+enum QueueItemStatus {
+  PENDING
+  CALLING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+enum PowerDialerCallStatus {
+  INITIATED
+  RINGING
+  ANSWERED
+  BUSY
+  NO_ANSWER
+  FAILED
+  COMPLETED
+}
+
+model Funder {
+  id                   String   @id @default(uuid()) @db.Uuid
+  name                 String   @unique
+  description          String?
+  requiredDocuments    String[] @default([])
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 }

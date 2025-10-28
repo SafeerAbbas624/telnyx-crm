@@ -42,6 +42,7 @@ interface SenderNumberSelectionProps {
   onSelectionModeChange: (mode: "single" | "multiple" | "all") => void
   rotationEnabled: boolean
   onRotationEnabledChange: (enabled: boolean) => void
+  selectedContactsCount?: number
 }
 
 export default function SenderNumberSelection({
@@ -52,6 +53,7 @@ export default function SenderNumberSelection({
   onSelectionModeChange,
   rotationEnabled,
   onRotationEnabledChange,
+  selectedContactsCount = 0,
 }: SenderNumberSelectionProps) {
   const [showAddNumberDialog, setShowAddNumberDialog] = useState(false)
   const [newPhoneNumber, setNewPhoneNumber] = useState("")
@@ -191,6 +193,12 @@ export default function SenderNumberSelection({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label className="text-sm font-medium">Available Numbers</Label>
+            {/* Total Text Blast Cost */}
+            {selectedContactsCount > 0 && (
+              <div className="text-sm font-semibold text-blue-600">
+                Total Text Blast Cost: ${(selectedContactsCount * 0.080).toFixed(2)}
+              </div>
+            )}
             <Dialog open={showAddNumberDialog} onOpenChange={setShowAddNumberDialog}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">

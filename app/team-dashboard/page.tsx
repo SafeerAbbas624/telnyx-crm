@@ -4,10 +4,14 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import TeamDashboard from "@/components/team/team-dashboard"
+import { useActivityHeartbeat } from "@/hooks/use-activity-heartbeat"
 
 export default function TeamDashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
+
+  // Send periodic heartbeat to track online status
+  useActivityHeartbeat()
 
   useEffect(() => {
     if (status === "loading") return // Still loading

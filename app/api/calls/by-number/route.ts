@@ -25,6 +25,8 @@ export async function GET(request: NextRequest) {
     const e164 = formatPhoneNumberForTelnyx(cleaned) || cleaned
     const last10 = last10Digits(cleaned)
 
+    console.log('[CALLS BY NUMBER] Query params:', { raw, cleaned, e164, last10, role: session.user.role })
+
     // Role-based access: team users may only fetch logs for their assigned number
     const role = session.user.role
     if (role === 'TEAM_USER' || role === 'TEAM_MEMBER') {
@@ -50,6 +52,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    console.log('[CALLS BY NUMBER] OR conditions:', JSON.stringify(orConditions, null, 2))
+
     const calls = await prisma.telnyxCall.findMany({
       where: {
         OR: orConditions
@@ -73,6 +77,8 @@ export async function GET(request: NextRequest) {
         contactId: true,
       }
     })
+
+    console.log('[CALLS BY NUMBER] Found calls:', calls.length)
 
     // Transform shape to match other calls endpoints
     const transformed = calls.map(call => ({

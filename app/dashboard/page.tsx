@@ -5,8 +5,12 @@ import { ContactsProvider } from "@/lib/context/contacts-context"
 import { ActivitiesProvider } from "@/lib/context/activities-context"
 import { ProcessProvider } from "@/lib/context/process-context"
 import Dashboard from "@/components/dashboard"
+import { useActivityHeartbeat } from "@/hooks/use-activity-heartbeat"
 
 export default function DashboardPage() {
+  // Send periodic heartbeat to track online status
+  useActivityHeartbeat()
+
   return (
     <ContactsProvider>
       <ActivitiesProvider>

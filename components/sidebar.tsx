@@ -1,6 +1,19 @@
 "use client"
 
-import { Home, Users, MessageSquare, Upload, Phone, DollarSign, Mail, Settings, UserCheck } from "lucide-react"
+import {
+  Home,
+  Users,
+  MessageSquare,
+  Upload,
+  Phone,
+  DollarSign,
+  Mail,
+  Settings,
+  UserCheck,
+  Target,
+  FileText,
+  Zap
+} from "lucide-react"
 
 interface SidebarProps {
   activeTab?: string
@@ -13,12 +26,15 @@ export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen 
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: Home },
     { id: "contacts", label: "Contacts", icon: Users },
+    { id: "deals", label: "Deals", icon: Target },
+    { id: "loan-copilot", label: "Loan Co-Pilot", icon: FileText },
+    { id: "sequences", label: "Sequences", icon: Zap },
     { id: "messaging", label: "Text Center", icon: MessageSquare },
     { id: "email", label: "Email Center", icon: Mail },
     { id: "calls", label: "Calls", icon: Phone },
     { id: "billing", label: "Billing", icon: DollarSign },
     { id: "import", label: "Import", icon: Upload },
-    { id: "team-overview", label: "Team Overview", icon: UserCheck },
+    { id: "team-overview", label: "Team", icon: UserCheck },
     { id: "settings", label: "Settings", icon: Settings },
   ]
 
@@ -32,7 +48,7 @@ export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen 
   }
 
   return (
-    <div className={`h-full flex flex-col bg-card border-r ${isOpen ? "block" : "hidden"} lg:block lg:w-64`}>
+    <div className={`h-full flex flex-col bg-[#f8f9fa] border-r border-gray-200 ${isOpen ? "block" : "hidden"} lg:block lg:w-64`}>
       <nav className="flex-1 px-3 py-4">
         <ul className="space-y-1">
           {menuItems.map((item) => {
@@ -41,10 +57,10 @@ export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen 
               <li key={item.id}>
                 <button
                   onClick={() => handleTabClick(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors ${
                     activeTab === item.id
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted"
+                      ? "bg-primary text-white"
+                      : "text-gray-700 hover:bg-gray-100"
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -55,17 +71,6 @@ export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen 
           })}
         </ul>
       </nav>
-      <div className="p-4 border-t">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <Users className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">Your Account</p>
-            <p className="text-xs text-muted-foreground">Pro Plan</p>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

@@ -137,25 +137,48 @@ export async function POST(request: NextRequest) {
 
     // Update conversation unread count if marking as read
     if (isRead !== false) {
-      // Get the conversations that need updating
-      const messages = await prisma.emailMessage.findMany({
+      // Get the messages that were updated
+      const updatedMessagesList = await prisma.emailMessage.findMany({
         where: { id: { in: messageIds } },
-        select: { contactId: true, fromEmail: true }
+        select: {
+          id: true,
+          contactId: true,
+          fromEmail: true,
+          direction: true,
+          emailAccountId: true,
+          openedAt: true
+        }
       });
 
+      console.log(`📧 [MARK-READ] Updating unread counts for ${updatedMessagesList.length} messages`);
+
+      // Group messages by conversation to avoid decrementing multiple times
+      const conversationUpdates = new Map<string, number>();
+
+      for (const message of updatedMessagesList) {
+        // Only count inbound messages that weren't already read
+        if (message.direction === 'inbound' && message.openedAt) {
+          const key = `${message.contactId}:${message.fromEmail}`;
+          conversationUpdates.set(key, (conversationUpdates.get(key) || 0) + 1);
+        }
+      }
+
       // Update unread counts for affected conversations
-      for (const message of messages) {
-        await prisma.emailConversation?.updateMany({
+      for (const [key, count] of conversationUpdates.entries()) {
+        const [contactId, fromEmail] = key.split(':');
+        const result = await prisma.emailConversation?.updateMany({
           where: {
-            contactId: message.contactId,
-            emailAddress: message.fromEmail,
+            contactId: contactId,
+            emailAddress: fromEmail,
           },
           data: {
             unreadCount: {
-              decrement: 1
+              decrement: count
             }
           }
         });
+
+        console.log(`📧 [MARK-READ] Decremented unread count by ${count} for contact ${contactId}, fromEmail: ${fromEmail}, result:`, result);
       }
     }
 

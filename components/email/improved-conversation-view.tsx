@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import RichTextEditor from './rich-text-editor'
 import { useEmailUpdates } from '@/lib/hooks/use-socket'
+import { validateEmails, getEmailValidationError } from '@/lib/email-validation'
 
 interface EmailMessage {
   id: string
@@ -99,6 +100,9 @@ export default function ImprovedConversationView({
   const [replySubject, setReplySubject] = useState('')
   const [replyTo, setReplyTo] = useState<string[]>([])
   const [replyCc, setReplyCc] = useState<string[]>([])
+  const [replyBcc, setReplyBcc] = useState<string[]>([])
+  const [showCc, setShowCc] = useState(false)
+  const [showBcc, setShowBcc] = useState(false)
   const [replyType, setReplyType] = useState<'reply' | 'replyAll' | 'forward'>('reply')
   const [showReplyBox, setShowReplyBox] = useState(false)
   const [isSending, setIsSending] = useState(false)
@@ -122,6 +126,50 @@ export default function ImprovedConversationView({
     // Auto-scroll to bottom
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Load draft from localStorage when reply box opens
+  useEffect(() => {
+    if (showReplyBox && conversationId) {
+      const draftKey = `reply-draft-${conversationId}`
+      const savedDraft = localStorage.getItem(draftKey)
+      if (savedDraft) {
+        try {
+          const draft = JSON.parse(savedDraft)
+          setReplyContent(draft.replyContent || '')
+          setReplySubject(draft.replySubject || '')
+          setReplyTo(draft.replyTo || [])
+          setReplyCc(draft.replyCc || [])
+          setReplyBcc(draft.replyBcc || [])
+          setShowCc(draft.replyCc && draft.replyCc.length > 0)
+          setShowBcc(draft.replyBcc && draft.replyBcc.length > 0)
+        } catch (err) {
+          console.error('Failed to load draft:', err)
+        }
+      }
+    }
+  }, [showReplyBox, conversationId])
+
+  // Auto-save draft to localStorage every 5 seconds
+  useEffect(() => {
+    if (!showReplyBox || !conversationId) return
+
+    const draftKey = `reply-draft-${conversationId}`
+    const saveDraft = () => {
+      const draft = {
+        replyContent,
+        replySubject,
+        replyTo,
+        replyCc,
+        replyBcc,
+        timestamp: Date.now()
+      }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+    }
+
+    const intervalId = setInterval(saveDraft, 5000) // Save every 5 seconds
+
+    return () => clearInterval(intervalId)
+  }, [showReplyBox, conversationId, replyContent, replySubject, replyTo, replyCc, replyBcc])
 
   // Resizable reply box with mouse events
   useEffect(() => {
@@ -193,6 +241,17 @@ export default function ImprovedConversationView({
         if (data.messages && data.messages.length > 0) {
           setExpandedMessages(new Set([data.messages[data.messages.length - 1].id]))
         }
+
+        // Auto-mark all unread messages as read
+        if (data.messages && data.messages.length > 0) {
+          const unreadMessageIds = data.messages
+            .filter((msg: EmailMessage) => !msg.openedAt && msg.direction === 'inbound')
+            .map((msg: EmailMessage) => msg.id)
+
+          if (unreadMessageIds.length > 0) {
+            markMessagesAsRead(unreadMessageIds)
+          }
+        }
       } else {
         const errorData = await response.json().catch(() => ({}))
         console.error('Error response:', errorData)
@@ -211,6 +270,29 @@ export default function ImprovedConversationView({
       })
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const markMessagesAsRead = async (messageIds: string[]) => {
+    try {
+      const response = await fetch('/api/email/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageIds, isRead: true })
+      })
+
+      if (response.ok) {
+        // Update local state
+        setMessages(prev => prev.map(msg =>
+          messageIds.includes(msg.id)
+            ? { ...msg, openedAt: new Date().toISOString() }
+            : msg
+        ))
+        // Notify parent to refresh conversation list
+        onUpdate?.()
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error)
     }
   }
 
@@ -305,6 +387,45 @@ export default function ImprovedConversationView({
       return
     }
 
+    // Validate email addresses
+    const emailsToValidate = replyTo.length > 0 ? replyTo : [contact.email1]
+    const validation = validateEmails(emailsToValidate)
+
+    if (!validation.allValid) {
+      toast({
+        title: 'Invalid Email Address',
+        description: getEmailValidationError(validation.invalid),
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Validate CC emails if present
+    if (replyCc.length > 0) {
+      const ccValidation = validateEmails(replyCc)
+      if (!ccValidation.allValid) {
+        toast({
+          title: 'Invalid CC Email Address',
+          description: getEmailValidationError(ccValidation.invalid),
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
+    // Validate BCC emails if present
+    if (replyBcc.length > 0) {
+      const bccValidation = validateEmails(replyBcc)
+      if (!bccValidation.allValid) {
+        toast({
+          title: 'Invalid BCC Email Address',
+          description: getEmailValidationError(bccValidation.invalid),
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     setIsSending(true)
     try {
       const formData = new FormData()
@@ -312,11 +433,11 @@ export default function ImprovedConversationView({
       formData.append('contactId', contact.id)
       formData.append('toEmails', JSON.stringify(replyTo.length > 0 ? replyTo : [contact.email1]))
       formData.append('ccEmails', JSON.stringify(replyCc))
-      formData.append('bccEmails', JSON.stringify([]))
+      formData.append('bccEmails', JSON.stringify(replyBcc))
       formData.append('subject', replySubject)
       formData.append('content', replyContent)
       formData.append('textContent', replyContent.replace(/<[^>]*>/g, ''))
-      
+
       // Add attachments
       attachments.forEach((file) => {
         formData.append('attachments', file)
@@ -332,11 +453,21 @@ export default function ImprovedConversationView({
           title: '✅ Email Sent!',
           description: 'Your email has been sent successfully'
         })
+
+        // Clear draft from localStorage
+        if (conversationId) {
+          const draftKey = `reply-draft-${conversationId}`
+          localStorage.removeItem(draftKey)
+        }
+
         // Clear form but keep reply box visible
         setReplyContent('')
         setReplySubject('')
         setReplyTo([])
         setReplyCc([])
+        setReplyBcc([])
+        setShowCc(false)
+        setShowBcc(false)
         setAttachments([])
         setReplyType('reply')
         fetchMessages()
@@ -451,7 +582,7 @@ export default function ImprovedConversationView({
   )
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-white overflow-hidden">
       {/* Header */}
       <div className="border-b bg-white px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-3">
@@ -513,13 +644,9 @@ export default function ImprovedConversationView({
         </div>
       </div>
 
-      {/* Messages - Adjust height based on reply box */}
-      <ScrollArea
-        className="flex-1 px-6 py-4"
-        style={{
-          height: replyType ? `calc(100% - ${replyBoxHeight}px - 180px)` : 'calc(100% - 180px)'
-        }}
-      >
+      {/* Messages - Scrollable area */}
+      <div className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full px-6 py-4">
         {filteredMessages.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-500">
@@ -594,23 +721,25 @@ export default function ImprovedConversationView({
                       {/* Attachments */}
                       {message.attachments && message.attachments.length > 0 && (
                         <div className="mt-4 pt-4 border-t">
-                          <p className="text-sm font-semibold text-gray-700 mb-2">Attachments:</p>
+                          <p className="text-sm font-semibold text-gray-700 mb-2">
+                            📎 {message.attachments.length} Attachment{message.attachments.length > 1 ? 's' : ''}:
+                          </p>
                           <div className="flex flex-wrap gap-2">
                             {message.attachments.map((attachment, idx) => (
                               <a
                                 key={idx}
-                                href={attachment.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                href={attachment.url || `/api/email/attachments/download?url=${encodeURIComponent(attachment.url || '')}`}
+                                download={attachment.filename}
+                                className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
+                                title={`Download ${attachment.filename}`}
                               >
                                 {attachment.contentType?.startsWith('image/') ? (
                                   <ImageIcon className="h-4 w-4 text-blue-600" />
                                 ) : (
-                                  <File className="h-4 w-4 text-gray-600" />
+                                  <File className="h-4 w-4 text-blue-600" />
                                 )}
-                                <span className="text-sm">{attachment.filename}</span>
-                                <span className="text-xs text-gray-500">
+                                <span className="text-sm font-medium text-blue-900">{attachment.filename}</span>
+                                <span className="text-xs text-blue-600">
                                   ({(attachment.size / 1024).toFixed(1)} KB)
                                 </span>
                               </a>
@@ -663,7 +792,8 @@ export default function ImprovedConversationView({
             <div ref={messagesEndRef} />
           </div>
         )}
-      </ScrollArea>
+        </ScrollArea>
+      </div>
 
       {/* Reply Box */}
       {showReplyBox && (
@@ -702,12 +832,82 @@ export default function ImprovedConversationView({
             </div>
 
             {replyType === 'forward' && (
-              <Input
-                value={replyTo.join(', ')}
-                onChange={(e) => setReplyTo(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                placeholder="To: email@example.com"
-                className="mb-2"
-              />
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-600">To</label>
+                  <div className="flex gap-2">
+                    {!showCc && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCc(true)}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        Cc
+                      </button>
+                    )}
+                    {!showBcc && (
+                      <button
+                        type="button"
+                        onClick={() => setShowBcc(true)}
+                        className="text-xs text-blue-600 hover:text-blue-800"
+                      >
+                        Bcc
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <Input
+                  value={replyTo.join(', ')}
+                  onChange={(e) => setReplyTo(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="email@example.com"
+                />
+              </div>
+            )}
+
+            {showCc && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-600">Cc</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCc(false)
+                      setReplyCc([])
+                    }}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <Input
+                  value={replyCc.join(', ')}
+                  onChange={(e) => setReplyCc(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="Comma-separated email addresses..."
+                />
+              </div>
+            )}
+
+            {showBcc && (
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-600">Bcc</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowBcc(false)
+                      setReplyBcc([])
+                    }}
+                    className="text-xs text-gray-500 hover:text-gray-700"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <Input
+                  value={replyBcc.join(', ')}
+                  onChange={(e) => setReplyBcc(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="Comma-separated email addresses..."
+                />
+              </div>
             )}
 
             <Input

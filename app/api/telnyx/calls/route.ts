@@ -196,27 +196,40 @@ export async function POST(request: NextRequest) {
     // Save call to database (skip if models not available)
     let savedCall = null;
     if (prisma.telnyxCall) {
-      savedCall = await prisma.telnyxCall.create({
-        data: {
-          telnyxCallId: telnyxData.data.call_control_id,
-          contactId: contactId || null,
-          fromNumber: formattedFromNumber,
-          toNumber: formattedToNumber,
-          direction: 'outbound',
-          status: 'initiated',
-        },
-      });
-      console.log('[TELNYX CALLS][DB] Saved telnyxCall', { id: savedCall?.id, telnyxCallId: savedCall?.telnyxCallId })
-
-      // Update phone number usage stats
-      if (prisma.telnyxPhoneNumber) {
-        await prisma.telnyxPhoneNumber.update({
-          where: { phoneNumber: formattedFromNumber },
+      try {
+        savedCall = await prisma.telnyxCall.create({
           data: {
-            totalCallCount: { increment: 1 },
-            lastUsedAt: new Date(),
+            telnyxCallId: telnyxData.data.call_control_id,
+            contactId: contactId || null,
+            initiatedBy: session?.user?.id || null,
+            fromNumber: formattedFromNumber,
+            toNumber: formattedToNumber,
+            direction: 'outbound',
+            status: 'initiated',
           },
         });
+        console.log('[TELNYX CALLS][DB] ✅ Saved telnyxCall', {
+          id: savedCall?.id,
+          telnyxCallId: savedCall?.telnyxCallId,
+          contactId: savedCall?.contactId,
+          fromNumber: savedCall?.fromNumber,
+          toNumber: savedCall?.toNumber
+        })
+
+        // Update phone number usage stats
+        if (prisma.telnyxPhoneNumber) {
+          await prisma.telnyxPhoneNumber.update({
+            where: { phoneNumber: formattedFromNumber },
+            data: {
+              totalCallCount: { increment: 1 },
+              lastUsedAt: new Date(),
+            },
+          });
+        }
+      } catch (dbError) {
+        console.error('[TELNYX CALLS][DB] ❌ Failed to save telnyxCall:', dbError);
+        // Continue anyway - the call was initiated successfully via Telnyx
+        // The webhook handler will create the record if needed
       }
     }
 

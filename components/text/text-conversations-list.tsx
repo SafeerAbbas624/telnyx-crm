@@ -56,6 +56,19 @@ export default function TextConversationsList({
         const { rtcClient } = await import('@/lib/webrtc/rtc-client')
         await rtcClient.ensureRegistered()
         const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber })
+
+        // Log the call to database
+        fetch('/api/telnyx/webrtc-calls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webrtcSessionId: sessionId,
+            contactId: contact.id,
+            fromNumber,
+            toNumber,
+          })
+        }).catch(err => console.error('Failed to log call:', err))
+
         openCall({
           contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
           fromNumber,

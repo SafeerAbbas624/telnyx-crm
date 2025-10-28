@@ -5,6 +5,77 @@ import { prisma } from '@/lib/db';
 import { decrypt } from '@/lib/encryption';
 import nodemailer from 'nodemailer';
 import { emitToAccount } from '@/lib/socket-server';
+import { validateEmails, getEmailValidationError } from '@/lib/email-validation';
+import { saveAttachments } from '@/lib/attachment-storage';
+import { extractThreadId, buildReferences } from '@/lib/email-threading';
+import * as Imap from 'imap-simple';
+
+// Helper function to save sent email to IMAP Sent folder
+async function saveSentEmailToImap(
+  emailAccount: any,
+  mailOptions: any,
+  messageId: string
+) {
+  try {
+    console.log(`📤 Saving sent email to IMAP Sent folder for ${emailAccount.emailAddress}...`);
+
+    // Decrypt IMAP password
+    const imapPassword = decrypt(emailAccount.imapPassword, emailAccount.imapPasswordIv);
+
+    // Create IMAP config
+    const imapConfig = {
+      imap: {
+        user: emailAccount.imapUsername,
+        password: imapPassword,
+        host: emailAccount.imapHost,
+        port: emailAccount.imapPort,
+        tls: emailAccount.imapEncryption === 'TLS',
+        tlsOptions: { rejectUnauthorized: false },
+        authTimeout: 10000,
+      }
+    };
+
+    // Connect to IMAP
+    const connection = await Imap.connect(imapConfig);
+
+    // Build email message in RFC 2822 format
+    const emailContent = `From: ${mailOptions.from}
+To: ${mailOptions.to}
+${mailOptions.cc ? `Cc: ${mailOptions.cc}` : ''}
+${mailOptions.bcc ? `Bcc: ${mailOptions.bcc}` : ''}
+Subject: ${mailOptions.subject}
+Message-ID: <${messageId}>
+Date: ${new Date().toUTCString()}
+Content-Type: text/html; charset=utf-8
+
+${mailOptions.html || mailOptions.text}`;
+
+    // Try common sent folder names
+    const sentFolderNames = ['Sent', '[Gmail]/Sent Mail', 'Sent Items', 'Sent Messages'];
+    let saved = false;
+
+    for (const folderName of sentFolderNames) {
+      try {
+        await connection.openBox(folderName);
+        await connection.append(Buffer.from(emailContent), { flags: ['\\Seen'] });
+        console.log(`✅ Saved sent email to ${folderName}`);
+        saved = true;
+        break;
+      } catch (error: any) {
+        console.log(`⏭️ Could not save to ${folderName}, trying next...`);
+      }
+    }
+
+    connection.end();
+
+    if (!saved) {
+      console.warn(`⚠️ Could not save sent email to any Sent folder`);
+    }
+  } catch (error: any) {
+    console.error(`⚠️ Failed to save sent email to IMAP:`, error.message);
+    // Don't fail the email send if IMAP save fails
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,6 +90,7 @@ export async function POST(request: NextRequest) {
     // Check if request is FormData (with attachments) or JSON
     const contentType = request.headers.get('content-type') || '';
     let emailAccountId, contactId, toEmails, ccEmails, bccEmails, subject, content, textContent, blastId;
+    let inReplyTo, replyToMessageId;
     let attachments: File[] = [];
 
     if (contentType.includes('multipart/form-data')) {
@@ -33,6 +105,8 @@ export async function POST(request: NextRequest) {
       content = formData.get('content') as string;
       textContent = formData.get('textContent') as string;
       blastId = formData.get('blastId') as string;
+      inReplyTo = formData.get('inReplyTo') as string;
+      replyToMessageId = formData.get('replyToMessageId') as string;
 
       // Get attachments
       const attachmentFiles = formData.getAll('attachments');
@@ -49,6 +123,8 @@ export async function POST(request: NextRequest) {
       content = body.content;
       textContent = body.textContent;
       blastId = body.blastId;
+      inReplyTo = body.inReplyTo;
+      replyToMessageId = body.replyToMessageId;
     }
 
     // Enforce team restriction: must send from assigned email account
@@ -75,6 +151,37 @@ export async function POST(request: NextRequest) {
         { error: 'Missing toEmails - at least one recipient is required' },
         { status: 400 }
       );
+    }
+
+    // Validate email addresses
+    const toValidation = validateEmails(Array.isArray(toEmails) ? toEmails : [toEmails])
+    if (!toValidation.allValid) {
+      return NextResponse.json(
+        { error: `Invalid recipient email: ${getEmailValidationError(toValidation.invalid)}` },
+        { status: 400 }
+      );
+    }
+
+    // Validate CC emails if present
+    if (ccEmails && ccEmails.length > 0) {
+      const ccValidation = validateEmails(ccEmails)
+      if (!ccValidation.allValid) {
+        return NextResponse.json(
+          { error: `Invalid CC email: ${getEmailValidationError(ccValidation.invalid)}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate BCC emails if present
+    if (bccEmails && bccEmails.length > 0) {
+      const bccValidation = validateEmails(bccEmails)
+      if (!bccValidation.allValid) {
+        return NextResponse.json(
+          { error: `Invalid BCC email: ${getEmailValidationError(bccValidation.invalid)}` },
+          { status: 400 }
+        );
+      }
     }
 
     if (!subject) {
@@ -203,20 +310,81 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Prepare attachment metadata for database
-    const attachmentMetadata = attachments.map(file => ({
-      filename: file.name,
-      contentType: file.type,
-      size: file.size,
-    }));
+    // Save sent email to IMAP Sent folder (async, don't wait)
+    saveSentEmailToImap(emailAccount, mailOptions, info.messageId).catch(err => {
+      console.error('Error in saveSentEmailToImap:', err);
+    });
 
-    // Save to database
+    // Build threading information
+    let threadId = null
+    let references: string[] = []
+
+    if (replyToMessageId) {
+      // This is a reply - fetch the original message to get threading info
+      try {
+        const originalMessage = await prisma.emailMessage.findUnique({
+          where: { id: replyToMessageId }
+        })
+
+        if (originalMessage) {
+          // Build references array
+          const originalRefs = (originalMessage.references as string[]) || []
+          references = buildReferences(originalRefs, originalMessage.messageId || '')
+
+          // Use the original message's thread ID or message ID
+          threadId = originalMessage.threadId || originalMessage.messageId
+        }
+      } catch (err) {
+        console.error('Failed to fetch original message for threading:', err)
+      }
+    }
+
+    // Auto-create contact for recipient if not provided and contact doesn't exist
+    let finalContactId = contactId
+    if (!finalContactId && toEmails.length > 0) {
+      try {
+        const recipientEmail = toEmails[0]
+        console.log(`🔍 Looking for contact with email: ${recipientEmail}`)
+
+        // Try to find existing contact
+        let contact = await prisma.contact.findFirst({
+          where: {
+            OR: [
+              { email1: recipientEmail },
+              { email2: recipientEmail },
+              { email3: recipientEmail },
+            ]
+          }
+        })
+
+        // If not found, create new contact
+        if (!contact) {
+          console.log(`👤 Auto-creating contact for recipient: ${recipientEmail}`)
+          const nameParts = recipientEmail.split('@')[0].split('.')
+          contact = await prisma.contact.create({
+            data: {
+              firstName: nameParts[0] || 'Unknown',
+              lastName: nameParts.slice(1).join(' ') || '',
+              email1: recipientEmail,
+            }
+          })
+          console.log(`✅ Created contact ${contact.id} for ${recipientEmail}`)
+        }
+
+        finalContactId = contact.id
+      } catch (err: any) {
+        console.error(`⚠️ Failed to auto-create contact for recipient:`, err.message)
+        // Don't fail the email send if contact creation fails
+      }
+    }
+
+    // Save to database first to get message ID
     let emailMessage: any = null
     try {
       emailMessage = await prisma.emailMessage.create({
         data: {
           messageId: info.messageId,
-          contactId: contactId || null,
+          contactId: finalContactId || null,
           emailAccountId,
           fromEmail: emailAccount.emailAddress,
           fromName: emailAccount.displayName,
@@ -231,10 +399,28 @@ export async function POST(request: NextRequest) {
           sentAt: new Date(),
           deliveredAt: new Date(),
           blastId: blastId || null,
-          attachments: attachmentMetadata.length > 0 ? attachmentMetadata : null,
+          threadId: threadId || info.messageId, // Use thread ID or this message's ID
+          inReplyTo: inReplyTo || null,
+          references,
+          attachments: null, // Will update after saving files
         },
       })
       console.log('✅ Email saved to database:', emailMessage.id);
+
+      // Save attachments to disk and update database
+      if (attachments.length > 0) {
+        console.log(`💾 Saving ${attachments.length} attachments to disk...`)
+        const savedAttachments = await saveAttachments(attachments, emailMessage.id)
+
+        // Update email message with attachment URLs
+        await prisma.emailMessage.update({
+          where: { id: emailMessage.id },
+          data: {
+            attachments: savedAttachments
+          }
+        })
+        console.log(`✅ Saved ${savedAttachments.length} attachments`)
+      }
     } catch (err) {
       console.error('⚠️ Warning: email sent but failed to persist emailMessage:', err)
       // Do not fail the request; email was sent successfully
@@ -254,14 +440,14 @@ export async function POST(request: NextRequest) {
       console.error('⚠️ Failed to emit Socket.IO event:', socketError);
     }
 
-    // Update or create conversation if contactId is provided
-    if (contactId && prisma.emailConversation) {
+    // Update or create conversation if finalContactId is provided
+    if (finalContactId && prisma.emailConversation) {
       try {
         const primaryEmail = toEmails[0];
         await prisma.emailConversation.upsert({
           where: {
             contactId_emailAddress: {
-              contactId,
+              contactId: finalContactId,
               emailAddress: primaryEmail,
             }
           },
@@ -275,7 +461,7 @@ export async function POST(request: NextRequest) {
             // Don't increment unread count for outbound messages
           },
           create: {
-            contactId,
+            contactId: finalContactId,
             emailAddress: primaryEmail,
             lastMessageId: emailMessage.id,
             lastMessageContent: subject,

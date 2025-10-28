@@ -10,6 +10,8 @@ export async function GET(
     try {
       const adminId = user.sub
       const { userId } = params
+      const { searchParams } = new URL(request.url)
+      const days = searchParams.get('days')
 
       if (!userId) {
         return NextResponse.json(
@@ -34,7 +36,17 @@ export async function GET(
         )
       }
 
-      // Get statistics for this team user
+      // Calculate date filter if days parameter is provided
+      let dateFilter = {}
+      if (days) {
+        const daysAgo = new Date()
+        daysAgo.setDate(daysAgo.getDate() - parseInt(days))
+        dateFilter = {
+          gte: daysAgo
+        }
+      }
+
+      // Get statistics for this team user based on assigned resources
       const [
         totalActivities,
         totalMessages,
@@ -44,28 +56,35 @@ export async function GET(
         // Count activities created by this user
         prisma.activity.count({
           where: {
-            created_by: userId
+            created_by: userId,
+            ...(days ? { created_at: dateFilter } : {})
           }
         }),
 
-        // Count messages sent by this user
+        // Count messages sent from this user's assigned phone number
         prisma.message.count({
           where: {
-            sent_by: userId
-          }
-        }),
-
-        // Count calls initiated by this user
-        prisma.telnyxCall.count({
-          where: {
-            initiatedBy: userId
+            phoneNumber: teamUser.assignedPhoneNumber || undefined,
+            direction: 'outbound',
+            ...(days ? { timestamp: dateFilter } : {})
           }
         }).catch(() => 0),
 
-        // Count emails sent by this user
+        // Count calls made from this user's assigned phone number
+        prisma.telnyxCall.count({
+          where: {
+            fromNumber: teamUser.assignedPhoneNumber || undefined,
+            direction: 'outbound',
+            ...(days ? { createdAt: dateFilter } : {})
+          }
+        }).catch(() => 0),
+
+        // Count emails sent from this user's assigned email account
         prisma.emailMessage.count({
           where: {
-            sentBy: userId
+            emailAccountId: teamUser.assignedEmailId || undefined,
+            direction: 'outbound',
+            ...(days ? { sentAt: dateFilter } : {})
           }
         }).catch(() => 0)
       ])
