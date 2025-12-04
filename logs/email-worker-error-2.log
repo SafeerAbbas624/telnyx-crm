@@ -1,0 +1,302 @@
+2025-12-03T20:07:06: 
+2025-12-03T20:07:06: <--- Last few GCs --->
+2025-12-03T20:07:06: 
+2025-12-03T20:07:06: [2126864:0x1325b000]   425576 ms: Mark-Compact (reduce) 2018.2 (2066.4) -> 2018.1 (2063.1) MB, pooled: 0 MB, 94.61 / 0.00 ms  (average mu = 0.286, current mu = 0.003) last resort; GC in old space requested
+2025-12-03T20:07:06: [2126864:0x1325b000]   425659 ms: Mark-Compact (reduce) 2018.1 (2063.1) -> 2018.1 (2062.9) MB, pooled: 0 MB, 82.89 / 0.00 ms  (average mu = 0.167, current mu = 0.000) last resort; GC in old space requested
+2025-12-03T20:07:06: 
+2025-12-03T20:07:06: 
+2025-12-03T20:07:06: <--- JS stacktrace --->
+2025-12-03T20:07:06: 
+2025-12-03T20:07:06: FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+2025-12-03T20:07:06: ----- Native stack trace -----
+2025-12-03T20:07:06: 
+2025-12-03T20:07:06:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:07:06:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:07:06:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:07:06:  4: 0x14095cc v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:07:06:  5: 0x13e17de v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:07:06:  6: 0x13d08d4 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8::internal::Tagged<v8::internal::Map>, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:07:06:  7: 0x13d1d9e v8::internal::FactoryBase<v8::internal::Factory>::NewRawOneByteString(int, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T20:07:06:  8: 0x172705d v8::internal::String::SlowFlatten(v8::internal::Isolate*, v8::internal::Handle<v8::internal::ConsString>, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T20:07:06:  9: 0x12048d3 v8::String::Utf8Length(v8::Isolate*) const [/usr/bin/node]
+2025-12-03T20:07:06: 10: 0xf37367  [/usr/bin/node]
+2025-12-03T20:07:06: 11: 0x786223e0f5e2 
+2025-12-03T20:08:05: Email sync job failed: PrismaClientKnownRequestError: 
+2025-12-03T20:08:05: Invalid `prisma.emailAccount.findMany()` invocation:
+2025-12-03T20:08:05: 
+2025-12-03T20:08:05: 
+2025-12-03T20:08:05: Inconsistent column data: Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `l` at 2
+2025-12-03T20:08:05:     at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/RequestHandler.ts:228:13)
+2025-12-03T20:08:05:     at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/RequestHandler.ts:174:12)
+2025-12-03T20:08:05:     at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/RequestHandler.ts:143:12)
+2025-12-03T20:08:05:     at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:862:24)
+2025-12-03T20:08:05:     at async Queue.processEmailSync (/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts:223:9) {
+2025-12-03T20:08:05:   code: 'P2023',
+2025-12-03T20:08:05:   meta: {
+2025-12-03T20:08:05:     modelName: 'EmailAccount',
+2025-12-03T20:08:05:     message: 'Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `l` at 2'
+2025-12-03T20:08:05:   },
+2025-12-03T20:08:05:   clientVersion: '6.12.0'
+2025-12-03T20:08:05: }
+2025-12-03T20:08:05: ❌ Email sync job sync-all-1764789334756 failed: 
+2025-12-03T20:08:05: Invalid `prisma.emailAccount.findMany()` invocation:
+2025-12-03T20:08:05: 
+2025-12-03T20:08:05: 
+2025-12-03T20:08:05: Inconsistent column data: Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `l` at 2
+2025-12-03T20:08:35: ❌ Email sync job sync-all-1764788072763 failed: job stalled more than allowable limit
+2025-12-03T20:08:35: ❌ Email sync job sync-all-1764788012764 failed: job stalled more than allowable limit
+2025-12-03T20:14:45: node:events:497
+2025-12-03T20:14:45:       throw er; // Unhandled 'error' event
+2025-12-03T20:14:45:       ^
+2025-12-03T20:14:45: 
+2025-12-03T20:14:45: Error: read ECONNRESET
+2025-12-03T20:14:45:     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+2025-12-03T20:14:45: Emitted 'error' event on ImapSimple instance at:
+2025-12-03T20:14:45:     at Connection.<anonymous> (/var/www/adlercapitalcrm.com/node_modules/imap-simple/lib/imapSimple.js:39:14)
+2025-12-03T20:14:45:     at Connection.emit (node:events:519:28)
+2025-12-03T20:14:45:     at TLSSocket._onError (/var/www/adlercapitalcrm.com/node_modules/imap/lib/Connection.js:151:10)
+2025-12-03T20:14:45:     at TLSSocket.emit (node:events:519:28)
+2025-12-03T20:14:45:     at TLSSocket._emitTLSError (node:_tls_wrap:1034:10)
+2025-12-03T20:14:45:     at JSStreamSocket.<anonymous> (node:_tls_wrap:953:36)
+2025-12-03T20:14:45:     at JSStreamSocket.emit (node:events:519:28)
+2025-12-03T20:14:45:     at Socket.<anonymous> (node:internal/js_stream_socket:65:38)
+2025-12-03T20:14:45:     at Socket.emit (node:events:519:28)
+2025-12-03T20:14:45:     at emitErrorNT (node:internal/streams/destroy:170:8) {
+2025-12-03T20:14:45:   errno: -104,
+2025-12-03T20:14:45:   code: 'ECONNRESET',
+2025-12-03T20:14:45:   syscall: 'read',
+2025-12-03T20:14:45:   source: 'socket'
+2025-12-03T20:14:45: }
+2025-12-03T20:14:45: 
+2025-12-03T20:14:45: Node.js v22.19.0
+2025-12-03T20:15:51: ❌ Email sync job sync-all-1764788042764 failed: job stalled more than allowable limit
+2025-12-03T20:15:51: ⚠️ Email sync job sync-79e6b692-0ba6-46ee-827e-e8b2e7e8a6d8-1764789486683 stalled
+2025-12-03T20:21:56: 
+2025-12-03T20:21:56: <--- Last few GCs --->
+2025-12-03T20:21:56: 
+2025-12-03T20:21:56: [2128175:0x154b3000]   425570 ms: Mark-Compact 2024.9 (2081.4) -> 2018.1 (2081.9) MB, pooled: 5 MB, 57.26 / 0.00 ms  (average mu = 0.534, current mu = 0.603) task; scavenge might not succeed
+2025-12-03T20:21:56: [2128175:0x154b3000]   425748 ms: Mark-Compact 2024.8 (2081.9) -> 2018.1 (2097.6) MB, pooled: 2 MB, 116.89 / 0.00 ms  (average mu = 0.423, current mu = 0.343) task; scavenge might not succeed
+2025-12-03T20:21:56: 
+2025-12-03T20:21:56: 
+2025-12-03T20:21:56: <--- JS stacktrace --->
+2025-12-03T20:21:56: 
+2025-12-03T20:21:56: FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+2025-12-03T20:21:56: ----- Native stack trace -----
+2025-12-03T20:21:56: 
+2025-12-03T20:21:56:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:21:56:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:21:56:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:21:56:  4: 0x141a575  [/usr/bin/node]
+2025-12-03T20:21:56:  5: 0x1433e09 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/usr/bin/node]
+2025-12-03T20:21:56:  6: 0x147c53d v8::internal::MinorGCJob::Task::RunInternal() [/usr/bin/node]
+2025-12-03T20:21:56:  7: 0xffe749  [/usr/bin/node]
+2025-12-03T20:21:56:  8: 0x10020d8 node::PerIsolatePlatformData::FlushForegroundTasksInternal() [/usr/bin/node]
+2025-12-03T20:21:56:  9: 0x1cd9853  [/usr/bin/node]
+2025-12-03T20:21:56: 10: 0x1cf04f4  [/usr/bin/node]
+2025-12-03T20:21:56: 11: 0x1cda5b7 uv_run [/usr/bin/node]
+2025-12-03T20:21:56: 12: 0xe63c36 node::SpinEventLoopInternal(node::Environment*) [/usr/bin/node]
+2025-12-03T20:21:56: 13: 0xfc7c61 node::NodeMainInstance::Run() [/usr/bin/node]
+2025-12-03T20:21:56: 14: 0xf2154b node::Start(int, char**) [/usr/bin/node]
+2025-12-03T20:21:56: 15: 0x730b4f02a1ca  [/lib/x86_64-linux-gnu/libc.so.6]
+2025-12-03T20:21:56: 16: 0x730b4f02a28b __libc_start_main [/lib/x86_64-linux-gnu/libc.so.6]
+2025-12-03T20:21:56: 17: 0xe5f38e _start [/usr/bin/node]
+2025-12-03T20:23:20: ⚠️ Email sync job sync-79e6b692-0ba6-46ee-827e-e8b2e7e8a6d8-1764789488307 stalled
+2025-12-03T20:23:20: ⚠️ Email sync job sync-all-1764789490565 stalled
+2025-12-03T20:29:53: 
+2025-12-03T20:29:53: <--- Last few GCs --->
+2025-12-03T20:29:53: 
+2025-12-03T20:29:53: [2128389:0x4194d000]   422978 ms: Scavenge 2019.3 (2077.9) -> 2012.8 (2077.9) MB, pooled: 11 MB, 7.95 / 0.00 ms  (average mu = 0.795, current mu = 0.795) task; 
+2025-12-03T20:29:53: [2128389:0x4194d000]   423158 ms: Mark-Compact 2022.3 (2080.8) -> 2013.5 (2096.9) MB, pooled: 0 MB, 116.04 / 0.01 ms  (average mu = 0.719, current mu = 0.635) task; scavenge might not succeed
+2025-12-03T20:29:53: 
+2025-12-03T20:29:53: 
+2025-12-03T20:29:53: <--- JS stacktrace --->
+2025-12-03T20:29:53: 
+2025-12-03T20:29:53: FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+2025-12-03T20:29:53: ----- Native stack trace -----
+2025-12-03T20:29:53: 
+2025-12-03T20:29:53:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:29:53:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:29:53:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:29:53:  4: 0x141a575  [/usr/bin/node]
+2025-12-03T20:29:53:  5: 0x1433e09 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [/usr/bin/node]
+2025-12-03T20:29:53:  6: 0x147c53d v8::internal::MinorGCJob::Task::RunInternal() [/usr/bin/node]
+2025-12-03T20:29:53:  7: 0xffe749  [/usr/bin/node]
+2025-12-03T20:29:53:  8: 0x10020d8 node::PerIsolatePlatformData::FlushForegroundTasksInternal() [/usr/bin/node]
+2025-12-03T20:29:53:  9: 0x1cd9853  [/usr/bin/node]
+2025-12-03T20:29:53: 10: 0x1cf04f4  [/usr/bin/node]
+2025-12-03T20:29:53: 11: 0x1cda5b7 uv_run [/usr/bin/node]
+2025-12-03T20:29:53: 12: 0xe63c36 node::SpinEventLoopInternal(node::Environment*) [/usr/bin/node]
+2025-12-03T20:29:53: 13: 0xfc7c61 node::NodeMainInstance::Run() [/usr/bin/node]
+2025-12-03T20:29:53: 14: 0xf2154b node::Start(int, char**) [/usr/bin/node]
+2025-12-03T20:29:53: 15: 0x7c0c16a2a1ca  [/lib/x86_64-linux-gnu/libc.so.6]
+2025-12-03T20:29:53: 16: 0x7c0c16a2a28b __libc_start_main [/lib/x86_64-linux-gnu/libc.so.6]
+2025-12-03T20:29:53: 17: 0xe5f38e _start [/usr/bin/node]
+2025-12-03T20:31:36: ❌ Email sync job sync-79e6b692-0ba6-46ee-827e-e8b2e7e8a6d8-1764789486683 failed: job stalled more than allowable limit
+2025-12-03T20:31:36: ⚠️ Email sync job sync-all-1764792150319 stalled
+2025-12-03T20:37:12: 
+2025-12-03T20:37:12: <--- Last few GCs --->
+2025-12-03T20:37:12: 
+2025-12-03T20:37:12: 0 MB, 93.66 / 0.00 ms  (average mu = 0.109, current mu = 0.001) last resort; GC in old space requested
+2025-12-03T20:37:12: 6487 ms: Mark-Compact (reduce) 2017.5 (2064.6) -> 2017.5 (2064.6) MB, pooled: 0 MB, 84.03 / 0.00 ms  (average mu = 0.058, curren
+2025-12-03T20:37:12: t mu = 0.000) last resort; GC in old space requested
+2025-12-03T20:37:12: 
+2025-12-03T20:37:12: 
+2025-12-03T20:37:12: <--- JS stacktrace --->
+2025-12-03T20:37:12: 
+2025-12-03T20:37:12: FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+2025-12-03T20:37:12: ----- Native stack trace -----
+2025-12-03T20:37:12: 
+2025-12-03T20:37:12:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:37:12:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:37:12:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/no
+2025-12-03T20:37:12: de]
+2025-12-03T20:37:12:  4: 0x14095cc v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::A
+2025-12-03T20:37:12: llocationOrigin, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:37:12:  5: 0x13e17de v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [/usr/bin
+2025-12-03T20:37:12: /node]
+2025-12-03T20:37:12:  6: 0x13d08d4 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8
+2025-12-03T20:37:12: ::internal::Tagged<v8::internal::Map>, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:37:12:  7: 0x13d1d9e v8::internal::FactoryBase<v8::internal::Factory>::NewRawOneByteString(int, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T20:37:12:  8: 0x172705d v8::internal::String::SlowFlatten(v8::internal::Isolate*, v8::internal::Handle<v8::internal::ConsString>, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T20:37:12:  9: 0x12048d3 v8::String::Utf8Length(v8::Isolate*) const [/usr/bin/node]
+2025-12-03T20:37:12: 10: 0xf37367  [/usr/bin/node]
+2025-12-03T20:37:12: 11: 0x79b853e0f5e2 
+2025-12-03T20:38:54: ❌ Email sync job sync-all-1764789490565 failed: job stalled more than allowable limit
+2025-12-03T20:38:54: ❌ Email sync job sync-79e6b692-0ba6-46ee-827e-e8b2e7e8a6d8-1764789488307 failed: job stalled more than allowable limit
+2025-12-03T20:44:29: 
+2025-12-03T20:44:29: <--- Last few GCs --->
+2025-12-03T20:44:29: 
+2025-12-03T20:44:29:  MB, 94.00 / 0.00 ms  (average mu = 0.152, current mu = 0.003) last resort; GC in old space requested
+2025-12-03T20:44:29: 55 ms: Mark-Compact (reduce) 2018.7 (2063.9) -> 2018.7 (2063.6) MB, pooled: 0 MB, 74.07 / 0.00 ms  (average mu = 0.104, current mu = 0.041) last resort; GC in old space requested
+2025-12-03T20:44:29: 
+2025-12-03T20:44:29: 
+2025-12-03T20:44:29: <--- JS stacktrace --->
+2025-12-03T20:44:29: 
+2025-12-03T20:44:29: FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+2025-12-03T20:44:29: ----- Native stack trace -----
+2025-12-03T20:44:29: 
+2025-12-03T20:44:29:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:44:29:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:44:29:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T20:44:30:  4: 0x14095cc v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:44:30:  5: 0x13e17de v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:44:30:  6: 0x13d08d4 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8::internal::Tagged<v8::internal::Map>, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T20:44:30:  7: 0x13d1d9e v8::internal::FactoryBase<v8::internal::Factory>::NewRawOneByteString(int, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T20:44:30:  8: 0x172705d v8::internal::String::SlowFlatten(v8::internal::Isolate*, v8::internal::Handle<v8::internal::ConsString>, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T20:44:30:  9: 0x12048d3 v8::String::Utf8Length(v8::Isolate*) const [/usr/bin/node]
+2025-12-03T20:44:30: 10: 0xf37367  [/usr/bin/node]
+2025-12-03T20:44:30: 11: 0x71013fe0f5e2 
+2025-12-03T20:44:42: Email sync job failed: PrismaClientKnownRequestError: 
+2025-12-03T20:44:42: Invalid `prisma.emailAccount.findMany()` invocation:
+2025-12-03T20:44:42: 
+2025-12-03T20:44:42: 
+2025-12-03T20:44:42: Inconsistent column data: Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `l` at 2
+2025-12-03T20:44:42:     at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/RequestHandler.ts:228:13)
+2025-12-03T20:44:42:     at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/RequestHandler.ts:174:12)
+2025-12-03T20:44:42:     at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/RequestHandler.ts:143:12)
+2025-12-03T20:44:42:     at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:862:24)
+2025-12-03T20:44:42:     at async Queue.processEmailSync (/var/www/adlercapitalcrm.com/workers/email-sync-worker.ts:223:9) {
+2025-12-03T20:44:42:   code: 'P2023',
+2025-12-03T20:44:42:   meta: {
+2025-12-03T20:44:42:     modelName: 'EmailAccount',
+2025-12-03T20:44:42:     message: 'Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `l` at 2'
+2025-12-03T20:44:42:   },
+2025-12-03T20:44:42:   clientVersion: '6.12.0'
+2025-12-03T20:44:42: }
+2025-12-03T20:44:42: ❌ Email sync job sync-all-1764789334756 failed: 
+2025-12-03T20:44:42: Invalid `prisma.emailAccount.findMany()` invocation:
+2025-12-03T20:44:42: 
+2025-12-03T20:44:42: 
+2025-12-03T20:44:42: Inconsistent column data: Error creating UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `l` at 2
+2025-12-03T20:45:41: ❌ Email sync job sync-all-1764792150319 failed: job stalled more than allowable limit
+2025-12-03T20:45:41: ⚠️ Email sync job sync-79e6b692-0ba6-46ee-827e-e8b2e7e8a6d8-1764789493836 stalled
+2025-12-03T20:51:15: Error fetching from Sent: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:51:15: Error fetching from [Gmail]/Sent Mail: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:51:15: Error fetching from Sent Items: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:51:16: Error fetching from Sent Messages: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:53:46: Error fetching from Sent: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:53:46: Error fetching from [Gmail]/Sent Mail: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:53:46: Error fetching from Sent Items: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:53:47: Error fetching from Sent Messages: Client tried to access nonexistent namespace. (Mailbox name should probably be prefixed with: INBOX.) (0.001 + 0.000 secs).
+2025-12-03T20:55:06: ❌ Email sync job sync-79e6b692-0ba6-46ee-827e-e8b2e7e8a6d8-1764789493836 failed: job stalled more than allowable limit
+2025-12-03T20:55:06: ⚠️ Email sync job sync-all-1764788162767 stalled
+2025-12-03T21:01:43: 
+2025-12-03T21:01:43: <--- Last few GCs --->
+2025-12-03T21:01:43: 
+2025-12-03T21:01:43: [2130079:0x311ae000]   427113 ms: Mark-Compact (reduce) 2018.2 (2073.6) -> 2018.1 (2066.6) MB, pooled: 0 MB, 97.08 / 0.00 ms  (average mu = 0.309, current mu = 0.001) last resort; GC in old space requested
+2025-12-03T21:01:43: [2130079:0x311ae000]   427215 ms: Mark-Compact (reduce) 2018.1 (2066.6) -> 2018.1 (2066.6) MB, pooled: 0 MB, 101.75 / 0.00 ms  (average mu = 0.171, current mu = 0.000) last resort; GC in old space requested
+2025-12-03T21:01:43: 
+2025-12-03T21:01:43: 
+2025-12-03T21:01:43: <--- JS stacktrace --->
+2025-12-03T21:01:43: 
+2025-12-03T21:01:43: FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+2025-12-03T21:01:43: ----- Native stack trace -----
+2025-12-03T21:01:43: 
+2025-12-03T21:01:43:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:01:43:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:01:43:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/no
+2025-12-03T21:01:43: de]
+2025-12-03T21:01:43:  4: 0x14095cc v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:01:43:  5: 0x13e17de v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:01:43:  6: 0x13d08d4 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8
+2025-12-03T21:01:43: ::internal::Tagged<v8::internal::Map>, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:01:43:  7: 0x13d1d9e v8::internal::FactoryBase<v8::internal::Factory>::NewRawOneByteString(int, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T21:01:43:  8: 0x172705d v8::internal::String::SlowFlatten(v8::internal::Isolate*, v8::internal::Handle<v8::internal::ConsString>, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T21:01:43:  9: 0x12048d3 v8::String::Utf8Length(v8::Isolate*) const [/usr/bin/node]
+2025-12-03T21:01:43: 10: 0xf37367  [/usr/bin/node]
+2025-12-03T21:01:43: 11: 0x7e7a1be0f5e2 
+2025-12-03T21:02:56: ⚠️ Email sync job sync-all-1764788222772 stalled
+2025-12-03T21:02:56: ⚠️ Email sync job sync-all-1764788192768 stalled
+2025-12-03T21:09:04: 
+2025-12-03T21:09:04: <--- Last few GCs --->
+2025-12-03T21:09:04: 
+2025-12-03T21:09:04: [2130391:0x32e40000]   429001 ms: Mark-Compact (reduce) 2018.2 (2070.4) -> 2018.1 (2063.4) MB, pooled: 0 MB, 103.89 / 0.00 ms  (average mu = 0.325, current mu = 0.002) last resort; GC in old space requested
+2025-12-03T21:09:04: [2130391:0x32e40000]   429094 ms: Mark-Compact (reduce) 2018.1 (2063.4) -> 2018.1 (2063.4) MB, pooled: 0 MB, 93.36 / 0.00 ms  (average mu = 0.201, current mu = 0.000) last resort; GC in old space requested
+2025-12-03T21:09:04: 
+2025-12-03T21:09:04: 
+2025-12-03T21:09:04: <--- JS stacktrace --->
+2025-12-03T21:09:04: 
+2025-12-03T21:09:04: FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+2025-12-03T21:09:04: ----- Native stack trace -----
+2025-12-03T21:09:04: 
+2025-12-03T21:09:04:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:09:04:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:09:04:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:09:04:  4: 0x14095cc v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:09:04:  5: 0x13e17de v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:09:04:  6: 0x13d08d4 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8::internal::Tagged<v8::internal::Map>, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:09:04:  7: 0x13d1d9e v8::internal::FactoryBase<v8::internal::Factory>::NewRawOneByteString(int, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T21:09:05:  8: 0x172705d v8::internal::String::SlowFlatten(v8::internal::Isolate*, v8::internal::Handle<v8::internal::ConsString>, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T21:09:05:  9: 0x12048d3 v8::String::Utf8Length(v8::Isolate*) const [/usr/bin/node]
+2025-12-03T21:09:05: 10: 0xf37367  [/usr/bin/node]
+2025-12-03T21:09:05: 11: 0x701eb7e0f5e2 
+2025-12-03T21:09:47: ❌ Email sync job sync-all-1764788162767 failed: job stalled more than allowable limit
+2025-12-03T21:09:47: ⚠️ Email sync job sync-all-1764788252767 stalled
+2025-12-03T21:16:23: 
+2025-12-03T21:16:23: <--- Last few GCs --->
+2025-12-03T21:16:23: 
+2025-12-03T21:16:23: [2130643:0x1aafe000]   426518 ms: Mark-Compact (reduce) 2016.0 (2070.1) -> 2015.9 (2062.9) MB, pooled: 0 MB, 96.56 / 0.00 ms  (average mu = 0.388, current mu = 0.004) last resort; GC in old space requested
+2025-12-03T21:16:23: [2130643:0x1aafe000]   426595 ms: Mark-Compact (reduce) 2015.9 (2062.9) -> 2015.9 (2062.9) MB, pooled: 0 MB, 76.51 / 0.00 ms  (average mu = 0.254, current mu = 0.000) last resort; GC in old space requested
+2025-12-03T21:16:23: 
+2025-12-03T21:16:23: 
+2025-12-03T21:16:23: <--- JS stacktrace --->
+2025-12-03T21:16:23: 
+2025-12-03T21:16:23: FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory
+2025-12-03T21:16:23: ----- Native stack trace -----
+2025-12-03T21:16:23: 
+2025-12-03T21:16:23:  1: 0xe1803a node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:16:23:  2: 0x11ec9c0 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/node]
+2025-12-03T21:16:23:  3: 0x11ecc97 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/bin/no
+2025-12-03T21:16:23: de]
+2025-12-03T21:16:23:  4: 0x14095cc v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::A
+2025-12-03T21:16:23: llocationOrigin, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:16:23:  5: 0x13e17de v8::internal::Factory::AllocateRaw(int, v8::internal::AllocationType, v8::internal::AllocationAlignment) [/usr/bin
+2025-12-03T21:16:23: /node]
+2025-12-03T21:16:23:  6: 0x13d08d4 v8::internal::FactoryBase<v8::internal::Factory>::AllocateRawWithImmortalMap(int, v8::internal::AllocationType, v8::internal::Tagged<v8::internal::Map>, v8::internal::AllocationAlignment) [/usr/bin/node]
+2025-12-03T21:16:23:  7: 0x13d1d9e v8::internal::FactoryBase<v8::internal::Factory>::NewRawOneByteString(int, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T21:16:23:  8: 0x172705d v8::internal::String::SlowFlatten(v8::internal::Isolate*, v8::internal::Handle<v8::internal::ConsString>, v8::internal::AllocationType) [/usr/bin/node]
+2025-12-03T21:16:23:  9: 0x12048d3 v8::String::Utf8Length(v8::Isolate*) const [/usr/bin/node]
+2025-12-03T21:16:23: 10: 0xf37367  [/usr/bin/node]
+2025-12-03T21:16:23: 11: 0x757913e0f5e2 
+2025-12-03T21:18:05: ❌ Email sync job sync-all-1764788222772 failed: job stalled more than allowable limit
+2025-12-03T21:18:05: ❌ Email sync job sync-all-1764788192768 failed: job stalled more than allowable limit

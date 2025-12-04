@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 // GET - Get queue items for a session
 export async function GET(request: NextRequest) {
   try {
@@ -134,7 +136,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { queueItemId, status, attemptCount, wasContacted, wasAnswered } = body
+    const { queueItemId, status, attemptCount, wasContacted, wasAnswered, callOutcome } = body
 
     if (!queueItemId) {
       return NextResponse.json(
@@ -154,7 +156,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const updateData: any = {}
-    
+
     if (status) updateData.status = status
     if (attemptCount !== undefined) {
       updateData.attemptCount = attemptCount
@@ -162,7 +164,8 @@ export async function PATCH(request: NextRequest) {
     }
     if (wasContacted !== undefined) updateData.wasContacted = wasContacted
     if (wasAnswered !== undefined) updateData.wasAnswered = wasAnswered
-    
+    if (callOutcome !== undefined) updateData.callOutcome = callOutcome
+
     if (status === 'COMPLETED' || status === 'FAILED' || status === 'SKIPPED') {
       updateData.completedAt = new Date()
     }

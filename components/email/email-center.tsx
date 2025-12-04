@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Mail, Send, Settings, Plus, RefreshCw } from "lucide-react"
+import { Mail, Send, Settings } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import EmailConversationsList from "./email-conversations-list"
 import EmailConversation from "./email-conversation"
@@ -34,7 +34,6 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
   const [showAccountSetup, setShowAccountSetup] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
 
   // Check if mobile
   useEffect(() => {
@@ -90,34 +89,6 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
     })
   }
 
-  const syncEmails = async () => {
-    setIsSyncing(true)
-    try {
-      const response = await fetch('/api/email/sync', { method: 'POST' })
-      if (response.ok) {
-        const data = await response.json()
-        toast({
-          title: 'Success',
-          description: data.message || 'Emails synced successfully',
-        })
-      } else {
-        toast({
-          title: 'Error',
-          description: 'Failed to sync emails',
-          variant: 'destructive',
-        })
-      }
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to sync emails',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -149,19 +120,9 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="flex items-center gap-1">
-              <div className="h-2 w-2 bg-green-500 rounded-full"></div>
-              {emailAccounts.filter(acc => acc.status === 'active').length} Active
+              <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+              {emailAccounts.filter(acc => acc.status === 'active').length} Active • Auto-syncing
             </Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={syncEmails}
-              disabled={isSyncing}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Syncing...' : 'Sync Emails'}
-            </Button>
           </div>
         </div>
       </div>

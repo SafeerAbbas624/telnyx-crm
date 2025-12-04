@@ -1,0 +1,307 @@
+================================================================================
+VAPI.AI INTEGRATION SETUP GUIDE
+Adler Capital CRM - AI Voice Calling Platform
+================================================================================
+
+OVERVIEW
+--------
+Vapi.ai is an AI voice calling platform that allows you to make automated,
+intelligent phone calls to contacts. This guide walks you through setting up
+Vapi.ai for use with your CRM system.
+
+WHAT IS VAPI.AI?
+----------------
+Vapi.ai is a developer platform for building voice AI agents. It handles:
+- Outbound and inbound phone calls
+- AI-powered conversation management
+- Call recording and transcription
+- Call analysis and summaries
+- Integration with various phone providers (Twilio, Vonage, etc.)
+
+KEY CONCEPTS
+------------
+1. ASSISTANT: An AI agent that handles calls (voice, model, transcriber config)
+2. PHONE NUMBER: A phone number used to make/receive calls
+3. CALL: An individual phone call with status, recording, transcript, etc.
+4. WEBHOOK: Real-time notifications about call events
+5. API KEY: Authentication token for making API requests
+
+================================================================================
+STEP 1: CREATE A VAPI.AI ACCOUNT
+================================================================================
+
+1. Go to https://vapi.ai
+2. Click "Sign Up" or "Get Started"
+3. Create an account with your email
+4. Verify your email address
+5. Complete the onboarding process
+6. You'll be taken to the Vapi Dashboard
+
+================================================================================
+STEP 2: GET YOUR API KEY
+================================================================================
+
+1. In the Vapi Dashboard, go to Settings (gear icon)
+2. Look for "API Keys" or "Authentication" section
+3. Click "Create API Key" or "Generate New Key"
+4. Copy the API key (it will look like: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+5. IMPORTANT: Save this key securely - you won't see it again!
+6. Add it to your .env file as: VAPI_API_KEY=your_api_key_here
+
+================================================================================
+STEP 3: SET UP A PHONE NUMBER
+================================================================================
+
+Option A: Use Vapi's Built-in Phone Numbers
+-------------------------------------------
+1. In Vapi Dashboard, go to "Phone Numbers"
+2. Click "Add Phone Number"
+3. Select a phone number from available options
+4. Choose your country/region
+5. Click "Purchase" or "Add"
+6. The phone number will be assigned to your account
+
+Option B: Use Your Own Phone Provider (Twilio/Vonage)
+-----------------------------------------------------
+1. Create an account with Twilio (https://www.twilio.com) or Vonage
+2. Get your API credentials from their dashboard
+3. In Vapi Dashboard, go to "Credentials"
+4. Click "Add Credential"
+5. Select your provider (Twilio or Vonage)
+6. Enter your API credentials
+7. Vapi will verify the connection
+
+RECOMMENDED: Use Vapi's built-in numbers for simplicity
+
+================================================================================
+STEP 4: CREATE AN ASSISTANT
+================================================================================
+
+An Assistant is the AI agent that will handle your calls.
+
+1. In Vapi Dashboard, go to "Assistants"
+2. Click "Create Assistant"
+3. Configure the following:
+
+   BASIC SETTINGS:
+   - Name: "CRM Sales Agent" (or your preferred name)
+   - First Message: "Hello, this is [Your Company]. How can I help you today?"
+   - End Call Message: "Thank you for your time. Goodbye!"
+
+   MODEL SETTINGS:
+   - Provider: "OpenAI" (or your preferred LLM)
+   - Model: "gpt-4" or "gpt-3.5-turbo"
+   - System Prompt: Define what the AI should do
+     Example: "You are a friendly sales representative for [Company]. 
+              Your goal is to qualify leads and schedule appointments."
+
+   VOICE SETTINGS:
+   - Provider: "Azure" or "Google" (for text-to-speech)
+   - Voice: Choose a voice (e.g., "Andrew", "Breeze", etc.)
+   - Speed: 1.0 (normal speed)
+
+   TRANSCRIBER SETTINGS:
+   - Provider: "Assembly AI" (recommended)
+   - Language: "en" (English)
+
+4. Click "Save" or "Create"
+5. Note the Assistant ID (you'll need this for API calls)
+
+EXAMPLE SYSTEM PROMPT FOR REAL ESTATE:
+"You are a professional real estate agent. Your goal is to:
+1. Introduce yourself and your company
+2. Ask about their property needs
+3. Qualify them as a buyer or seller
+4. Schedule a property viewing if interested
+5. Be friendly, professional, and helpful"
+
+================================================================================
+STEP 5: CONFIGURE WEBHOOKS (OPTIONAL BUT RECOMMENDED)
+================================================================================
+
+Webhooks allow Vapi to notify your CRM about call events in real-time.
+
+1. In Vapi Dashboard, go to "Webhooks" or "Settings > Webhooks"
+2. Click "Add Webhook"
+3. Enter your webhook URL: https://yourdomain.com/api/vapi/webhooks/calls
+4. Select events to subscribe to:
+   - call.started
+   - call.ended
+   - call.recording.ready
+   - call.transcript.ready
+5. Click "Save"
+
+Your CRM will receive POST requests at this URL when events occur.
+
+================================================================================
+STEP 6: TEST YOUR SETUP
+================================================================================
+
+1. In Vapi Dashboard, go to "Assistants"
+2. Find your assistant
+3. Click "Test Call" or "Make Test Call"
+4. Enter a phone number to call
+5. Wait for the call to connect
+6. Speak with the AI agent
+7. End the call
+8. Check the call history to see recording and transcript
+
+================================================================================
+STEP 7: ADD API KEY TO YOUR CRM
+================================================================================
+
+1. Open your .env file in the CRM root directory
+2. Add: VAPI_API_KEY=your_api_key_here
+3. Add: VAPI_WEBHOOK_SECRET=your_webhook_secret (if using webhooks)
+4. Save the file
+5. Restart your CRM application
+
+================================================================================
+STEP 8: CONFIGURE IN CRM SETTINGS
+================================================================================
+
+1. Log into your CRM
+2. Go to Settings > Integrations > Vapi
+3. Enter your API Key
+4. Select your default Assistant
+5. Select your default Phone Number
+6. Configure call behavior:
+   - Max call duration (e.g., 600 seconds = 10 minutes)
+   - Recording enabled (yes/no)
+   - Transcript enabled (yes/no)
+7. Click "Save"
+8. Click "Test Connection" to verify
+
+================================================================================
+MAKING YOUR FIRST AI CALL
+================================================================================
+
+1. Go to Calls > Vapi AI Calls (new tab in your CRM)
+2. Click "Select Contacts"
+3. Choose one or more contacts to call
+4. Click "Start Calls"
+5. The CRM will:
+   - Create a call queue
+   - Start calling each contact
+   - Show real-time call status
+   - Record the call
+   - Transcribe the conversation
+   - Save results to the database
+
+================================================================================
+UNDERSTANDING CALL STATUS
+================================================================================
+
+- QUEUED: Call is waiting to be initiated
+- RINGING: Phone is ringing, waiting for answer
+- IN_PROGRESS: Call is active and ongoing
+- FORWARDING: Call is being transferred
+- ENDED: Call has completed
+
+ENDED REASONS:
+- completed: Call ended normally
+- no-answer: No one picked up
+- busy: Line was busy
+- declined: Call was declined
+- error: Technical error occurred
+- timeout: Call timed out
+
+================================================================================
+PRICING & COSTS
+================================================================================
+
+Vapi.ai charges for:
+1. Phone calls (per minute)
+2. AI model usage (tokens)
+3. Speech-to-text (transcription)
+4. Text-to-speech (voice generation)
+
+Check your Vapi Dashboard > Billing for current rates and usage.
+
+Your CRM tracks all costs and displays them in the Billing section.
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ISSUE: "API Key Invalid"
+SOLUTION: 
+- Verify the API key is correct in .env
+- Check that the key hasn't expired
+- Generate a new key if needed
+
+ISSUE: "No Phone Numbers Available"
+SOLUTION:
+- Purchase a phone number in Vapi Dashboard
+- Or add credentials for Twilio/Vonage
+
+ISSUE: "Calls Not Connecting"
+SOLUTION:
+- Check that your Assistant is configured correctly
+- Verify the phone number is active
+- Check call logs in Vapi Dashboard for errors
+
+ISSUE: "Webhooks Not Receiving Events"
+SOLUTION:
+- Verify webhook URL is correct and accessible
+- Check firewall/security settings
+- Test webhook in Vapi Dashboard
+
+ISSUE: "High Costs"
+SOLUTION:
+- Set max call duration to prevent long calls
+- Use cheaper models (gpt-3.5-turbo vs gpt-4)
+- Monitor usage in Vapi Dashboard
+
+================================================================================
+SECURITY BEST PRACTICES
+================================================================================
+
+1. NEVER share your API key publicly
+2. Store API key in .env file (not in code)
+3. Rotate API keys periodically
+4. Use webhooks with HTTPS only
+5. Validate webhook signatures
+6. Encrypt sensitive data in database
+7. Use role-based access control in CRM
+8. Monitor API usage for unusual activity
+9. Set rate limits on API endpoints
+10. Keep Vapi SDK updated
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Complete all setup steps above
+2. Test with a single contact
+3. Monitor call quality and costs
+4. Adjust Assistant settings as needed
+5. Create multiple Assistants for different use cases
+6. Set up automation rules for bulk calling
+7. Integrate with your sales workflow
+
+================================================================================
+SUPPORT & RESOURCES
+================================================================================
+
+Vapi.ai Documentation: https://docs.vapi.ai
+Vapi.ai API Reference: https://docs.vapi.ai/api-reference
+Vapi.ai Community: https://vapi.ai/community
+Vapi.ai Status: https://status.vapi.ai
+
+CRM Support: Contact your system administrator
+
+================================================================================
+QUICK REFERENCE
+================================================================================
+
+API Endpoint: https://api.vapi.ai
+Authentication: Bearer {API_KEY}
+Webhook Events: call.started, call.ended, call.recording.ready
+Call Types: outboundPhoneCall, inboundPhoneCall, webCall
+Call Status: queued, ringing, in_progress, forwarding, ended
+
+================================================================================
+END OF SETUP GUIDE
+================================================================================
+

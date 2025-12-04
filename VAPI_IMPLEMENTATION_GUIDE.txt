@@ -1,0 +1,399 @@
+================================================================================
+VAPI.AI INTEGRATION - IMPLEMENTATION GUIDE
+Adler Capital CRM - Complete Setup & Usage Instructions
+================================================================================
+
+OVERVIEW
+--------
+This guide covers the complete implementation of Vapi.ai integration into your
+Adler Capital CRM system. All code has been created and is ready to deploy.
+
+FILES CREATED
+=============
+
+DATABASE & SCHEMA
+-----------------
+1. prisma/schema.prisma
+   - Added VapiApiKey model for storing encrypted API keys
+   - Existing VapiCall model already in place
+
+2. prisma/migrations/20251106012529_add_vapi_api_keys/migration.sql
+   - Creates vapi_api_keys table with encryption support
+   - Includes indexes for performance
+
+API ROUTES
+----------
+1. app/api/vapi/keys/route.ts
+   - GET: Fetch all API keys
+   - POST: Create new API key
+
+2. app/api/vapi/keys/[id]/route.ts
+   - GET: Fetch specific API key
+   - PUT: Update API key settings
+   - DELETE: Delete API key
+
+3. app/api/vapi/keys/[id]/test/route.ts
+   - POST: Test API key validity
+
+4. app/api/vapi/calls/route.ts
+   - GET: Fetch call history
+   - POST: Create and start new calls
+
+5. app/api/vapi/calls/[id]/control/route.ts
+   - POST: Control calls (pause, resume, stop)
+
+6. app/api/vapi/webhooks/calls/route.ts
+   - GET/HEAD: Health check
+   - POST: Handle Vapi webhook events
+
+STATE MANAGEMENT
+----------------
+1. lib/stores/useVapiStore.ts
+   - Zustand store for Vapi state
+   - Persists to localStorage
+   - Manages API keys, calls, UI state
+
+COMPONENTS
+----------
+1. components/vapi/vapi-ai-calls.tsx
+   - Main component with tabs
+   - Orchestrates all sub-components
+
+2. components/vapi/vapi-api-key-manager.tsx
+   - Add/edit/delete API keys
+   - Test API key validity
+   - Display key status
+
+3. components/vapi/vapi-call-center.tsx
+   - Select contacts for calling
+   - Start bulk calls
+   - Control active calls (pause/resume/stop)
+
+4. components/vapi/vapi-call-history.tsx
+   - View all past calls
+   - Filter by status or search
+   - Play/download recordings
+   - View transcripts
+
+5. components/vapi/vapi-settings.tsx
+   - Configure call behavior
+   - Set max duration
+   - Enable/disable recording & transcripts
+   - Configure webhooks
+
+DOCUMENTATION
+--------------
+1. VAPI_SETUP_GUIDE.txt
+   - Complete Vapi.ai setup instructions
+   - Dashboard configuration steps
+   - Troubleshooting guide
+
+2. VAPI_IMPLEMENTATION_GUIDE.txt (this file)
+   - Implementation details
+   - Deployment instructions
+   - Integration checklist
+
+================================================================================
+DEPLOYMENT STEPS
+================================================================================
+
+STEP 1: APPLY DATABASE MIGRATION
+---------------------------------
+1. Run Prisma migration:
+   cd /var/www/adlercapitalcrm.com
+   npx prisma migrate deploy
+
+2. Verify migration:
+   npx prisma db push
+
+STEP 2: INSTALL DEPENDENCIES (if needed)
+-----------------------------------------
+All dependencies should already be installed:
+- zustand (for state management)
+- sonner (for toast notifications)
+- lucide-react (for icons)
+
+If any are missing:
+   npm install zustand sonner lucide-react
+
+STEP 3: ENVIRONMENT VARIABLES
+------------------------------
+Add to your .env file:
+
+   # Vapi Configuration
+   VAPI_API_KEY=your_api_key_here
+   VAPI_WEBHOOK_SECRET=your_webhook_secret_here
+   EMAIL_ENCRYPTION_KEY=your-32-char-secret-key-here-123456
+
+Note: EMAIL_ENCRYPTION_KEY is used for encrypting API keys in database
+
+STEP 4: ADD VAPI PAGE TO NAVIGATION
+------------------------------------
+1. Open your main navigation component (likely in components/layout or app/layout)
+2. Add a new menu item:
+
+   {
+     label: 'Vapi AI Calls',
+     href: '/vapi',
+     icon: Phone,
+   }
+
+3. Create the page file:
+   app/vapi/page.tsx
+
+   Content:
+   ```typescript
+   import VapiAiCalls from '@/components/vapi/vapi-ai-calls'
+
+   export default function VapiPage() {
+     return <VapiAiCalls />
+   }
+   ```
+
+STEP 5: VERIFY COMPONENTS EXIST
+--------------------------------
+Ensure these UI components exist in your project:
+- @/components/ui/tabs
+- @/components/ui/button
+- @/components/ui/input
+- @/components/ui/card
+
+If missing, they should be in your shadcn/ui setup.
+
+STEP 6: VERIFY CONTEXT EXISTS
+------------------------------
+Ensure ContactsContext exists:
+- @/lib/context/contacts-context
+
+This is used to fetch contacts for calling.
+
+STEP 7: BUILD AND TEST
+----------------------
+1. Build the project:
+   npm run build
+
+2. Start the development server:
+   npm run dev
+
+3. Navigate to http://localhost:3000/vapi
+
+4. You should see the Vapi AI Calls page with 4 tabs:
+   - API Keys
+   - Make Calls
+   - Call History
+   - Settings
+
+================================================================================
+USAGE WORKFLOW
+================================================================================
+
+FIRST TIME SETUP
+----------------
+1. Go to Vapi AI Calls page
+2. Click "API Keys" tab
+3. Click "Add API Key" button
+4. Fill in:
+   - Key Name: "Production" or similar
+   - API Key: Paste your Vapi API key
+   - Default Assistant ID: (optional, can add later)
+   - Default Phone Number: (optional, can add later)
+5. Click "Save API Key"
+6. Click "Test" button to verify the key works
+
+MAKING CALLS
+------------
+1. Go to "Make Calls" tab
+2. Search for contacts you want to call
+3. Check the boxes next to their names
+4. Click "Start Calls" button
+5. Calls will be queued and started
+6. Active calls appear in the "Active Calls" section
+7. Use Pause/Resume/Stop buttons to control calls
+
+VIEWING CALL HISTORY
+--------------------
+1. Go to "Call History" tab
+2. Search by contact name or transcript
+3. Filter by status (All, Ended, In Progress, etc.)
+4. Click on a call to expand details
+5. View transcript, play/download recording
+6. See call duration and cost
+
+CONFIGURING SETTINGS
+--------------------
+1. Go to "Settings" tab
+2. Select an API key from dropdown
+3. Adjust settings:
+   - Max Call Duration: How long calls can run
+   - Recording Enabled: Save call audio
+   - Transcript Enabled: Transcribe calls
+   - Webhook URL: For real-time updates
+4. Click "Save Settings"
+
+================================================================================
+INTEGRATION CHECKLIST
+================================================================================
+
+Database:
+  [ ] Run Prisma migration
+  [ ] Verify vapi_api_keys table created
+  [ ] Verify VapiCall model exists
+
+API Routes:
+  [ ] All 6 API route files created
+  [ ] Routes are accessible at /api/vapi/*
+  [ ] Authentication working (NextAuth)
+
+Components:
+  [ ] All 5 component files created
+  [ ] Components import correctly
+  [ ] UI components available
+
+State Management:
+  [ ] useVapiStore created
+  [ ] Zustand installed
+  [ ] localStorage persistence working
+
+Page:
+  [ ] app/vapi/page.tsx created
+  [ ] Page accessible at /vapi
+  [ ] Navigation menu updated
+
+Environment:
+  [ ] VAPI_API_KEY set in .env
+  [ ] EMAIL_ENCRYPTION_KEY set in .env
+  [ ] All env vars loaded correctly
+
+Testing:
+  [ ] Can add API key
+  [ ] Can test API key
+  [ ] Can select contacts
+  [ ] Can start calls
+  [ ] Can view call history
+  [ ] Can control active calls
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ISSUE: "API key not found" error
+SOLUTION:
+- Verify VAPI_API_KEY is set in .env
+- Check that the key is valid in Vapi Dashboard
+- Try adding a new key through the UI
+
+ISSUE: "No contacts showing"
+SOLUTION:
+- Verify ContactsContext is working
+- Check that contacts exist in database
+- Try refreshing the page
+
+ISSUE: "Calls not starting"
+SOLUTION:
+- Verify API key is valid (test it first)
+- Check that Assistant ID is set
+- Check that Phone Number is set
+- Verify contacts have phone numbers
+
+ISSUE: "Webhooks not working"
+SOLUTION:
+- Verify webhook URL is correct
+- Check firewall/security settings
+- Ensure URL is publicly accessible
+- Test webhook in Vapi Dashboard
+
+ISSUE: "Database migration failed"
+SOLUTION:
+- Check PostgreSQL is running
+- Verify DATABASE_URL is correct
+- Check file permissions
+- Try: npx prisma migrate reset (WARNING: deletes data)
+
+ISSUE: "Components not rendering"
+SOLUTION:
+- Verify all UI components exist
+- Check imports are correct
+- Verify Zustand is installed
+- Check browser console for errors
+
+================================================================================
+SECURITY CONSIDERATIONS
+================================================================================
+
+API KEY ENCRYPTION
+------------------
+- API keys are encrypted using AES-256-CBC
+- Encryption key from EMAIL_ENCRYPTION_KEY env var
+- Keys are never returned to frontend in plain text
+- Only encrypted values stored in database
+
+AUTHENTICATION
+--------------
+- All API routes require NextAuth session
+- Only authenticated users can manage keys
+- Session-based access control
+
+WEBHOOK SECURITY
+----------------
+- Webhooks should use HTTPS only
+- Validate webhook signatures if possible
+- Rate limit webhook endpoints
+- Log all webhook events
+
+DATABASE SECURITY
+-----------------
+- Use strong DATABASE_URL password
+- Enable SSL for PostgreSQL connection
+- Regular backups of database
+- Monitor for unauthorized access
+
+================================================================================
+PERFORMANCE OPTIMIZATION
+================================================================================
+
+CACHING
+-------
+- API keys cached in Zustand store
+- localStorage persistence reduces API calls
+- Call history paginated (50 calls per page)
+
+REAL-TIME UPDATES
+------------------
+- Webhooks provide real-time call status
+- Active calls refresh every 2 seconds
+- Efficient database queries with indexes
+
+DATABASE INDEXES
+----------------
+- idx_vapi_api_keys_is_active
+- idx_vapi_api_keys_is_default
+- Existing indexes on vapi_calls table
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Complete all deployment steps above
+2. Test with a single contact first
+3. Monitor call quality and costs
+4. Adjust settings as needed
+5. Create automation rules for bulk calling
+6. Integrate with sales workflow
+7. Set up call recording storage
+8. Configure analytics/reporting
+
+================================================================================
+SUPPORT & RESOURCES
+================================================================================
+
+Vapi.ai Documentation: https://docs.vapi.ai
+Vapi.ai API Reference: https://docs.vapi.ai/api-reference
+Vapi.ai Community: https://vapi.ai/community
+
+CRM Documentation: See VAPI_SETUP_GUIDE.txt
+CRM Support: Contact your system administrator
+
+================================================================================
+END OF IMPLEMENTATION GUIDE
+================================================================================
+

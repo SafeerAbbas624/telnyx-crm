@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, MessageSquare, Phone, Mail, Plus, Search, Calendar, TrendingUp, Clock, Activity, BarChart3, DollarSign, Target, CheckCircle, AlertCircle, PhoneCall, Send, ArrowUpRight, ArrowDownRight, Timer, MapPin, FileText, Zap, Trash2 } from "lucide-react"
+import { Users, MessageSquare, Phone, Mail, Plus, Search, Calendar, TrendingUp, Clock, Activity, BarChart3, DollarSign, Target, CheckCircle, AlertCircle, PhoneCall, Send, ArrowUpRight, ArrowDownRight, Timer, MapPin, FileText, Zap, Trash2, Edit } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -17,8 +17,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import AddContactDialog from "@/components/contacts/add-contact-dialog"
 import { useActivities } from "@/lib/context/activities-context"
+import { useTaskUI } from "@/lib/context/task-ui-context"
+import { useEmailUI } from "@/lib/context/email-ui-context"
+import { useSmsUI } from "@/lib/context/sms-ui-context"
+import { useCallUI } from "@/lib/context/call-ui-context"
 
 import ContactName from "@/components/contacts/contact-name"
+import { normalizePropertyType } from "@/lib/property-type-mapper"
 
 interface DashboardStats {
   // Contact stats
@@ -102,9 +107,16 @@ export function DashboardOverview() {
   const [activeTab, setActiveTab] = useState("activity")
   const [dueDate, setDueDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [dueTime, setDueTime] = useState("09:00")
+  const [selectedTask, setSelectedTask] = useState<Activity | null>(null)
 
   // Use activities context to refresh contact activities
   const { refreshActivities } = useActivities()
+
+  // Use task UI context for floating panel
+  const { openTask } = useTaskUI()
+  const { openEmail } = useEmailUI()
+  const { openSms } = useSmsUI()
+  const { openCall } = useCallUI()
 
   const addActivity = async (activity: Omit<Activity, 'id' | 'createdAt' | 'status' | 'contactId'> & { contactId: string }) => {
     try {
@@ -745,6 +757,70 @@ export function DashboardOverview() {
 
                                   {/* Action Buttons */}
                                   <div className="flex items-center gap-2">
+                                    {/* Communication Buttons */}
+                                    {contact.phone1 && (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openCall(contact.phone1!)
+                                          }}
+                                          title="Call"
+                                        >
+                                          <Phone className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openSms({ phoneNumber: contact.phone1!, contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName } })
+                                          }}
+                                          title="Send SMS"
+                                        >
+                                          <MessageSquare className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    )}
+                                    {contact.email1 && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-8 w-8 p-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          openEmail({ email: contact.email1!, contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName } })
+                                        }}
+                                        title="Send Email"
+                                      >
+                                        <Mail className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    {/* Task Management Buttons */}
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 w-8 p-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        openTask({
+                                          taskId: activity.id,
+                                          isEditMode: true,
+                                          title: activity.title,
+                                          description: activity.description || '',
+                                          dueDate: activity.dueDate ? format(new Date(activity.dueDate), 'yyyy-MM-dd') : '',
+                                          priority: activity.priority || 'medium',
+                                          contactId: activity.contactId || undefined,
+                                        })
+                                      }}
+                                      title="Edit task"
+                                    >
+                                      <Edit className="h-4 w-4 text-blue-600" />
+                                    </Button>
                                     {activity.status !== 'completed' && (
                                       <Button
                                         size="sm"
@@ -1099,7 +1175,7 @@ export function DashboardOverview() {
                 <div className="space-y-3">
                   {stats.contactsByPropertyType.map((type, index) => (
                     <div key={type.type} className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{type.type}</span>
+                      <span className="text-sm font-medium">{normalizePropertyType(type.type)}</span>
                       <div className="flex items-center gap-2">
                         <div className="w-24 bg-gray-200 rounded-full h-2">
                           <div
@@ -1212,6 +1288,7 @@ export function DashboardOverview() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }

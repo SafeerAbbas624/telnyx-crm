@@ -38,14 +38,18 @@ export function last10Digits(input: string | null | undefined): string {
 export function formatPhoneNumberForTelnyx(phoneNumber: string | null | undefined): string | null {
   if (!phoneNumber) return null;
 
-  const cleaned = stripBidiAndZeroWidth(phoneNumber);
+  let cleaned = stripBidiAndZeroWidth(phoneNumber);
+
+  // Remove leading/trailing quotes that might come from CSV parsing
+  cleaned = cleaned.replace(/^['"`]+|['"`]+$/g, '').trim();
 
   // If already in correct E.164 format, return as-is
   if (isValidE164PhoneNumber(cleaned)) {
     return cleaned;
   }
 
-  // Remove all non-digit characters
+  // Remove all non-digit characters (but preserve the + if it's at the start)
+  const hasPlus = cleaned.startsWith('+');
   const digitsOnly = cleaned.replace(/\D/g, '');
 
   // Handle different US phone number formats
@@ -56,7 +60,11 @@ export function formatPhoneNumberForTelnyx(phoneNumber: string | null | undefine
     // Already has US country code (e.g., "17542947595" -> "+17542947595")
     return `+${digitsOnly}`;
   } else if (digitsOnly.length > 11) {
-    // International number, assume it already has country code
+    // International number with country code (e.g., "923312378492" -> "+923312378492")
+    // If original had +, it's definitely international; if not but > 11 digits, assume international
+    return `+${digitsOnly}`;
+  } else if (digitsOnly.length > 0 && hasPlus) {
+    // Has + but fewer than expected digits - still try to format it
     return `+${digitsOnly}`;
   }
 

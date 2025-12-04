@@ -8,6 +8,10 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || ''
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
+    const filter = searchParams.get('filter') || 'all' // 'all', 'unread', 'read'
+    const direction = searchParams.get('direction') || 'all' // 'all', 'inbound', 'outbound'
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
 
     // Build search conditions
     const searchConditions = search.trim() ? {
@@ -24,11 +28,36 @@ export async function GET(request: NextRequest) {
       ]
     } : {}
 
+    // Build conversation filter conditions
+    let conversationFilterConditions: any = {}
+    if (filter === 'unread') {
+      conversationFilterConditions.unread_count = { gt: 0 }
+    } else if (filter === 'read') {
+      conversationFilterConditions.unread_count = 0
+    }
+
+    // Add direction filter
+    if (direction !== 'all') {
+      conversationFilterConditions.last_message_direction = direction
+    }
+
+    // Add date filter
+    if (startDate || endDate) {
+      conversationFilterConditions.last_message_at = {}
+      if (startDate) {
+        conversationFilterConditions.last_message_at.gte = new Date(startDate)
+      }
+      if (endDate) {
+        conversationFilterConditions.last_message_at.lte = new Date(endDate)
+      }
+    }
+
     // FIX: Get ALL conversations first (without pagination), then deduplicate, then apply pagination
     // This ensures we don't return duplicates due to deduplication logic
     const allConversations = await prisma.conversation.findMany({
       where: {
         contact: searchConditions,
+        ...conversationFilterConditions
       },
       include: {
         contact: {
@@ -138,9 +167,28 @@ export async function GET(request: NextRequest) {
     // Filter out null entries (conversations with no messages)
     const validConversations = conversationsWithMessages.filter(c => c !== null)
 
+    // Get stats (unread and read counts) - build a stats where clause without the filter/direction filters
+    let statsWhereClause: any = {
+      contact: searchConditions,
+    }
+    if (startDate || endDate) {
+      statsWhereClause.last_message_at = {}
+      if (startDate) statsWhereClause.last_message_at.gte = new Date(startDate)
+      if (endDate) statsWhereClause.last_message_at.lte = new Date(endDate)
+    }
+
+    const unreadCount = await prisma.conversation.count({
+      where: { ...statsWhereClause, unread_count: { gt: 0 } }
+    })
+    const readCount = await prisma.conversation.count({
+      where: { ...statsWhereClause, unread_count: 0 }
+    })
+
     return NextResponse.json({
       conversations: validConversations,
       total: deduped.length, // Total after deduplication
+      unread: unreadCount,
+      read: readCount,
       limit,
       offset,
       hasMore: offset + limit < deduped.length

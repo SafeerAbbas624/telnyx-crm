@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const { contactIds, operation, tagIds = [], tagNames = [] } = validatedData
 
     // For team members, verify they have access to all contacts
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       const assignedContacts = await prisma.contactAssignment.findMany({
         where: {
           userId: session.user.id,

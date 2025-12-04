@@ -20,7 +20,9 @@ import type { Contact } from "@/lib/types"
 interface TelnyxPhoneNumber {
   id: string
   phoneNumber: string
+  friendlyName?: string
   state?: string
+  city?: string
   isActive: boolean
 }
 
@@ -28,12 +30,16 @@ interface NewTextMessageModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onMessageSent?: () => void
+  prefilledContact?: Contact | null
+  prefilledPhoneNumber?: string
 }
 
-export default function NewTextMessageModal({ 
-  open, 
-  onOpenChange, 
-  onMessageSent 
+export default function NewTextMessageModal({
+  open,
+  onOpenChange,
+  onMessageSent,
+  prefilledContact,
+  prefilledPhoneNumber
 }: NewTextMessageModalProps) {
   const { data: session } = useSession()
   const { contacts } = useContacts()
@@ -62,12 +68,28 @@ export default function NewTextMessageModal({
   // Check if current user is admin
   const isAdmin = session?.user?.role === 'ADMIN'
 
-  // Load available phone numbers
+  // Load available phone numbers and prefill contact if provided
   useEffect(() => {
     if (open) {
       loadAvailableNumbers()
+      // Prefill contact if provided
+      if (prefilledContact) {
+        setSelectedContact(prefilledContact)
+        setActiveTab("existing")
+      } else if (prefilledPhoneNumber) {
+        // If only phone number is provided, try to find the contact
+        const foundContact = contacts.find(c =>
+          c.phone1 === prefilledPhoneNumber ||
+          c.phone2 === prefilledPhoneNumber ||
+          c.phone3 === prefilledPhoneNumber
+        )
+        if (foundContact) {
+          setSelectedContact(foundContact)
+          setActiveTab("existing")
+        }
+      }
     }
-  }, [open, session])
+  }, [open, session, prefilledContact, prefilledPhoneNumber, contacts])
 
   const loadAvailableNumbers = async () => {
     try {
@@ -319,8 +341,12 @@ export default function NewTextMessageModal({
                     <SelectItem key={number.id} value={number.phoneNumber}>
                       <div className="flex items-center gap-2">
                         <Phone className="h-4 w-4" />
-                        <span>{formatPhoneNumberForDisplay(number.phoneNumber)}</span>
-                        {number.state && <span className="text-xs text-muted-foreground">({number.state})</span>}
+                        <div className="flex flex-col">
+                          <span>{formatPhoneNumberForDisplay(number.phoneNumber)}</span>
+                          {number.friendlyName && (
+                            <span className="text-xs text-muted-foreground">{number.friendlyName}</span>
+                          )}
+                        </div>
                         {!isAdmin && number.phoneNumber === session?.user?.assignedPhoneNumber && (
                           <span className="text-xs bg-blue-100 text-blue-800 px-1 rounded">Assigned</span>
                         )}
@@ -334,7 +360,7 @@ export default function NewTextMessageModal({
                       <span>No phone numbers available</span>
                     </div>
                   </SelectItem>
-                )}}
+                )}
               </SelectContent>
             </Select>
           </div>

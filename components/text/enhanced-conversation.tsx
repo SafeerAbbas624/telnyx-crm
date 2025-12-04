@@ -51,6 +51,7 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [selectedSenderNumber, setSelectedSenderNumber] = useState<string>("")
+  const [conversationOurNumber, setConversationOurNumber] = useState<string | null>(null) // The Telnyx line bound to this conversation
   const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
@@ -132,7 +133,12 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
         const data = await response.json()
         setMessages(data.messages || [])
 
-        // Use suggested sender number from API (most recent outbound message)
+        // Track the conversation's bound Telnyx line (for multi-number routing)
+        if (data.conversationOurNumber) {
+          setConversationOurNumber(data.conversationOurNumber)
+        }
+
+        // Use suggested sender number from API (prioritizes conversation.our_number)
         if (data.suggestedSenderNumber) {
           setSelectedSenderNumber(data.suggestedSenderNumber)
           console.log(`Auto-selected sender number: ${data.suggestedSenderNumber} for contact ${contact.firstName} ${contact.lastName}`)
@@ -395,6 +401,11 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
               <p className="text-sm text-muted-foreground truncate">
                 {contact.phone1} {contact.llcName && `• ${contact.llcName}`}
               </p>
+              {conversationOurNumber && (
+                <p className="text-xs text-blue-600 truncate">
+                  Via: {availableNumbers.find(n => n.phoneNumber === conversationOurNumber)?.friendlyName || conversationOurNumber}
+                </p>
+              )}
             </div>
           </div>
 

@@ -238,17 +238,27 @@ export async function POST(request: NextRequest) {
         user: emailAccount.smtpUsername,
         pass: smtpPassword,
       },
-      connectionTimeout: 10000, // 10 seconds
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
+      connectionTimeout: 30000, // 30 seconds
+      greetingTimeout: 30000,
+      socketTimeout: 30000,
+      logger: false,
+      debug: false,
     };
 
     // Set security options
     if (emailAccount.smtpEncryption === 'SSL') {
       smtpConfig.secure = true;
+      smtpConfig.tls = {
+        rejectUnauthorized: false, // Allow self-signed certificates
+        minVersion: 'TLSv1.2'
+      };
     } else if (emailAccount.smtpEncryption === 'TLS') {
       smtpConfig.secure = false;
       smtpConfig.requireTLS = true;
+      smtpConfig.tls = {
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+      };
     } else {
       smtpConfig.secure = false;
     }

@@ -244,6 +244,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update or create conversation for this message (normalized + last-10 fallback)
+    // CRITICAL: Track our_number (the Telnyx line we're sending from) for multi-number routing
     if (contactId && prisma.conversation) {
       try {
         const normalizedTo = formattedToNumber
@@ -265,6 +266,7 @@ export async function POST(request: NextRequest) {
             where: { id: existing.id },
             data: {
               phone_number: normalizedTo,
+              our_number: formattedFromNumber, // Track which line we sent from
               last_message_content: message,
               last_message_at: new Date(),
               last_message_direction: 'outbound',
@@ -278,6 +280,7 @@ export async function POST(request: NextRequest) {
             data: {
               contact_id: contactId,
               phone_number: normalizedTo,
+              our_number: formattedFromNumber, // Track which line we sent from
               channel: 'sms',
               last_message_content: message,
               last_message_at: new Date(),

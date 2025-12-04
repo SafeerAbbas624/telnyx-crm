@@ -73,14 +73,33 @@ export async function GET(request: NextRequest) {
     const state = searchParams.get('state')
     const propertyCounty = searchParams.get('propertyCounty')
     const tags = searchParams.get('tags')
+
+    // Financial filters
     const minValue = searchParams.get('minValue') ? parseFloat(searchParams.get('minValue')!) : undefined
     const maxValue = searchParams.get('maxValue') ? parseFloat(searchParams.get('maxValue')!) : undefined
     const minEquity = searchParams.get('minEquity') ? parseFloat(searchParams.get('minEquity')!) : undefined
     const maxEquity = searchParams.get('maxEquity') ? parseFloat(searchParams.get('maxEquity')!) : undefined
+
+    // Property detail filters (NEW)
+    const minBedrooms = searchParams.get('minBedrooms') ? parseInt(searchParams.get('minBedrooms')!) : undefined
+    const maxBedrooms = searchParams.get('maxBedrooms') ? parseInt(searchParams.get('maxBedrooms')!) : undefined
+    const minBathrooms = searchParams.get('minBathrooms') ? parseFloat(searchParams.get('minBathrooms')!) : undefined
+    const maxBathrooms = searchParams.get('maxBathrooms') ? parseFloat(searchParams.get('maxBathrooms')!) : undefined
+    const minSqft = searchParams.get('minSqft') ? parseInt(searchParams.get('minSqft')!) : undefined
+    const maxSqft = searchParams.get('maxSqft') ? parseInt(searchParams.get('maxSqft')!) : undefined
+    const minYearBuilt = searchParams.get('minYearBuilt') ? parseInt(searchParams.get('minYearBuilt')!) : undefined
+    const maxYearBuilt = searchParams.get('maxYearBuilt') ? parseInt(searchParams.get('maxYearBuilt')!) : undefined
+    const minProperties = searchParams.get('minProperties') ? parseInt(searchParams.get('minProperties')!) : undefined
+    const maxProperties = searchParams.get('maxProperties') ? parseInt(searchParams.get('maxProperties')!) : undefined
+
     const hasMultiValues = [dealStatus, propertyType, city, state, propertyCounty, tags].some(v => (v ?? '').includes(','))
     const useElasticsearch = (searchParams.get('useElasticsearch') === 'true' || !!search) && !hasMultiValues
 
-    const filters = { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue, minEquity, maxEquity }
+    const filters = {
+      search, dealStatus, propertyType, city, state, propertyCounty, tags,
+      minValue, maxValue, minEquity, maxEquity,
+      minBedrooms, maxBedrooms, minBathrooms, maxBathrooms, minSqft, maxSqft, minYearBuilt, maxYearBuilt
+    }
 
     // Enhanced logging for debugging
     console.log(`🔍 [API DEBUG] Contacts API called - Search: "${search || 'none'}" | Page: ${page} | Limit: ${limit}`)
@@ -180,14 +199,40 @@ export async function GET(request: NextRequest) {
     const where: any = {}
 
     if (search) {
-      where.OR = [
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-        { llcName: { contains: search, mode: 'insensitive' } },
-        { phone1: { contains: search } },
-        { email1: { contains: search, mode: 'insensitive' } },
-        { propertyAddress: { contains: search, mode: 'insensitive' } },
-      ]
+      // Trim whitespace to handle trailing/leading spaces
+      const trimmedSearch = search.trim();
+
+      if (trimmedSearch) {
+        // Check if search contains multiple words (like "Eunice Choi")
+        const searchWords = trimmedSearch.split(/\s+/);
+
+        if (searchWords.length > 1) {
+          // Multi-word search: search in fullName or across firstName+lastName
+          where.OR = [
+            { fullName: { contains: trimmedSearch, mode: 'insensitive' } },
+            // Also search each word individually across all fields
+            ...searchWords.flatMap(word => [
+              { firstName: { contains: word, mode: 'insensitive' } },
+              { lastName: { contains: word, mode: 'insensitive' } },
+            ]),
+            { llcName: { contains: trimmedSearch, mode: 'insensitive' } },
+            { phone1: { contains: trimmedSearch } },
+            { email1: { contains: trimmedSearch, mode: 'insensitive' } },
+            { propertyAddress: { contains: trimmedSearch, mode: 'insensitive' } },
+          ]
+        } else {
+          // Single word search: search across all fields
+          where.OR = [
+            { fullName: { contains: trimmedSearch, mode: 'insensitive' } },
+            { firstName: { contains: trimmedSearch, mode: 'insensitive' } },
+            { lastName: { contains: trimmedSearch, mode: 'insensitive' } },
+            { llcName: { contains: trimmedSearch, mode: 'insensitive' } },
+            { phone1: { contains: trimmedSearch } },
+            { email1: { contains: trimmedSearch, mode: 'insensitive' } },
+            { propertyAddress: { contains: trimmedSearch, mode: 'insensitive' } },
+          ]
+        }
+      }
     }
 
     // Helper to parse comma-separated values
@@ -219,12 +264,16 @@ export async function GET(request: NextRequest) {
     }
 
     if (tags) {
-      const tagNames = tags.split(',').map(t => t.trim())
+      const tagValues = tags.split(',').map(t => t.trim())
+      // Check if values look like UUIDs (tag IDs) or names
+      const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+      const areIds = tagValues.every(isUuid)
+
       where.contact_tags = {
         some: {
-          tag: {
-            name: { in: tagNames }
-          }
+          tag: areIds
+            ? { id: { in: tagValues } }
+            : { name: { in: tagValues } }
         }
       }
     }
@@ -252,6 +301,67 @@ export async function GET(request: NextRequest) {
       where.estEquity = {}
       if (minEquity !== undefined) where.estEquity.gte = minEquity
       if (maxEquity !== undefined) where.estEquity.lte = maxEquity
+    }
+
+    // Apply property detail filters (NEW)
+    if (minBedrooms !== undefined || maxBedrooms !== undefined) {
+      where.bedrooms = {}
+      if (minBedrooms !== undefined) where.bedrooms.gte = minBedrooms
+      if (maxBedrooms !== undefined) where.bedrooms.lte = maxBedrooms
+    }
+
+    if (minBathrooms !== undefined || maxBathrooms !== undefined) {
+      where.totalBathrooms = {}
+      if (minBathrooms !== undefined) where.totalBathrooms.gte = minBathrooms
+      if (maxBathrooms !== undefined) where.totalBathrooms.lte = maxBathrooms
+    }
+
+    if (minSqft !== undefined || maxSqft !== undefined) {
+      where.buildingSqft = {}
+      if (minSqft !== undefined) where.buildingSqft.gte = minSqft
+      if (maxSqft !== undefined) where.buildingSqft.lte = maxSqft
+    }
+
+    if (minYearBuilt !== undefined || maxYearBuilt !== undefined) {
+      where.effectiveYearBuilt = {}
+      if (minYearBuilt !== undefined) where.effectiveYearBuilt.gte = minYearBuilt
+      if (maxYearBuilt !== undefined) where.effectiveYearBuilt.lte = maxYearBuilt
+    }
+
+    // Filter by property count (number of properties owned)
+    if (minProperties !== undefined || maxProperties !== undefined) {
+      // Use raw SQL to get contact IDs that match the property count criteria
+      const propertyCountConditions: string[] = []
+      if (minProperties !== undefined) {
+        propertyCountConditions.push(`COUNT(cp.id) >= ${minProperties}`)
+      }
+      if (maxProperties !== undefined) {
+        propertyCountConditions.push(`COUNT(cp.id) <= ${maxProperties}`)
+      }
+
+      const contactIdsWithPropertyCount = await prisma.$queryRawUnsafe<{ id: string }[]>(`
+        SELECT c.id
+        FROM contacts c
+        LEFT JOIN contact_properties cp ON c.id = cp.contact_id
+        GROUP BY c.id
+        HAVING ${propertyCountConditions.join(' AND ')}
+      `)
+
+      const matchingIds = contactIdsWithPropertyCount.map(r => r.id)
+
+      if (matchingIds.length === 0) {
+        // No contacts match the property count filter
+        where.id = { in: [] }
+      } else {
+        // Add the matching IDs to the where clause
+        if (where.id) {
+          // If there's already an id filter, intersect with it
+          where.AND = where.AND || []
+          ;(where.AND as any[]).push({ id: { in: matchingIds } })
+        } else {
+          where.id = { in: matchingIds }
+        }
+      }
     }
 
     // Always get accurate count for proper pagination
@@ -298,6 +408,29 @@ export async function GET(request: NextRequest) {
               },
             },
           },
+          activities: {
+            where: {
+              type: 'task',
+              status: { not: 'completed' }
+            },
+            select: {
+              id: true,
+              type: true,
+              title: true,
+              status: true,
+              priority: true,
+              due_date: true,
+            },
+            orderBy: {
+              due_date: 'asc'
+            },
+            take: 5
+          },
+          _count: {
+            select: {
+              properties: true,
+            },
+          },
         } : {
           // Full details for browsing all contacts
           id: true,
@@ -339,6 +472,29 @@ export async function GET(request: NextRequest) {
                 },
               },
             },
+          },
+          _count: {
+            select: {
+              properties: true,
+            },
+          },
+          activities: {
+            where: {
+              type: 'task',
+              status: { not: 'completed' }
+            },
+            select: {
+              id: true,
+              type: true,
+              title: true,
+              status: true,
+              priority: true,
+              due_date: true,
+            },
+            orderBy: {
+              due_date: 'asc'
+            },
+            take: 5
           },
         },
         orderBy: {
@@ -408,6 +564,16 @@ export async function GET(request: NextRequest) {
         name: ct.tag.name,
         color: ct.tag.color || '#3B82F6'
       })),
+      activities: (contact.activities ?? []).map((activity: any) => ({
+        id: activity.id,
+        type: activity.type,
+        title: activity.title,
+        status: activity.status,
+        priority: activity.priority,
+        dueDate: activity.due_date?.toISOString()
+      })),
+      deals: [], // Deals are not directly on Contact model
+      propertyCount: (contact as any)._count?.properties ?? 0,
     }));
 
 
@@ -531,7 +697,14 @@ export async function POST(request: NextRequest) {
             if (name) candidatesToCreate.set(name, undefined);
             continue;
           }
-          if (item && item.id) {
+          // Check if this is a temporary tag (created by TagInput when API fails)
+          // Temporary tags have IDs starting with 'new:'
+          if (item && item.id && item.id.startsWith('new:')) {
+            // This is a temporary tag - create it by name
+            const name = item.name?.trim() || item.id.replace('new:', '').trim();
+            if (name) candidatesToCreate.set(name, item.color);
+          } else if (item && item.id) {
+            // This is an existing tag with a real ID
             desiredTagIds.add(item.id);
           } else if (item && item.name) {
             const name = item.name.trim();

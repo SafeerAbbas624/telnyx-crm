@@ -6,12 +6,24 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Search, Plus, MessageCircle, Phone } from "lucide-react"
+import { Search, Plus, MessageCircle, Phone, Filter, Calendar, X } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { formatDistanceToNow } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
 import { useNotifications } from "@/lib/context/notifications-context"
 import { useContacts } from "@/lib/context/contacts-context"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import NewTextMessageModal from "./new-text-message-modal"
 import type { Contact } from "@/lib/types"
 import ContactName from "@/components/contacts/contact-name"
@@ -20,7 +32,8 @@ import ContactName from "@/components/contacts/contact-name"
 interface ConversationData {
   id: string
   contact_id: string
-  phone_number: string
+  phone_number: string      // Prospect's phone number
+  our_number?: string       // Our Telnyx line for this conversation
   last_message_at?: string
   last_message_direction?: 'inbound' | 'outbound'
   last_sender_number?: string
@@ -57,8 +70,9 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
     const [searchQuery, setSearchQuery] = useState("")
     const [conversations, setConversations] = useState<ConversationData[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    const [isInitialLoad, setIsInitialLoad] = useState(true)
     const [showNewMessageModal, setShowNewMessageModal] = useState(false)
-    const debouncedSearchQuery = useDebounce(searchQuery, 150)
+    const debouncedSearchQuery = useDebounce(searchQuery, 500)
     const fetchAbortRef = useRef<AbortController | null>(null)
     const cacheRef = useRef<Map<string, any>>(new Map())
     const [isSearching, setIsSearching] = useState(false)
@@ -71,6 +85,36 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
     const [isLoadingMore, setIsLoadingMore] = useState(false)
     const scrollAreaRef = useRef<HTMLDivElement>(null)
 
+    // FIX: Store scroll position to preserve it during auto-refresh
+    const scrollPositionRef = useRef<number>(0)
+
+    // Date/time filter state
+    const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all')
+    const [customStartDate, setCustomStartDate] = useState<string>('')
+    const [customEndDate, setCustomEndDate] = useState<string>('')
+    const debouncedStartDate = useDebounce(customStartDate, 800)
+    const debouncedEndDate = useDebounce(customEndDate, 800)
+    const [showDateFilter, setShowDateFilter] = useState(false)
+
+    // Stats from API (for ALL conversations, not just paginated)
+    const [apiStats, setApiStats] = useState<{
+      total: number
+      unread: number
+      read: number
+    }>({ total: 0, unread: 0, read: 0 })
+
+    // UX Enhancement: Conversation filters
+    const [conversationFilter, setConversationFilter] = useState<'all' | 'unread' | 'read'>('all')
+    const [directionFilter, setDirectionFilter] = useState<'all' | 'inbound' | 'outbound'>('all')
+
+    // UX Enhancement: Bulk actions
+    const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set())
+    const [bulkActionMode, setBulkActionMode] = useState(false)
+
+    // Track user activity to prevent auto-refresh collision
+    const [lastUserActivity, setLastUserActivity] = useState<number>(Date.now())
+    const userActivityTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
     // FIX: Expose refresh method via ref
     useImperativeHandle(ref, () => ({
       refreshConversations: () => {
@@ -82,21 +126,35 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
   // Load conversations with live search
   useEffect(() => {
     loadConversations()
-  }, [debouncedSearchQuery])
+  }, [debouncedSearchQuery, dateFilter, debouncedStartDate, debouncedEndDate, conversationFilter, directionFilter])
 
-  // Auto-refresh conversations every 30 seconds
+  // FIX: Auto-refresh conversations every 30 seconds while preserving scroll position
+  // BUT: Pause auto-refresh if user is actively filtering/scrolling (within last 5 seconds)
   useEffect(() => {
     const interval = setInterval(() => {
-      loadConversations()
+      const timeSinceActivity = Date.now() - lastUserActivity
+
+      // Only auto-refresh if user hasn't been active in the last 5 seconds
+      if (timeSinceActivity > 5000) {
+        // Save current scroll position before refresh
+        const scrollElement = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+        if (scrollElement) {
+          scrollPositionRef.current = scrollElement.scrollTop
+        }
+        loadConversations(false, true) // Pass false for loadMore, true for preserveScroll
+      }
     }, 30000)
     return () => clearInterval(interval)
-  }, [debouncedSearchQuery])
+  }, [debouncedSearchQuery, dateFilter, debouncedStartDate, debouncedEndDate, lastUserActivity])
 
   // Infinite scroll handler
   useEffect(() => {
     const handleScroll = (e: Event) => {
       const scrollArea = e.target as HTMLDivElement
       const { scrollTop, scrollHeight, clientHeight } = scrollArea
+
+      // Mark user as active when scrolling
+      setLastUserActivity(Date.now())
 
       // Load more when user scrolls near the bottom (within 200px)
       if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !isLoadingMore && !isLoading) {
@@ -111,6 +169,11 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
       return () => scrollElement.removeEventListener('scroll', handleScroll)
     }
   }, [hasMore, isLoadingMore, isLoading])
+
+  // Track user activity when filters change (use debounced dates to avoid flickering)
+  useEffect(() => {
+    setLastUserActivity(Date.now())
+  }, [conversationFilter, directionFilter, dateFilter, debouncedStartDate, debouncedEndDate])
 
   // FIX: Listen for conversationRead event to refresh conversations list
   useEffect(() => {
@@ -205,10 +268,15 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
     }
   }, [])
 
-  const loadConversations = async (loadMore = false) => {
+  const loadConversations = async (loadMore = false, preserveScroll = false) => {
+    // Skip reload if custom date filter is selected but dates are incomplete
+    if (dateFilter === 'custom' && (!debouncedStartDate || !debouncedEndDate)) {
+      return
+    }
+
     if (loadMore) {
       setIsLoadingMore(true)
-    } else {
+    } else if (!preserveScroll) {
       setIsSearching(true)
       setIsLoading(true)
       setOffset(0)
@@ -224,6 +292,58 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
       const currentOffset = loadMore ? offset : 0
       params.set('offset', currentOffset.toString())
       params.set('limit', '50')
+
+      // Add conversation filter params (read/unread)
+      if (conversationFilter !== 'all') {
+        params.set('filter', conversationFilter) // 'unread' or 'read'
+      }
+
+      // Add direction filter params
+      if (directionFilter !== 'all') {
+        params.set('direction', directionFilter) // 'inbound' or 'outbound'
+      }
+
+      // Add date filter params
+      if (dateFilter !== 'all') {
+        const now = new Date()
+        let startDate: Date | null = null
+        let endDate: Date | null = null
+
+        switch (dateFilter) {
+          case 'today':
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+            break
+          case 'yesterday':
+            const yesterday = new Date(now)
+            yesterday.setDate(yesterday.getDate() - 1)
+            startDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate())
+            endDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59)
+            break
+          case 'week':
+            startDate = new Date(now)
+            startDate.setDate(startDate.getDate() - 7)
+            endDate = now
+            break
+          case 'month':
+            startDate = new Date(now)
+            startDate.setDate(startDate.getDate() - 30)
+            endDate = now
+            break
+          case 'custom':
+            if (debouncedStartDate) {
+              startDate = new Date(debouncedStartDate)
+            }
+            if (debouncedEndDate) {
+              endDate = new Date(debouncedEndDate)
+              endDate.setHours(23, 59, 59)
+            }
+            break
+        }
+
+        if (startDate) params.set('startDate', startDate.toISOString())
+        if (endDate) params.set('endDate', endDate.toISOString())
+      }
 
       if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
       const controller = new AbortController()
@@ -246,6 +366,21 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
             setOffset((data.conversations || []).length)
           }
           setHasMore(data.hasMore || false)
+          setApiStats({
+            total: data.total || 0,
+            unread: data.unread || 0,
+            read: data.read || 0
+          })
+
+          // Restore scroll position if this was a background refresh
+          if (preserveScroll && scrollPositionRef.current > 0) {
+            setTimeout(() => {
+              const scrollElement = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+              if (scrollElement) {
+                scrollElement.scrollTop = scrollPositionRef.current
+              }
+            }, 0)
+          }
         }
       }
     } catch (error) {
@@ -256,10 +391,22 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
       setIsLoading(false)
       setIsSearching(false)
       setIsLoadingMore(false)
+      setIsInitialLoad(false)
     }
   }
 
   const handleContactSelect = (conversation: ConversationData) => {
+    // ADMIN FIX: Mark conversation as read in-place (no full reload)
+    if (conversation.hasUnread) {
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === conversation.id
+            ? { ...c, hasUnread: false, unread_count: 0 }
+            : c
+        )
+      )
+    }
+
     const contact: Contact = {
       id: conversation.contact.id,
       firstName: conversation.contact.firstName,
@@ -347,8 +494,8 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
   }, [conversations])
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
+    <div className="flex flex-col h-full relative">
+      <div className="p-4 border-b flex-shrink-0">
         <div className="flex gap-2 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
@@ -374,9 +521,131 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
         {isLoading && (
           <div className="text-sm text-muted-foreground">Searching...</div>
         )}
+
+        {/* Date Filter */}
+        <div className="flex gap-2 mt-3 items-center">
+          <Select value={dateFilter} onValueChange={(value: any) => setDateFilter(value)}>
+            <SelectTrigger className="w-40 h-9">
+              <Calendar className="h-4 w-4 mr-2" />
+              <SelectValue placeholder="Select date range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="yesterday">Yesterday</SelectItem>
+              <SelectItem value="week">Last 7 Days</SelectItem>
+              <SelectItem value="month">Last 30 Days</SelectItem>
+              <SelectItem value="custom">Custom Range</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Custom Date Range Picker */}
+          {dateFilter === 'custom' && (
+            <Popover open={showDateFilter} onOpenChange={setShowDateFilter}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Pick Dates
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80">
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium">Start Date</label>
+                    <Input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">End Date</label>
+                    <Input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <Button
+                    onClick={() => setShowDateFilter(false)}
+                    className="w-full"
+                  >
+                    Apply
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
+          {/* Clear filters button */}
+          {(dateFilter !== 'all' || conversationFilter !== 'all' || directionFilter !== 'all') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDateFilter('all')
+                setCustomStartDate('')
+                setCustomEndDate('')
+                setConversationFilter('all')
+                setDirectionFilter('all')
+              }}
+              className="h-9"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        {/* Stats Display */}
+        <div className="flex gap-2 mt-3 px-2">
+          <div
+            className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+              conversationFilter === 'all'
+                ? 'border-primary bg-primary/5'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+            onClick={() => setConversationFilter('all')}
+          >
+            <div className="text-xs text-muted-foreground">Total</div>
+            <div className="text-lg font-semibold">{apiStats.total}</div>
+          </div>
+
+          <div
+            className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+              conversationFilter === 'unread'
+                ? 'border-red-500 bg-red-50'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+            onClick={() => setConversationFilter('unread')}
+          >
+            <div className="text-xs text-muted-foreground">Unread</div>
+            <div className="text-lg font-semibold text-red-600">{apiStats.unread}</div>
+          </div>
+
+          <div
+            className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+              conversationFilter === 'read'
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+            onClick={() => setConversationFilter('read')}
+          >
+            <div className="text-xs text-muted-foreground">Read</div>
+            <div className="text-lg font-semibold text-green-600">{apiStats.read}</div>
+          </div>
+        </div>
       </div>
 
-      <ScrollArea className="flex-1" ref={scrollAreaRef}>
+      <ScrollArea className="flex-1 min-h-0 overflow-hidden relative" ref={scrollAreaRef}>
+        {/* Loading overlay - only shows during filter updates, not initial load */}
+        {isLoading && !isInitialLoad && (
+          <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+          </div>
+        )}
+
         <div className="divide-y">
           {sortedConversations.map((conversation) => {
             const preview = getMessagePreview(conversation)
@@ -428,7 +697,7 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
                     </div>
 
                     {/* Phone number row */}
-                    <div className="flex items-center gap-1 mb-2">
+                    <div className="flex items-center gap-1 mb-1">
                       <Phone className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       <span className="text-xs text-muted-foreground truncate">
                         {conversation.contact.phone1}
@@ -442,6 +711,14 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
                         </>
                       )}
                     </div>
+                    {/* Our line indicator (multi-number routing) */}
+                    {conversation.our_number && (
+                      <div className="flex items-center gap-1 mb-1">
+                        <span className="text-xs text-blue-600 truncate">
+                          Via: {conversation.our_number}
+                        </span>
+                      </div>
+                    )}
 
                     {/* Message preview row */}
                     <div className="flex items-center justify-between">
@@ -494,6 +771,20 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
               </div>
               <p className="text-xs text-muted-foreground mt-2">Loading more conversations...</p>
+            </div>
+          )}
+
+          {/* ADMIN FIX: Load More button for infinite scroll fallback */}
+          {hasMore && !isLoadingMore && sortedConversations.length > 0 && (
+            <div className="p-4 text-center border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => loadConversations(true)}
+                className="w-full"
+              >
+                Load More
+              </Button>
             </div>
           )}
         </div>

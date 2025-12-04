@@ -46,12 +46,10 @@ async function fetchEmailsFromFolder(connection: any, account: any, folderName: 
     await connection.openBox(folderName)
     console.log(`📂 Opened folder: ${folderName}`)
 
-    // Search for messages (last 30 days)
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-
+    // Search for ALL messages (no date restriction)
+    // This ensures we fetch the entire inbox history
     const searchCriteria = [
-      ['SINCE', thirtyDaysAgo],
+      'ALL'
     ]
 
     const fetchOptions = {
@@ -125,6 +123,8 @@ async function fetchEmailsFromFolder(connection: any, account: any, folderName: 
         const references = parseReferences(parsed.references || null)
         const threadId = extractThreadId(messageId, inReplyTo, references, parsed.subject || 'No Subject')
 
+        const emailDate = parsed.date || new Date()
+
         emails.push({
           messageId,
           fromEmail,
@@ -135,7 +135,8 @@ async function fetchEmailsFromFolder(connection: any, account: any, folderName: 
           subject: parsed.subject || 'No Subject',
           content: parsed.html || parsed.textAsHtml || '',
           textContent: parsed.text || '',
-          deliveredAt: parsed.date || new Date(),
+          deliveredAt: emailDate,
+          sentAt: emailDate,
           contactId: contact?.id || null,
           emailAccountId: account.id,
           direction,
@@ -180,8 +181,8 @@ async function fetchEmailsFromIMAP(account: any, password: string): Promise<any[
     allEmails = allEmails.concat(inboxEmails)
 
     // Fetch from Sent folder (outbound emails)
-    // Try common sent folder names
-    const sentFolderNames = ['Sent', '[Gmail]/Sent Mail', 'Sent Items', 'Sent Messages']
+    // Try common sent folder names (Hostinger uses INBOX.Sent)
+    const sentFolderNames = ['INBOX.Sent', 'Sent', '[Gmail]/Sent Mail', 'Sent Items', 'Sent Messages']
 
     for (const folderName of sentFolderNames) {
       try {

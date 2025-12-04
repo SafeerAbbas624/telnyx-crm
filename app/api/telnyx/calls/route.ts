@@ -22,7 +22,89 @@ export async function GET() {
       take: 100, // Limit to last 100 calls
     });
 
-    return NextResponse.json(calls);
+    // Fetch contact names for calls that have contactId
+    const contactIds = calls
+      .filter(call => call.contactId)
+      .map(call => call.contactId as string);
+
+    const contacts = contactIds.length > 0
+      ? await prisma.contact.findMany({
+          where: { id: { in: contactIds } },
+          select: { id: true, firstName: true, lastName: true, phone1: true }
+        })
+      : [];
+
+    const contactMap = new Map(contacts.map(c => [c.id, c]));
+
+    // Collect phone numbers from calls without contactId for lookup
+    const phoneNumbersToLookup = new Set<string>();
+    calls.forEach(call => {
+      if (!call.contactId) {
+        // Extract last 10 digits for matching
+        const fromDigits = (call.fromNumber || '').replace(/\D/g, '').slice(-10);
+        const toDigits = (call.toNumber || '').replace(/\D/g, '').slice(-10);
+        if (fromDigits) phoneNumbersToLookup.add(fromDigits);
+        if (toDigits) phoneNumbersToLookup.add(toDigits);
+      }
+    });
+
+    // Lookup contacts by phone number for calls without contactId
+    let phoneContactMap = new Map<string, { firstName: string | null; lastName: string | null }>();
+    if (phoneNumbersToLookup.size > 0) {
+      const phonePatterns = Array.from(phoneNumbersToLookup).map(digits => `%${digits}`);
+      const contactsByPhone = await prisma.contact.findMany({
+        where: {
+          OR: [
+            { phone1: { in: phonePatterns.map(p => p.replace('%', '')) } },
+            ...phonePatterns.map(pattern => ({ phone1: { endsWith: pattern.replace('%', '') } }))
+          ]
+        },
+        select: { firstName: true, lastName: true, phone1: true }
+      });
+
+      // Build map of last 10 digits -> contact
+      contactsByPhone.forEach(c => {
+        if (c.phone1) {
+          const digits = c.phone1.replace(/\D/g, '').slice(-10);
+          if (digits) {
+            phoneContactMap.set(digits, { firstName: c.firstName, lastName: c.lastName });
+          }
+        }
+      });
+    }
+
+    // Transform to include contactName
+    const transformedCalls = calls.map(call => {
+      // First try by contactId
+      let contact = call.contactId ? contactMap.get(call.contactId) : null;
+
+      // If no contact found by ID, try by phone number
+      if (!contact) {
+        const fromDigits = (call.fromNumber || '').replace(/\D/g, '').slice(-10);
+        const toDigits = (call.toNumber || '').replace(/\D/g, '').slice(-10);
+
+        // For outbound calls, match toNumber; for inbound, match fromNumber
+        if (call.direction === 'outbound' && toDigits) {
+          contact = phoneContactMap.get(toDigits) || null;
+        } else if (call.direction === 'inbound' && fromDigits) {
+          contact = phoneContactMap.get(fromDigits) || null;
+        }
+
+        // Fallback: try both numbers
+        if (!contact) {
+          contact = phoneContactMap.get(toDigits) || phoneContactMap.get(fromDigits) || null;
+        }
+      }
+
+      return {
+        ...call,
+        contactName: contact
+          ? `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || null
+          : null,
+      };
+    });
+
+    return NextResponse.json(transformedCalls);
   } catch (error) {
     console.error('Error fetching Telnyx calls:', error);
     // Return empty array instead of error to prevent UI crashes

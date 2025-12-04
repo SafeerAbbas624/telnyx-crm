@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 
 // This endpoint should be called by a cron job daily
 // It permanently deletes conversations that have been in trash for more than 30 days

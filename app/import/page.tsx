@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { SimpleTagInput } from '@/components/ui/simple-tag-input';
 import { format } from 'date-fns';
 
 type CSVRow = Record<string, string>;
@@ -111,7 +112,7 @@ export default function ImportPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [activeTab, setActiveTab] = useState('import');
   const [importHistory, setImportHistory] = useState<ImportHistory[]>([]);
-  const [bulkTags, setBulkTags] = useState<string>("");
+  const [bulkTags, setBulkTags] = useState<string[]>([]);
 
   const loadImportHistory = useCallback(async () => {
     try {
@@ -194,7 +195,8 @@ export default function ImportPage() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('mapping', JSON.stringify(mapping));
-    formData.append('tags', bulkTags || "");
+    // Convert tag array to comma-separated string for API
+    formData.append('tags', bulkTags.join(', ') || "");
 
     try {
       const response = await fetch('/api/import', { method: 'POST', body: formData });
@@ -215,7 +217,8 @@ export default function ImportPage() {
       setHeaders([]);
       setPreviewData([]);
       setMapping({});
-      
+      setBulkTags([]);
+
       setActiveTab('history');
     } catch (error) {
       console.error('Error during import:', error);
@@ -272,7 +275,7 @@ export default function ImportPage() {
                       <p className="font-medium">{file.name}</p>
                       <p className="text-sm text-muted-foreground">{(file.size / 1024).toFixed(2)} KB · {headers.length} columns</p>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => { setFile(null); setHeaders([]); setPreviewData([]); setMapping({}); }}>Change File</Button>
+                    <Button variant="outline" size="sm" onClick={() => { setFile(null); setHeaders([]); setPreviewData([]); setMapping({}); setBulkTags([]); }}>Change File</Button>
                   </CardContent>
                 </Card>
 
@@ -361,17 +364,17 @@ export default function ImportPage() {
 
                 <div>
                   <h3 className="text-lg font-medium">Tags for all imported contacts (optional)</h3>
-                  <p className="text-sm text-muted-foreground mb-2">Separate by comma or space. Example: investor hot-lead CA</p>
-                  <Input
+                  <p className="text-sm text-muted-foreground mb-2">Add tags that will be applied to all imported contacts</p>
+                  <SimpleTagInput
                     value={bulkTags}
-                    onChange={(e) => setBulkTags(e.target.value)}
-                    placeholder="investor, hot-lead, CA"
+                    onChange={setBulkTags}
+                    placeholder="Type a tag and press Enter"
                   />
                 </div>
 
                 <div className="flex justify-end pt-4">
                   <Button onClick={handleImport} disabled={isUploading || !hasRequiredFields()} className="min-w-[150px]">
-                    {isUploading ? 'Importing...' : `Import ${previewData.length > 0 ? previewData.length : ''} Records`}
+                    {isUploading ? 'Importing...' : 'Import'}
                   </Button>
                 </div>
               </div>

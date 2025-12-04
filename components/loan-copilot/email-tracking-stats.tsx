@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Mail, Eye, Click, TrendingUp } from "lucide-react"
+import { Mail, Eye, MousePointerClick, TrendingUp } from "lucide-react"
 
 interface EmailTrackingStatsProps {
   loanId: string
@@ -103,7 +103,7 @@ export default function EmailTrackingStats({ loanId }: EmailTrackingStatsProps) 
 
           <div className="bg-white rounded-lg p-3 border">
             <div className="flex items-center gap-2 mb-1">
-              <Click className="h-4 w-4 text-orange-600" />
+              <MousePointerClick className="h-4 w-4 text-orange-600" />
               <span className="text-xs text-muted-foreground">Clicked</span>
             </div>
             <div className="text-2xl font-bold">{stats.clicked}</div>

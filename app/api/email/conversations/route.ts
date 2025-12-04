@@ -114,13 +114,18 @@ export async function GET(request: NextRequest) {
             emailAccountId: accountId,
             contactId: contact.id
           },
-          orderBy: { deliveredAt: 'desc' },
+          orderBy: [
+            { sentAt: 'desc' },
+            { createdAt: 'desc' }
+          ],
           select: {
             id: true,
             subject: true,
             content: true,
             direction: true,
             deliveredAt: true,
+            sentAt: true,
+            createdAt: true,
             openedAt: true
           }
         });
@@ -159,7 +164,7 @@ export async function GET(request: NextRequest) {
             id: lastMessage.id,
             subject: lastMessage.subject || 'No Subject',
             preview: previewText,
-            sentAt: lastMessage.deliveredAt?.toISOString() || new Date().toISOString(),
+            sentAt: (lastMessage.sentAt || lastMessage.createdAt)?.toISOString() || new Date().toISOString(),
             isRead: lastMessage.direction === 'outbound' || !!lastMessage.openedAt,
             direction: lastMessage.direction,
           } : null,

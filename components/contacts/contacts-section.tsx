@@ -5,7 +5,7 @@ import { useState, useMemo, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Plus, UserPlus, Trash2, Search, Tags } from "lucide-react"
-import ContactsList from "./contacts-list"
+import ContactsDataGrid from "./contacts-data-grid"
 import AddContactDialog from "./add-contact-dialog"
 import EditContactDialog from "./edit-contact-dialog"
 import ContactDetails from "./contact-details" // Import ContactDetails
@@ -122,10 +122,41 @@ export default function ContactsSection() {
     setSelectedContacts(selectedContactObjects)
   }
 
-  const handleSelectAll = () => {
-    const allContactIds = finalFilteredContacts.map(contact => contact.id)
-    setSelectedContactIds(allContactIds)
-    setSelectedContacts(finalFilteredContacts)
+  const handleSelectAll = async () => {
+    try {
+      // Build params for fetching all contacts with current filters
+      const params = new URLSearchParams({ page: '1', limit: '10000' })
+      if (currentQuery) params.set('search', currentQuery)
+      if (currentFilters) {
+        Object.entries(currentFilters).forEach(([k, v]) => {
+          if (v != null && String(v).length > 0) params.set(k, String(v))
+        })
+      }
+
+      // Fetch all contacts matching current filters
+      const res = await fetch(`/api/contacts?${params.toString()}`)
+      if (!res.ok) throw new Error('Failed to fetch contacts')
+
+      const data = await res.json()
+      const allContacts = data.contacts || data
+
+      if (Array.isArray(allContacts)) {
+        const allContactIds = allContacts.map((contact: Contact) => contact.id)
+        setSelectedContactIds(allContactIds)
+        setSelectedContacts(allContacts)
+        toast({
+          title: "Success",
+          description: `Selected ${allContacts.length} contacts`,
+        })
+      }
+    } catch (error) {
+      console.error('Error selecting all contacts:', error)
+      toast({
+        title: "Error",
+        description: "Failed to select all contacts",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleDeselectAll = () => {
@@ -153,8 +184,17 @@ export default function ContactsSection() {
     try {
       await addContact(newContactData as any)
       setShowAddDialog(false)
+      toast({
+        title: "Contact added",
+        description: `${(newContactData as any).firstName || ''} ${(newContactData as any).lastName || ''} has been added successfully.`,
+      })
     } catch (e) {
       console.error('Failed to add contact', e)
+      toast({
+        title: "Error",
+        description: "Failed to add contact. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -227,228 +267,13 @@ export default function ContactsSection() {
 
   return (
     <div className="min-h-full bg-background">
-      {/* Header */}
-      <div className="p-6 border-b bg-card">
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Contacts</h1>
-            <p className="text-muted-foreground">Manage your contacts and track interactions</p>
-          </div>
-          <Button onClick={() => setShowAddDialog(true)} className="bg-primary hover:bg-primary/90">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Contact
-          </Button>
-        </div>
-
-
-        {/* Advanced Filters (Unified) */}
-        <div className="mb-6">
-          <AdvancedContactFilter
-            contacts={contacts}
-            onFilteredContactsChange={setFilteredContacts}
-            selectedContacts={selectedContacts}
-            onSelectedContactsChange={(arr) => {
-              setSelectedContacts(arr)
-              setSelectedContactIds(arr.map(c => c.id))
-            }}
-            showList={false}
-            hideHeader
-
-            extraActions={(
-              <>
-                {isAdmin && (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setExportSelectedOnly(false); handleExportCsv() }}
-                      disabled={exporting}
-                    >
-                      {exporting ? 'Exporting…' : 'Export CSV (Filtered)'}
-                    </Button>
-                    {selectedContactIds.length > 0 && (
-                      <Button
-                        size="sm"
-                        className="ml-2"
-                        onClick={() => { setExportSelectedOnly(true); handleExportCsv() }}
-                        disabled={exporting}
-                      >
-                        {exporting ? 'Exporting…' : `Export Selected (${selectedContactIds.length})`}
-                      </Button>
-                    )}
-                  </>
-                )}
-                {selectedContactIds.length > 0 && (
-                  <>
-                    {isAdmin && (
-                      <AssignContactModal
-                        contacts={selectedContacts}
-                        onAssignmentComplete={() => {
-                          toast({
-                            title: "Success",
-                            description: `${selectedContactIds.length} contact(s) assigned successfully`,
-                          })
-                          setSelectedContacts([])
-                          setSelectedContactIds([])
-                        }}
-                        buttonVariant="outline"
-                        buttonSize="sm"
-                        buttonText={`Assign Selected (${selectedContactIds.length})`}
-                        trigger={
-                          <Button variant="outline" size="sm" className="flex items-center gap-2">
-                            <UserPlus className="h-4 w-4" />
-                            Assign Selected ({selectedContactIds.length})
-                          </Button>
-                        }
-                      />
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowBulkTagOperations(true)}
-                      className="ml-2 flex items-center gap-2"
-                    >
-                      <Tags className="h-4 w-4" />
-                      Tag Selected ({selectedContactIds.length})
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleBulkDelete(selectedContactIds)}
-                      className="ml-2"
-                    >
-                      Delete All ({selectedContactIds.length})
-                    </Button>
-                  </>
-                )}
-              </>
-            )}
-          />
-        </div>
-
-
-      </div>
-
-
-      {/* Results Summary */}
-      <div className="px-6 py-3 bg-muted/50 border-b">
-        <div className="flex justify-between items-center">
-          <div className="text-sm text-muted-foreground">
-            {pagination ? (
-              <>
-                Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
-                {selectedContactIds.length > 0 && (
-                  <span className="ml-2 text-primary font-medium">• {selectedContactIds.length} selected</span>
-                )}
-              </>
-            ) : (
-              <>
-                Showing {finalFilteredContacts.length} of {contacts.length} contacts
-                {selectedContactIds.length > 0 && (
-                  <span className="ml-2 text-primary font-medium">• {selectedContactIds.length} selected</span>
-                )}
-              </>
-            )}
-          </div>
-          {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSelectedContacts([])
-                setSelectedContactIds([])
-              }}
-              className="text-xs"
-            >
-              Clear selection
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Contacts List */}
-      <div className="px-6 pb-6">
-        {finalFilteredContacts.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            {hasActiveFilters ? (
-              <div>
-                <p className="mb-2">No contacts found matching your criteria</p>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedContacts([])
-                    setSelectedContactIds([])
-                  }}
-                >
-                  Clear selection
-                </Button>
-              </div>
-            ) : (
-              <div>
-                <p className="mb-4">No contacts yet</p>
-                <Button onClick={() => setShowAddDialog(true)} className="flex items-center gap-2">
-                  <Plus size={16} />
-                  Add your first contact
-                </Button>
-              </div>
-            )}
-          </div>
-
-
-
-
-        ) : (
-          <ContactsList
-            contacts={finalFilteredContacts}
-            onDeleteContact={handleDeleteContact}
-            onEditContact={handleEditContact}
-            onContactSelect={handleContactSelect}
-            selectedContacts={selectedContactIds}
-            onContactSelectionChange={handleContactSelectionChange}
-            onBulkDelete={handleBulkDelete}
-          />
-        )}
-      </div>
-
-      {/* Pagination Controls */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="mt-6 flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} contacts
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => goToPage(pagination.page - 1)}
-              disabled={pagination.page <= 1}
-            >
-              Previous
-            </Button>
-            <span className="text-sm">
-              Page {pagination.page} of {pagination.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => goToPage(pagination.page + 1)}
-              disabled={!pagination.hasMore}
-            >
-              Next
-
-
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadMoreContacts}
-              disabled={!pagination.hasMore}
-            >
-              Load More
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Just the data grid - no header, no old filters */}
+      <ContactsDataGrid
+        onContactSelect={handleContactSelect}
+        onEditContact={handleEditContact}
+        onDeleteContact={handleDeleteContact}
+        onAddContact={() => setShowAddDialog(true)}
+      />
 
       {/* Add Contact Dialog */}
       <AddContactDialog open={showAddDialog} onOpenChange={setShowAddDialog} onAddContact={handleAddContact} />

@@ -5,20 +5,32 @@ export async function GET() {
   try {
     console.log('📞 Fetching Telnyx phone numbers...')
 
-    // Temporary workaround: Check if the telnyxPhoneNumber model exists
-    if (!prisma.telnyxPhoneNumber) {
-      console.warn('TelnyxPhoneNumber model not available in Prisma client. Returning empty array.');
-      return NextResponse.json([]);
-    }
+    // Use raw SQL to include friendlyName field
+    const phoneNumbers = await prisma.$queryRaw`
+      SELECT
+        id,
+        phone_number as "phoneNumber",
+        friendly_name as "friendlyName",
+        telnyx_id as "telnyxId",
+        state,
+        city,
+        country,
+        is_active as "isActive",
+        capabilities,
+        monthly_price as "monthlyPrice",
+        setup_price as "setupPrice",
+        purchased_at as "purchasedAt",
+        last_used_at as "lastUsedAt",
+        total_sms_count as "totalSmsCount",
+        total_call_count as "totalCallCount",
+        total_cost as "totalCost",
+        created_at as "createdAt",
+        updated_at as "updatedAt"
+      FROM telnyx_phone_numbers
+      ORDER BY created_at DESC
+    `;
 
-    const phoneNumbers = await prisma.telnyxPhoneNumber.findMany({
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-
-    console.log('📞 Found phone numbers:', phoneNumbers.length)
-    console.log('📞 Phone numbers data:', phoneNumbers)
+    console.log('📞 Found phone numbers:', (phoneNumbers as any[]).length)
 
     return NextResponse.json(phoneNumbers);
   } catch (error) {
@@ -31,7 +43,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { phoneNumber, state, city, telnyxId, capabilities, monthlyPrice, setupPrice } = body;
+    const { phoneNumber, friendlyName, state, city, telnyxId, capabilities, monthlyPrice, setupPrice } = body;
 
     // Validate required fields
     if (!phoneNumber) {
@@ -41,39 +53,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Temporary workaround: Check if the telnyxPhoneNumber model exists
-    if (!prisma.telnyxPhoneNumber) {
-      console.warn('TelnyxPhoneNumber model not available in Prisma client. Cannot create phone number.');
-      return NextResponse.json(
-        { error: 'Phone number management not available. Please regenerate Prisma client.' },
-        { status: 503 }
-      );
-    }
+    // Check if phone number already exists using raw SQL
+    const existing = await prisma.$queryRaw`
+      SELECT id FROM telnyx_phone_numbers WHERE phone_number = ${phoneNumber}
+    `;
 
-    // Check if phone number already exists
-    const existingNumber = await prisma.telnyxPhoneNumber.findUnique({
-      where: { phoneNumber },
-    });
-
-    if (existingNumber) {
+    if (Array.isArray(existing) && existing.length > 0) {
       return NextResponse.json(
         { error: 'Phone number already exists' },
         { status: 409 }
       );
     }
 
-    const newPhoneNumber = await prisma.telnyxPhoneNumber.create({
-      data: {
-        phoneNumber,
-        state: state || null,
-        city: city || null,
-        telnyxId: telnyxId || null,
-        capabilities: capabilities || ['SMS', 'VOICE'],
-        monthlyPrice: monthlyPrice ? parseFloat(monthlyPrice) : null,
-        setupPrice: setupPrice ? parseFloat(setupPrice) : null,
-      },
-    });
+    // Create using raw SQL to include friendlyName
+    const caps = capabilities || ['SMS', 'VOICE'];
+    const result = await prisma.$queryRaw`
+      INSERT INTO telnyx_phone_numbers (
+        id, phone_number, friendly_name, telnyx_id, state, city, capabilities,
+        monthly_price, setup_price, created_at, updated_at
+      ) VALUES (
+        gen_random_uuid(),
+        ${phoneNumber},
+        ${friendlyName || null},
+        ${telnyxId || null},
+        ${state || null},
+        ${city || null},
+        ${caps}::text[],
+        ${monthlyPrice ? parseFloat(monthlyPrice) : null},
+        ${setupPrice ? parseFloat(setupPrice) : null},
+        NOW(),
+        NOW()
+      )
+      RETURNING
+        id,
+        phone_number as "phoneNumber",
+        friendly_name as "friendlyName",
+        telnyx_id as "telnyxId",
+        state,
+        city,
+        capabilities,
+        is_active as "isActive",
+        created_at as "createdAt"
+    `;
 
+    const newPhoneNumber = Array.isArray(result) ? result[0] : result;
     return NextResponse.json(newPhoneNumber, { status: 201 });
   } catch (error) {
     console.error('Error creating Telnyx phone number:', error);

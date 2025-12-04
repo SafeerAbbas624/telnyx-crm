@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
+export const dynamic = 'force-dynamic'
+
 // GET /api/tags/analytics - Get comprehensive tag analytics
 export async function GET(request: NextRequest) {
   try {

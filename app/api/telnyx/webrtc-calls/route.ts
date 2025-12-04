@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import prisma from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 
 /**
  * POST /api/telnyx/webrtc-calls
@@ -21,11 +21,12 @@ export async function POST(request: NextRequest) {
       contactId,
       fromNumber,
       toNumber,
+      direction = 'outbound', // Default to outbound for backward compatibility
     } = body
 
-    if (!fromNumber || !toNumber) {
+    if (!fromNumber) {
       return NextResponse.json(
-        { error: 'Missing required fields: fromNumber, toNumber' },
+        { error: 'Missing required field: fromNumber' },
         { status: 400 }
       )
     }
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
       contactId,
       fromNumber,
       toNumber,
+      direction,
       userId: session.user.id
     })
 
@@ -62,9 +64,9 @@ export async function POST(request: NextRequest) {
         contactId: contactId || null,
         initiatedBy: session.user.id,
         fromNumber,
-        toNumber,
-        direction: 'outbound',
-        status: 'initiated',
+        toNumber: toNumber || '',
+        direction: direction === 'inbound' ? 'inbound' : 'outbound',
+        status: direction === 'inbound' ? 'answered' : 'initiated',
       }
     })
 
@@ -77,10 +79,13 @@ export async function POST(request: NextRequest) {
     })
 
     // Update phone number usage stats
-    if (prisma.telnyxPhoneNumber) {
+    // For outbound calls, fromNumber is our Telnyx number
+    // For inbound calls, toNumber is our Telnyx number
+    const telnyxNumber = direction === 'inbound' ? toNumber : fromNumber
+    if (prisma.telnyxPhoneNumber && telnyxNumber) {
       try {
         await prisma.telnyxPhoneNumber.update({
-          where: { phoneNumber: fromNumber },
+          where: { phoneNumber: telnyxNumber },
           data: {
             totalCallCount: { increment: 1 },
             lastUsedAt: new Date(),

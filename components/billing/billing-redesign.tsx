@@ -25,6 +25,17 @@ interface BillingSummary {
   callCost: number
 }
 
+interface PhoneNumberStats {
+  phoneNumber: string
+  friendlyName?: string
+  totalCost: number
+  smsCount: number
+  callCount: number
+  smsCost: number
+  callCost: number
+  monthlyPrice: number
+}
+
 interface BalanceData {
   balance: number
   pending: number
@@ -39,9 +50,11 @@ export default function BillingRedesign() {
   const [summary, setSummary] = useState<BillingSummary | null>(null)
   const [balance, setBalance] = useState<BalanceData | null>(null)
   const [phoneNumbers, setPhoneNumbers] = useState<string[]>([])
+  const [phoneNumberStats, setPhoneNumberStats] = useState<PhoneNumberStats[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
   const [isLoadingBalance, setIsLoadingBalance] = useState(true)
+  const [showPerNumberBreakdown, setShowPerNumberBreakdown] = useState(false)
 
   // Filters
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string>('all')
@@ -51,11 +64,16 @@ export default function BillingRedesign() {
   useEffect(() => {
     loadPhoneNumbers()
     loadBalance()
+    loadPhoneNumberStats()
   }, [])
 
   useEffect(() => {
     loadData()
   }, [selectedPhoneNumber, selectedRecordType, selectedDateRange])
+
+  useEffect(() => {
+    loadPhoneNumberStats()
+  }, [selectedDateRange])
 
   const loadPhoneNumbers = async () => {
     try {
@@ -88,6 +106,22 @@ export default function BillingRedesign() {
       })
     } finally {
       setIsLoadingBalance(false)
+    }
+  }
+
+  const loadPhoneNumberStats = async () => {
+    try {
+      const params = new URLSearchParams({
+        days: selectedDateRange,
+      })
+      const response = await fetch(`/api/billing/phone-stats?${params}`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch phone number stats')
+      }
+      const data = await response.json()
+      setPhoneNumberStats(data.stats || [])
+    } catch (error) {
+      console.error('Error loading phone number stats:', error)
     }
   }
 
@@ -349,6 +383,68 @@ export default function BillingRedesign() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Per-Number Breakdown */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Per-Number Breakdown</h2>
+                <p className="text-sm text-gray-500 mt-1">Usage and costs by phone number (Last {selectedDateRange} days)</p>
+              </div>
+              <Button
+                onClick={() => setShowPerNumberBreakdown(!showPerNumberBreakdown)}
+                variant="outline"
+                size="sm"
+              >
+                {showPerNumberBreakdown ? 'Hide' : 'Show'} Details
+              </Button>
+            </div>
+
+            {showPerNumberBreakdown && (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b">
+                    <tr className="text-left">
+                      <th className="pb-3 text-sm font-medium text-gray-700">Phone Number</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700">Friendly Name</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700 text-right">Monthly Fee</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700 text-right">SMS Count</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700 text-right">SMS Cost</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700 text-right">Call Count</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700 text-right">Call Cost</th>
+                      <th className="pb-3 text-sm font-medium text-gray-700 text-right">Total Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {phoneNumberStats.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-gray-500">
+                          No phone number data available
+                        </td>
+                      </tr>
+                    ) : (
+                      phoneNumberStats.map((stat) => (
+                        <tr key={stat.phoneNumber} className="border-b last:border-0 hover:bg-gray-50">
+                          <td className="py-4 text-sm font-medium text-gray-900">{stat.phoneNumber}</td>
+                          <td className="py-4 text-sm text-gray-600">{stat.friendlyName || '-'}</td>
+                          <td className="py-4 text-sm text-gray-900 text-right">${stat.monthlyPrice.toFixed(2)}</td>
+                          <td className="py-4 text-sm text-gray-600 text-right">{stat.smsCount}</td>
+                          <td className="py-4 text-sm text-gray-900 text-right">${stat.smsCost.toFixed(4)}</td>
+                          <td className="py-4 text-sm text-gray-600 text-right">{stat.callCount}</td>
+                          <td className="py-4 text-sm text-gray-900 text-right">${stat.callCost.toFixed(4)}</td>
+                          <td className="py-4 text-sm font-semibold text-blue-600 text-right">
+                            ${stat.totalCost.toFixed(4)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Billing Records Table */}
         <Card>

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url)

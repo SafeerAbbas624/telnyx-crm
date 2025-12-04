@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withTeamAuth } from '@/lib/auth-middleware'
 import { prisma } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   return withTeamAuth(request, async (req, user) => {
     try {

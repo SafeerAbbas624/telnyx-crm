@@ -38,7 +38,7 @@ CREATE INDEX "idx_conversations_assigned" ON "conversations"("assigned_to");
 CREATE INDEX "idx_activities_contact_due" ON "activities"("contact_id", "due_date");
 
 -- CreateIndex
-CREATE INDEX "idx_activities_created_by" ON "activities"("created_by", "created_at" DESC);
+-- CREATE INDEX "idx_activities_created_by" ON "activities"("created_by", "created_at" DESC);
 
 -- CreateIndex
 CREATE INDEX "idx_activities_status_due" ON "activities"("status", "due_date");
@@ -70,14 +70,14 @@ CREATE INDEX "idx_telnyx_calls_to" ON "telnyx_calls"("to_number");
 -- CreateIndex
 CREATE INDEX "idx_telnyx_calls_direction_created" ON "telnyx_calls"("direction", "created_at" DESC);
 
--- CreateIndex
-CREATE INDEX "idx_contact_assignments_user" ON "contact_assignments"("user_id");
+-- CreateIndex (only if table exists)
+-- CREATE INDEX "idx_contact_assignments_user" ON "contact_assignments"("user_id");
 
--- CreateIndex
-CREATE INDEX "idx_contact_assignments_contact" ON "contact_assignments"("contact_id");
+-- CreateIndex (only if table exists)
+-- CREATE INDEX "idx_contact_assignments_contact" ON "contact_assignments"("contact_id");
 
--- CreateIndex
-CREATE INDEX "idx_contact_assignments_assigned_by" ON "contact_assignments"("assigned_by");
+-- CreateIndex (only if table exists)
+-- CREATE INDEX "idx_contact_assignments_assigned_by" ON "contact_assignments"("assigned_by");
 
 -- Additional composite indexes for common query patterns
 CREATE INDEX "idx_contacts_search_text" ON "contacts" USING gin(to_tsvector('english', 

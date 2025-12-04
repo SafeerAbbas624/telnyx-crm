@@ -3,13 +3,101 @@
 import { SessionProvider } from "next-auth/react"
 import { ContactsProvider } from "@/lib/context/contacts-context"
 import { ActivitiesProvider } from "@/lib/context/activities-context"
-import { CallUIProvider } from "@/lib/context/call-ui-context"
+import { CallUIProvider, useCallUI } from "@/lib/context/call-ui-context"
+import { SmsUIProvider } from "@/lib/context/sms-ui-context"
+import { EmailUIProvider } from "@/lib/context/email-ui-context"
+import { TaskUIProvider } from "@/lib/context/task-ui-context"
 import RedesignedCallPopup from "@/components/call/redesigned-call-popup"
+import InlineSmsPanel from "@/components/sms/inline-sms-panel"
+import InlineEmailPanel from "@/components/email/inline-email-panel"
+import InlineTaskPanel from "@/components/tasks/inline-task-panel"
+import InboundCallNotification from "@/components/call/inbound-call-notification"
+import WebRTCAutoRegister from "@/components/call/webrtc-auto-register"
+import InboundMessageToast from "@/components/notifications/inbound-message-toast"
 import { NotificationsProvider } from "@/lib/context/notifications-context"
 import GlobalEventsListener from "@/components/global-events-listener"
+import { useCallback } from "react"
 
 interface ProvidersProps {
   children: React.ReactNode
+}
+
+// Wrapper component to handle inbound call actions with access to CallUI context
+function InboundCallHandler() {
+  const { openCall } = useCallUI()
+
+  const handleAnswer = useCallback(async () => {
+    try {
+      const { rtcClient } = await import("@/lib/webrtc/rtc-client")
+      const inboundInfo = rtcClient.getInboundCallInfo()
+
+      if (!inboundInfo) {
+        console.error("[INBOUND] No inbound call to answer")
+        return
+      }
+
+      // Get the callId BEFORE answering (it might change after answer)
+      const originalCallId = inboundInfo.callId
+      console.log("[INBOUND] Answering call with original ID:", originalCallId)
+
+      // Answer the call
+      const { sessionId } = await rtcClient.answerInbound()
+      console.log("[INBOUND] Call answered, session ID:", sessionId, "original:", originalCallId)
+
+      // Try to look up the contact by phone number using the proper lookup API
+      let contact = null
+      try {
+        const cleanPhone = inboundInfo.callerNumber.replace(/\D/g, '').slice(-10)
+        if (cleanPhone) {
+          const res = await fetch(`/api/contacts/lookup-by-number?last10=${cleanPhone}`)
+          if (res.ok) {
+            const data = await res.json()
+            if (data && data.id) {
+              contact = data // The lookup API returns the contact directly, not in a wrapper
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("[INBOUND] Could not lookup contact:", e)
+      }
+
+      // Log the inbound call to database
+      fetch('/api/telnyx/webrtc-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webrtcSessionId: sessionId || originalCallId,
+          contactId: contact?.id || null,
+          fromNumber: inboundInfo.callerNumber,
+          toNumber: inboundInfo.destinationNumber || '',
+          direction: 'inbound',
+        })
+      }).catch(err => console.error('[INBOUND] Failed to log inbound call:', err))
+
+      // Open the call UI - use the ORIGINAL callId if sessionId changed
+      openCall({
+        fromNumber: inboundInfo.callerNumber,
+        toNumber: inboundInfo.destinationNumber || '', // The Telnyx number that was called
+        mode: 'webrtc',
+        webrtcSessionId: sessionId || originalCallId, // Prefer sessionId, fallback to original
+        contact: contact,
+        direction: 'inbound',
+      })
+    } catch (err) {
+      console.error("[INBOUND] Error answering call:", err)
+    }
+  }, [openCall])
+
+  const handleDecline = useCallback(async () => {
+    try {
+      const { rtcClient } = await import("@/lib/webrtc/rtc-client")
+      await rtcClient.declineInbound()
+    } catch (err) {
+      console.error("[INBOUND] Error declining call:", err)
+    }
+  }, [])
+
+  return <InboundCallNotification onAnswer={handleAnswer} onDecline={handleDecline} />
 }
 
 export default function Providers({ children }: ProvidersProps) {
@@ -19,11 +107,29 @@ export default function Providers({ children }: ProvidersProps) {
         <ActivitiesProvider>
           <NotificationsProvider>
             <CallUIProvider>
-              {children}
-              {/* Global events listener for toasts/notifications */}
-              <GlobalEventsListener />
-              {/* Global call popup */}
-              <RedesignedCallPopup />
+              <SmsUIProvider>
+                <EmailUIProvider>
+                  <TaskUIProvider>
+                    {children}
+                    {/* Auto-register WebRTC for inbound calls */}
+                    <WebRTCAutoRegister />
+                    {/* Global events listener for toasts/notifications */}
+                    <GlobalEventsListener />
+                    {/* Global call popup */}
+                    <RedesignedCallPopup />
+                    {/* Inbound call notification */}
+                    <InboundCallHandler />
+                    {/* Global SMS panel */}
+                    <InlineSmsPanel />
+                    {/* Global Email panel */}
+                    <InlineEmailPanel />
+                    {/* Global Task panel */}
+                    <InlineTaskPanel />
+                    {/* Inbound message notifications (SMS/Email) */}
+                    <InboundMessageToast />
+                  </TaskUIProvider>
+                </EmailUIProvider>
+              </SmsUIProvider>
             </CallUIProvider>
           </NotificationsProvider>
         </ActivitiesProvider>

@@ -41,14 +41,49 @@ export async function PATCH(
   try {
     const { id } = params;
     const body = await request.json();
+    const { friendlyName, state, city, isActive } = body;
 
-    const updatedPhoneNumber = await prisma.telnyxPhoneNumber.update({
-      where: { id },
-      data: {
-        ...body,
-        updatedAt: new Date(),
-      },
-    });
+    // Build update query dynamically
+    const updates: string[] = [];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (friendlyName !== undefined) {
+      updates.push(`friendly_name = $${paramIndex++}`);
+      values.push(friendlyName);
+    }
+    if (state !== undefined) {
+      updates.push(`state = $${paramIndex++}`);
+      values.push(state);
+    }
+    if (city !== undefined) {
+      updates.push(`city = $${paramIndex++}`);
+      values.push(city);
+    }
+    if (isActive !== undefined) {
+      updates.push(`is_active = $${paramIndex++}`);
+      values.push(isActive);
+    }
+
+    if (updates.length === 0) {
+      return NextResponse.json(
+        { error: 'No fields to update' },
+        { status: 400 }
+      );
+    }
+
+    updates.push(`updated_at = NOW()`);
+    values.push(id);
+
+    const query = `
+      UPDATE telnyx_phone_numbers
+      SET ${updates.join(', ')}
+      WHERE id = $${paramIndex}::uuid
+      RETURNING *
+    `;
+
+    const result = await prisma.$queryRawUnsafe(query, ...values);
+    const updatedPhoneNumber = Array.isArray(result) ? result[0] : result;
 
     return NextResponse.json(updatedPhoneNumber);
   } catch (error) {

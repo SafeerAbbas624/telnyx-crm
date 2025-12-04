@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,19 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { useNotifications } from "@/lib/context/notifications-context"
-import { Search, Send, MessageSquare, Phone, Plus } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Search, Send, MessageSquare, Phone, Plus, Filter, Calendar, X } from "lucide-react"
 import SimpleAddActivityDialog from "@/components/activities/simple-add-activity-dialog"
 import ContactName from "@/components/contacts/contact-name"
 import NewTextMessageModal from "@/components/text/new-text-message-modal"
@@ -59,7 +71,7 @@ export default function TeamConversations() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const debouncedSearch = useDebounce(searchQuery, 150)
+  const debouncedSearch = useDebounce(searchQuery, 500)
   const fetchAbortRef = useRef<AbortController | null>(null)
   const conversationsRef = useRef<Conversation[]>([])
   useEffect(() => { conversationsRef.current = conversations }, [conversations])
@@ -68,11 +80,47 @@ export default function TeamConversations() {
   const [isSearching, setIsSearching] = useState(false)
   const [messageContent, setMessageContent] = useState("")
   const [isLoading, setIsLoading] = useState(true)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [isSending, setIsSending] = useState(false)
   const [showActivityDialog, setShowActivityDialog] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   const [showNewMessageModal, setShowNewMessageModal] = useState(false)
+
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+  // FIX: Store scroll position to preserve it during auto-refresh
+  const scrollPositionRef = useRef<number>(0)
+
+  // Date/time filter state
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all')
+  const [customStartDate, setCustomStartDate] = useState<string>('')
+  const [customEndDate, setCustomEndDate] = useState<string>('')
+  const debouncedStartDate = useDebounce(customStartDate, 800)
+  const debouncedEndDate = useDebounce(customEndDate, 800)
+  const [showDateFilter, setShowDateFilter] = useState(false)
+
+  // Stats from API (for ALL conversations, not just paginated)
+  const [apiStats, setApiStats] = useState<{
+    total: number
+    unread: number
+    read: number
+  }>({ total: 0, unread: 0, read: 0 })
+
+  // Infinite scroll state
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  // UX Enhancement: Conversation filters
+  const [conversationFilter, setConversationFilter] = useState<'all' | 'unread' | 'read'>('all')
+  const [directionFilter, setDirectionFilter] = useState<'all' | 'inbound' | 'outbound'>('all')
+
+  // UX Enhancement: Bulk actions
+  const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set())
+  const [bulkActionMode, setBulkActionMode] = useState(false)
+
+  // Track user activity to prevent auto-refresh collision
+  const [lastUserActivity, setLastUserActivity] = useState<number>(Date.now())
+  const userActivityTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     const checkMobile = () => {
@@ -85,7 +133,53 @@ export default function TeamConversations() {
 
   useEffect(() => {
     loadConversations()
-  }, [debouncedSearch])
+  }, [debouncedSearch, dateFilter, debouncedStartDate, debouncedEndDate, conversationFilter, directionFilter])
+
+  // FIX: Auto-refresh conversations every 30 seconds while preserving scroll position
+  // BUT: Pause auto-refresh if user is actively filtering/scrolling (within last 5 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const timeSinceActivity = Date.now() - lastUserActivity
+
+      // Only auto-refresh if user hasn't been active in the last 5 seconds
+      if (timeSinceActivity > 5000) {
+        // Save current scroll position before refresh
+        const scrollElement = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+        if (scrollElement) {
+          scrollPositionRef.current = scrollElement.scrollTop
+        }
+        loadConversations(false, true) // Pass false for loadMore, true for preserveScroll
+      }
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [debouncedSearch, dateFilter, debouncedStartDate, debouncedEndDate, lastUserActivity])
+
+  // Infinite scroll: Load more when scrolling near bottom
+  useEffect(() => {
+    const scrollElement = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+    if (!scrollElement) return
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollElement
+
+      // Mark user as active when scrolling
+      setLastUserActivity(Date.now())
+
+      // Load more when user scrolls within 200px of the bottom
+      if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !isLoadingMore && !isLoading) {
+        console.log('Loading more conversations...')
+        loadConversations(true) // Pass true for loadMore
+      }
+    }
+
+    scrollElement.addEventListener('scroll', handleScroll)
+    return () => scrollElement.removeEventListener('scroll', handleScroll)
+  }, [hasMore, isLoadingMore, isLoading])
+
+  // Track user activity when filters change (use debounced dates to avoid flickering)
+  useEffect(() => {
+    setLastUserActivity(Date.now())
+  }, [conversationFilter, directionFilter, dateFilter, debouncedStartDate, debouncedEndDate])
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -199,34 +293,126 @@ export default function TeamConversations() {
     }
   }, [selectedConversation])
 
-  const loadConversations = async () => { setIsSearching(true)
+  const loadConversations = async (loadMore = false, preserveScroll = false) => {
+    // Skip reload if custom date filter is selected but dates are incomplete
+    if (dateFilter === 'custom' && (!debouncedStartDate || !debouncedEndDate)) {
+      return
+    }
+
+    if (loadMore) {
+      setIsLoadingMore(true)
+    } else if (!preserveScroll) {
+      setIsSearching(true)
+      setIsLoading(true)
+    }
+
     try {
       const params = new URLSearchParams()
+
+      // Set limit and offset for pagination
+      const limit = 50
+      const offset = loadMore ? conversations.length : 0
+      params.set('limit', limit.toString())
+      params.set('offset', offset.toString())
+
       if (debouncedSearch.trim()) {
         params.set('search', debouncedSearch.trim())
+      }
+
+      // Add conversation filter params (read/unread)
+      if (conversationFilter !== 'all') {
+        params.set('filter', conversationFilter) // 'unread' or 'read'
+      }
+
+      // Add direction filter params
+      if (directionFilter !== 'all') {
+        params.set('direction', directionFilter) // 'inbound' or 'outbound'
+      }
+
+      // Add date filter params
+      if (dateFilter !== 'all') {
+        const now = new Date()
+        let startDate: Date | null = null
+        let endDate: Date | null = null
+
+        switch (dateFilter) {
+          case 'today':
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+            break
+          case 'yesterday':
+            const yesterday = new Date(now)
+            yesterday.setDate(yesterday.getDate() - 1)
+            startDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate())
+            endDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59)
+            break
+          case 'week':
+            startDate = new Date(now)
+            startDate.setDate(startDate.getDate() - 7)
+            endDate = now
+            break
+          case 'month':
+            startDate = new Date(now)
+            startDate.setDate(startDate.getDate() - 30)
+            endDate = now
+            break
+          case 'custom':
+            if (debouncedStartDate) {
+              startDate = new Date(debouncedStartDate)
+            }
+            if (debouncedEndDate) {
+              endDate = new Date(debouncedEndDate)
+              endDate.setHours(23, 59, 59)
+            }
+            break
+        }
+
+        if (startDate) params.set('startDate', startDate.toISOString())
+        if (endDate) params.set('endDate', endDate.toISOString())
       }
 
       if (fetchAbortRef.current) { try { fetchAbortRef.current.abort() } catch {} }
       const controller = new AbortController()
       fetchAbortRef.current = controller
 
-      const cacheKey = params.toString()
-      const cached = cacheRef.current.get(cacheKey)
-      if (cached) {
-        setConversations(cached.conversations || [])
-      }
-
       const response = await fetch(`/api/team/conversations?${params}`, { signal: controller.signal })
-      if (response.ok) {
+      if (response.ok && !controller.signal.aborted) {
         const data = await response.json()
-        setConversations(data.conversations || [])
-        cacheRef.current.set(cacheKey, { conversations: data.conversations || [] })
+
+        if (!controller.signal.aborted) {
+          if (loadMore) {
+            setConversations(prev => [...prev, ...(data.conversations || [])])
+          } else {
+            setConversations(data.conversations || [])
+          }
+          setHasMore(data.hasMore || false)
+          setApiStats({
+            total: data.total || 0,
+            unread: data.unread || 0,
+            read: data.read || 0
+          })
+
+          // Restore scroll position if this was a background refresh
+          if (preserveScroll && scrollPositionRef.current > 0) {
+            setTimeout(() => {
+              const scrollElement = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]')
+              if (scrollElement) {
+                scrollElement.scrollTop = scrollPositionRef.current
+              }
+            }, 0)
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading conversations:', error)
     } finally {
-      setIsLoading(false)
-      setIsSearching(false)
+      if (loadMore) {
+        setIsLoadingMore(false)
+      } else {
+        setIsLoading(false)
+        setIsSearching(false)
+        setIsInitialLoad(false)
+      }
     }
   }
 
@@ -351,7 +537,7 @@ export default function TeamConversations() {
     }
   }
 
-  if (isLoading) {
+  if (isInitialLoad) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
@@ -362,7 +548,7 @@ export default function TeamConversations() {
   return (
     <div className="h-full flex max-h-full overflow-hidden">
       {/* Conversations List */}
-      <div className={`${isMobile ? "w-full" : "w-1/3 border-r"} flex flex-col`}>
+      <div className={`${isMobile ? "w-full" : "w-1/3 border-r"} flex flex-col relative`}>
         <div className="p-4 border-b flex-shrink-0">
           <div className="flex gap-2 items-start">
             <div className="relative flex-1">
@@ -385,10 +571,132 @@ export default function TeamConversations() {
               <Plus className="h-4 w-4" />
             </Button>
           </div>
+
+          {/* Date Filter */}
+          <div className="flex gap-2 mt-3 items-center">
+            <Select value={dateFilter} onValueChange={(value: any) => setDateFilter(value)}>
+              <SelectTrigger className="w-40 h-9">
+                <Calendar className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Select date range" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="yesterday">Yesterday</SelectItem>
+                <SelectItem value="week">Last 7 Days</SelectItem>
+                <SelectItem value="month">Last 30 Days</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Custom Date Range Picker */}
+            {dateFilter === 'custom' && (
+              <Popover open={showDateFilter} onOpenChange={setShowDateFilter}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Pick Dates
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Start Date</label>
+                      <Input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">End Date</label>
+                      <Input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <Button
+                      onClick={() => setShowDateFilter(false)}
+                      className="w-full"
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+
+            {/* Clear filters button */}
+            {(dateFilter !== 'all' || conversationFilter !== 'all' || directionFilter !== 'all') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setDateFilter('all')
+                  setCustomStartDate('')
+                  setCustomEndDate('')
+                  setConversationFilter('all')
+                  setDirectionFilter('all')
+                }}
+                className="h-9"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {/* Stats Display */}
+          <div className="flex gap-2 mt-3 px-2">
+            <div
+              className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                conversationFilter === 'all'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+              onClick={() => setConversationFilter('all')}
+            >
+              <div className="text-xs text-muted-foreground">Total</div>
+              <div className="text-lg font-semibold">{apiStats.total}</div>
+            </div>
+
+            <div
+              className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                conversationFilter === 'unread'
+                  ? 'border-red-500 bg-red-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+              onClick={() => setConversationFilter('unread')}
+            >
+              <div className="text-xs text-muted-foreground">Unread</div>
+              <div className="text-lg font-semibold text-red-600">{apiStats.unread}</div>
+            </div>
+
+            <div
+              className={`flex-1 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                conversationFilter === 'read'
+                  ? 'border-green-500 bg-green-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+              onClick={() => setConversationFilter('read')}
+            >
+              <div className="text-xs text-muted-foreground">Read</div>
+              <div className="text-lg font-semibold text-green-600">{apiStats.read}</div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <ScrollArea className="h-full">
+        <div className="flex-1 min-h-0 overflow-hidden relative">
+          {/* Loading overlay - only shows during filter updates, not initial load */}
+          {isLoading && !isInitialLoad && (
+            <div className="absolute inset-0 bg-white/60 backdrop-blur-sm z-10 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+            </div>
+          )}
+
+          <ScrollArea className="h-full" ref={scrollAreaRef}>
             <div className="divide-y">
             {conversations.map((conversation) => {
               const preview = getMessagePreview(conversation)

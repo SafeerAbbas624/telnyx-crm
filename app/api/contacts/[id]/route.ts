@@ -55,7 +55,7 @@ export async function GET(
     let whereClause: any = { id };
 
     // If user is a team member, only allow access to assigned contacts
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       whereClause = {
         id,
         assignedUsers: {
@@ -139,6 +139,7 @@ export async function GET(
         city: p.city || '',
         state: p.state || '',
         county: p.county || '',
+        llcName: p.llcName || '',
         propertyType: p.propertyType || '',
         bedrooms: p.bedrooms ?? null,
         totalBathrooms: p.totalBathrooms ?? null,
@@ -149,6 +150,7 @@ export async function GET(
         createdAt: p.createdAt?.toISOString?.() || undefined,
         updatedAt: p.updatedAt?.toISOString?.() || undefined,
       })) || [],
+      propertyCount: (contact as any).properties?.length || 0,
     };
 
     return NextResponse.json(formattedContact);
@@ -177,7 +179,7 @@ export async function PATCH(
     }
 
     // Team members cannot update contacts
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       return NextResponse.json(
         { error: 'Forbidden - Team members cannot update contacts' },
         { status: 403 }

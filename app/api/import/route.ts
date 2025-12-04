@@ -26,13 +26,14 @@ interface ImportResult {
 // Strict property type normalization to allowed labels only
 function normalizePropertyTypeStrict(input: string | undefined): string | null {
   if (!input) return null;
-  const s = input.toLowerCase();
+  const s = input.toLowerCase().trim();
 
   const hasAll = (tokens: string[]) => tokens.every(t => s.includes(t));
   const any = (tokens: string[]) => tokens.some(t => s.includes(t));
 
   // Duplex/Triplex/Quad first to avoid matching generic multi-family
-  if (any(['duplex', 'two-family', 'two family', '2 unit', 'semi-detached', 'twin home', 'double house']))
+  // "Duplex (2 units, any combination)" -> "Duplex"
+  if (any(['duplex', 'two-family', 'two family', '2 unit', 'semi-detached', 'twin home', 'double house', '(2 units']))
     return 'Duplex';
   if (any(['triplex', 'three-family', 'three family', '3 unit', 'three-flat', 'triple-decker']))
     return 'Triplex';
@@ -44,17 +45,25 @@ function normalizePropertyTypeStrict(input: string | undefined): string | null {
     return 'Townhouse';
 
   // Condominium (Condo)
+  // "Condominium (Residential)" -> "Condo"
   if (any(['condominium', 'condo', 'condo unit', 'strata title', 'co-op', 'cooperative']) || (s.includes('apartment') && !s.includes('building') && !s.includes('complex')))
-    return 'Condominium (Condo)';
+    return 'Condo';
+
+  // Multi-family (2+ units) - Generic multi-family dwellings
+  // "Multi-Family Dwellings (Generic, 2+)" -> "Multi-Family 2+ units"
+  if (any(['multi-family dwellings', 'multi family dwellings', 'generic, 2+', 'generic 2+']) ||
+      (s.includes('multi') && s.includes('family') && (s.includes('2+') || s.includes('generic'))))
+    return 'Multi-Family 2+ units';
 
   // Multi-family (5+ units)
   if (any(['apartment building', 'apartment complex', 'multi-dwelling', 'residential complex', 'high-rise', 'high rise', 'mid-rise', 'mid rise', 'walk-up', 'tenement']) ||
-      (s.includes('multi') && s.includes('family') && (s.includes('5') || s.includes('+'))))
+      (s.includes('multi') && s.includes('family') && (s.includes('5') || s.includes('5+'))))
     return 'Multifamily (5+ units)';
 
   // Single-family (SFR)
+  // "Single Family Residential" -> "Single-Fam"
   if (hasAll(['single','family']) || any(['single-family','sfr','single-family dwelling','sfd','detached house','standalone house','single-detached','single family residential','single-family residence']))
-    return 'Single-family (SFR)';
+    return 'Single-Fam';
 
   return null;
 }
@@ -137,10 +146,17 @@ export async function POST(request: Request) {
       trim: true,
     }) as CsvRecord[];
 
+    // Build inverted mapping (field ID -> CSV column header)
+    const invertedMapping: { [key:string]: string } = {};
+    for (const key in mapping) {
+      invertedMapping[mapping[key]] = key;
+    }
+
     // Parse per-file tags once and create/find Tag records
+    // Split by comma only (not spaces), since tags can contain spaces
     const tagNames = Array.from(new Set(
       rawTags
-        .split(/[\s,]+/)
+        .split(',')
         .map(t => t.trim())
         .filter(Boolean)
     ));
@@ -156,6 +172,9 @@ export async function POST(request: Request) {
           )
         )
       : [];
+
+    // Check if there's a "tags" column mapped in the CSV
+    const tagsColumnHeader = invertedMapping['tags'] || null;
 
     // Cache contacts by normalized phone for this import run to reduce DB lookups
     const processedIds = new Set<string>();
@@ -175,11 +194,6 @@ export async function POST(request: Request) {
     };
 
     const skippedRecords: {row: number; reason: string}[] = [];
-
-    const invertedMapping: { [key:string]: string } = {};
-    for (const key in mapping) {
-      invertedMapping[mapping[key]] = key;
-    }
 
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
@@ -252,16 +266,45 @@ export async function POST(request: Request) {
             processedIds.add(existingContact.id);
           }
 
-          // Attach per-file tags to the existing contact
-          if (tagRecords.length > 0) {
+          // Collect all tags to attach: bulk tags + CSV-mapped tags
+          const allTagsToAttach = [...tagRecords];
+
+          // Process CSV-mapped tags if a tags column is mapped
+          if (tagsColumnHeader && record[tagsColumnHeader]) {
+            const csvTagNames = Array.from(new Set(
+              record[tagsColumnHeader]!
+                .split(',')
+                .map(t => t.trim())
+                .filter(Boolean)
+            ));
+
+            if (csvTagNames.length > 0) {
+              const csvTagRecords = await Promise.all(
+                csvTagNames.map((name) =>
+                  prisma.tag.upsert({
+                    where: { name },
+                    update: {},
+                    create: { name },
+                  })
+                )
+              );
+              allTagsToAttach.push(...csvTagRecords);
+            }
+          }
+
+          // Attach all tags to the existing contact
+          if (allTagsToAttach.length > 0) {
             await prisma.contactTag.createMany({
-              data: tagRecords.map(t => ({ contact_id: existingContact.id, tag_id: t.id })),
+              data: allTagsToAttach.map(t => ({ contact_id: existingContact.id, tag_id: t.id })),
               skipDuplicates: true,
             });
             processedIds.add(existingContact.id);
           }
 
           // If there's a property address, add as additional property if not already present
+          // LLC for this property row
+          const rowLlcName = record[invertedMapping.llcName] || null;
+
           if (propertyAddress) {
             const already = await prisma.contactProperty.findFirst({
               where: { contactId: existingContact.id, address: propertyAddress },
@@ -274,6 +317,7 @@ export async function POST(request: Request) {
                   city: record[invertedMapping.propertyCity] || null,
                   state: record[invertedMapping.propertyState] || null,
                   county: record[invertedMapping.propertyCounty] || null,
+                  llcName: rowLlcName,
                   propertyType: normalizedPropType,
                   bedrooms: parsedBedrooms,
                   totalBathrooms: parsedBathroomsInt,
@@ -284,29 +328,31 @@ export async function POST(request: Request) {
                 },
               });
 
-              // Update contact snapshot fields to reflect the newly imported property (preserve UI behavior)
-              await prisma.contact.update({
-                where: { id: existingContact.id },
-                data: {
-                  propertyAddress: propertyAddress,
-                  city: (record[invertedMapping.propertyCity] || existingContact.city) as any,
-                  state: (record[invertedMapping.propertyState] || existingContact.state) as any,
-                  propertyCounty: (record[invertedMapping.propertyCounty] || existingContact.propertyCounty) as any,
-                  propertyType: normalizedPropType ?? existingContact.propertyType,
-                  bedrooms: parsedBedrooms ?? existingContact.bedrooms,
-                  totalBathrooms: record[invertedMapping.bathrooms]
-                    ? parseBathroomsDecimal(record[invertedMapping.bathrooms]!)
-                    : existingContact.totalBathrooms,
-                  buildingSqft: parsedBuildingSqft ?? existingContact.buildingSqft,
-                  effectiveYearBuilt: parsedYearBuilt ?? existingContact.effectiveYearBuilt,
-                  estValue: record[invertedMapping.estimatedValue]
-                    ? new Decimal(parseFloat(record[invertedMapping.estimatedValue]!.replace(/[^0-9.]/g, '') || '0'))
-                    : existingContact.estValue,
-                  estEquity: record[invertedMapping.estimatedEquity]
-                    ? new Decimal(parseFloat(record[invertedMapping.estimatedEquity]!.replace(/[^0-9.]/g, '') || '0'))
-                    : existingContact.estEquity,
-                },
+              // Check if this contact now has multiple properties
+              const propertyCount = await prisma.contactProperty.count({
+                where: { contactId: existingContact.id },
               });
+
+              // If contact has multiple properties, add "Multiple property" tag
+              if (propertyCount > 1) {
+                const multiPropTag = await prisma.tag.upsert({
+                  where: { name: 'Multiple property' },
+                  update: {},
+                  create: { name: 'Multiple property' },
+                });
+
+                await prisma.contactTag.create({
+                  data: {
+                    contact_id: existingContact.id,
+                    tag_id: multiPropTag.id,
+                  },
+                  skipDuplicates: true,
+                });
+              }
+
+              // DO NOT update the contact's main property fields
+              // Keep the original property information intact
+              // Additional properties are stored in the ContactProperty table
               processedIds.add(existingContact.id);
 
               result.importedCount++;
@@ -360,15 +406,44 @@ export async function POST(request: Request) {
           const created = await prisma.contact.create({ data: contactData });
           contactCache.set(phone1, created);
 
-          // Attach per-file tags to the new contact
-          if (tagRecords.length > 0) {
+          // Collect all tags to attach: bulk tags + CSV-mapped tags
+          const allTagsToAttach = [...tagRecords];
+
+          // Process CSV-mapped tags if a tags column is mapped
+          if (tagsColumnHeader && record[tagsColumnHeader]) {
+            const csvTagNames = Array.from(new Set(
+              record[tagsColumnHeader]!
+                .split(',')
+                .map(t => t.trim())
+                .filter(Boolean)
+            ));
+
+            if (csvTagNames.length > 0) {
+              const csvTagRecords = await Promise.all(
+                csvTagNames.map((name) =>
+                  prisma.tag.upsert({
+                    where: { name },
+                    update: {},
+                    create: { name },
+                  })
+                )
+              );
+              allTagsToAttach.push(...csvTagRecords);
+            }
+          }
+
+          // Attach all tags to the new contact
+          if (allTagsToAttach.length > 0) {
             await prisma.contactTag.createMany({
-              data: tagRecords.map(t => ({ contact_id: created.id, tag_id: t.id })),
+              data: allTagsToAttach.map(t => ({ contact_id: created.id, tag_id: t.id })),
               skipDuplicates: true,
             });
           }
 
           // Also create a ContactProperty row if address present
+          // LLC for this property row (for new contacts)
+          const newContactLlcName = record[invertedMapping.llcName] || null;
+
           if (propertyAddress) {
             await prisma.contactProperty.create({
               data: {
@@ -377,6 +452,7 @@ export async function POST(request: Request) {
                 city: record[invertedMapping.propertyCity] || null,
                 state: record[invertedMapping.propertyState] || null,
                 county: record[invertedMapping.propertyCounty] || null,
+                llcName: newContactLlcName,
                 propertyType: normalizedPropType,
                 bedrooms: parsedBedrooms,
                 totalBathrooms: parsedBathroomsInt,
@@ -394,10 +470,14 @@ export async function POST(request: Request) {
         }
 
       } catch (error) {
-        console.error(`Error processing row ${rowNumber}:`, error);
+        const errorMsg = error instanceof Error ? error.message : 'Unknown processing error';
+        const errorStack = error instanceof Error ? error.stack : '';
+        console.error(`Error processing row ${rowNumber}:`, errorMsg);
+        console.error(`Stack trace:`, errorStack);
+        console.error(`Record data:`, record);
         result.errors.push({
           row: rowNumber,
-          error: error instanceof Error ? error.message : 'Unknown processing error',
+          error: errorMsg,
         });
       }
     }

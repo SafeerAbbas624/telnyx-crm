@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     // If user is a team member, check if they have access to this contact
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       const assignedContact = await prisma.contactAssignment.findFirst({
         where: {
           contactId: contactId,

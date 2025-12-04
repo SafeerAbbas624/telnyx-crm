@@ -18,12 +18,9 @@ export async function GET(request: NextRequest) {
       where.stage = stage;
     }
 
-    // Fetch deals with contact information
+    // Fetch deals
     const deals = await prisma.deal.findMany({
       where,
-      include: {
-        // Contact info would go here if we had a relation
-      },
       orderBy: {
         created_at: 'desc'
       },
@@ -34,25 +31,48 @@ export async function GET(request: NextRequest) {
     // Get total count
     const total = await prisma.deal.count({ where });
 
+    // Fetch contact information for all deals
+    const contactIds = [...new Set(deals.map(d => d.contact_id))];
+    const contacts = await prisma.contact.findMany({
+      where: {
+        id: { in: contactIds }
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        fullName: true,
+        propertyAddress: true,
+        llcName: true
+      }
+    });
+
+    const contactMap = new Map(contacts.map(c => [c.id, c]));
+
     // Transform deals to match frontend format
-    const transformedDeals = deals.map(deal => ({
-      id: deal.id,
-      title: deal.name,
-      value: Number(deal.value),
-      contactId: deal.contact_id,
-      contactName: deal.name, // We'll use deal name as fallback
-      stage: deal.stage,
-      probability: deal.probability || 0,
-      expectedCloseDate: deal.expected_close_date?.toISOString().split('T')[0] || '',
-      notes: deal.notes || '',
-      tasks: [],
-      assignedTo: deal.assigned_to || '',
-      pipelineId: 'pipeline-1', // Map to the Sales Pipeline in frontend
-      archived: false,
-      loanData: deal.custom_fields?.loanData || null,
-      createdAt: deal.created_at.toISOString().split('T')[0],
-      updatedAt: deal.updated_at?.toISOString().split('T')[0] || ''
-    }));
+    const transformedDeals = deals.map(deal => {
+      const contact = contactMap.get(deal.contact_id);
+      return {
+        id: deal.id,
+        title: deal.name,
+        value: Number(deal.value),
+        contactId: deal.contact_id,
+        contactName: contact ? (contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()) : '',
+        propertyAddress: contact?.propertyAddress || '',
+        llcName: contact?.llcName || '',
+        stage: deal.stage,
+        probability: deal.probability || 0,
+        expectedCloseDate: deal.expected_close_date?.toISOString().split('T')[0] || '',
+        notes: deal.notes || '',
+        tasks: [],
+        assignedTo: deal.assigned_to || '',
+        pipelineId: 'pipeline-1',
+        archived: false,
+        loanData: deal.custom_fields?.loanData || null,
+        createdAt: deal.created_at.toISOString().split('T')[0],
+        updatedAt: deal.updated_at?.toISOString().split('T')[0] || ''
+      };
+    });
 
     return NextResponse.json({
       success: true,

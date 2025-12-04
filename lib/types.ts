@@ -13,6 +13,7 @@ export interface ContactProperty {
   city?: string | null;
   state?: string | null;
   county?: string | null;
+  llcName?: string | null;
   propertyType?: string | null;
   bedrooms?: number | null;
   totalBathrooms?: number | null;
@@ -55,6 +56,7 @@ export interface Contact {
   avatarUrl?: string | null;
   createdAt: string;
   updatedAt: string;
+  customFields?: Record<string, any>; // Dynamic custom fields stored as JSON
   // Additional properties for compatibility
   propertyValue?: number | null;
   debtOwed?: number | null;
@@ -65,6 +67,7 @@ export interface Contact {
   phoneNumber?: string; // alias for phone1
   cityState?: string; // computed from city + state
   properties?: ContactProperty[]; // all properties (if loaded)
+  propertyCount?: number; // count of properties owned
 }
 
 export interface Tag {

@@ -14,15 +14,8 @@ import {
   Star,
   Archive,
   Trash2,
-  RefreshCw,
   Plus,
-  Settings,
-  ChevronDown,
-  MoreVertical,
-  Paperclip,
-  Clock,
-  CheckCheck,
-  Circle
+  CheckCheck
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
@@ -73,7 +66,6 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
   const [conversations, setConversations] = useState<EmailConversation[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
   const [showComposeModal, setShowComposeModal] = useState(false)
   const [view, setView] = useState<'inbox' | 'starred' | 'archived' | 'trash'>('inbox')
   const [currentPage, setCurrentPage] = useState(1)
@@ -119,12 +111,14 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
 
     try {
       setIsLoading(true)
+      // Load ALL conversations by setting a very high limit (10000)
+      // This ensures we get all conversations in a single request
       const response = await fetch(
-        `/api/email/conversations?accountId=${selectedAccount.id}&view=${view}&page=${page}&limit=50`
+        `/api/email/conversations?accountId=${selectedAccount.id}&view=${view}&page=1&limit=10000`
       )
       if (response.ok) {
         const data = await response.json()
-        console.log('📧 [LOAD-CONVERSATIONS] Loaded:', data.conversations?.length, 'conversations')
+        console.log('📧 [LOAD-CONVERSATIONS] Loaded:', data.conversations?.length, 'of', data.total, 'total conversations')
         setConversations(data.conversations || [])
         setCurrentPage(data.page || 1)
         setTotalPages(data.totalPages || 1)
@@ -142,33 +136,7 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
     }
   }
 
-  const handleSync = async () => {
-    if (!selectedAccount) return
-    
-    setIsSyncing(true)
-    try {
-      const response = await fetch('/api/email/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: selectedAccount.id })
-      })
-      
-      if (response.ok) {
-        toast({
-          title: '✅ Sync Started',
-          description: 'Emails will appear automatically',
-        })
-      }
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to sync emails',
-        variant: 'destructive',
-      })
-    } finally {
-      setIsSyncing(false)
-    }
-  }
+
 
   const filteredConversations = conversations.filter(conv =>
     searchQuery === '' ||
@@ -315,17 +283,11 @@ export default function RedesignedEmailConversations({ emailAccounts }: Redesign
               {view === 'inbox' ? 'Inbox' : view === 'starred' ? 'Starred' : 'Archived'}
             </h2>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSync}
-                disabled={isSyncing}
-              >
-                <RefreshCw className={cn("h-4 w-4", isSyncing && "animate-spin")} />
-              </Button>
-              <Button variant="ghost" size="sm">
-                <MoreVertical className="h-4 w-4" />
-              </Button>
+              {/* Auto-syncing indicator */}
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span>Auto-syncing</span>
+              </div>
             </div>
           </div>
 

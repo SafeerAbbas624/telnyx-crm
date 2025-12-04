@@ -25,7 +25,7 @@ export async function GET(
     let whereClause: any = { id: params.contactId }
 
     // If user is a team member, only allow access to assigned contacts
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       whereClause = {
         id: params.contactId,
         assignedUsers: {
@@ -167,16 +167,28 @@ export async function GET(
       })
     }
 
+    // Get the conversation's our_number (the Telnyx line bound to this conversation)
+    const conversation = await prisma.conversation.findFirst({
+      where: { contact_id: params.contactId },
+      select: { our_number: true },
+      orderBy: { updated_at: 'desc' }
+    })
+
     // Find the most recent outbound message to suggest default sender number
     const mostRecentOutboundMessage = messages
       .filter(msg => msg.direction === 'outbound')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
 
+    // Priority: conversation.our_number > most recent outbound > null
+    // This ensures replies go from the same line the prospect originally texted
+    const suggestedSenderNumber = conversation?.our_number || mostRecentOutboundMessage?.fromNumber || null
+
     return NextResponse.json({
       messages,
       total: messages.length,
       hasMore: messages.length === limit,
-      suggestedSenderNumber: mostRecentOutboundMessage?.fromNumber || null
+      suggestedSenderNumber,
+      conversationOurNumber: conversation?.our_number || null // Expose for UI display
     })
   } catch (error) {
     console.error('Error fetching messages:', error)
@@ -246,7 +258,7 @@ export async function POST(
 
     const data = await response.json()
 
-    // Update or create conversation
+    // Update or create conversation with our_number tracking
     await prisma.conversation.upsert({
       where: {
         contact_id_phone_number: {
@@ -255,6 +267,7 @@ export async function POST(
         }
       },
       update: {
+        our_number: fromNumber, // Track which line we're sending from
         last_message_content: message,
         last_message_at: new Date(),
         last_message_direction: 'outbound',
@@ -265,6 +278,7 @@ export async function POST(
       create: {
         contact_id: params.contactId,
         phone_number: toNumber,
+        our_number: fromNumber, // Track which line we're sending from
         channel: 'sms',
         last_message_content: message,
         last_message_at: new Date(),

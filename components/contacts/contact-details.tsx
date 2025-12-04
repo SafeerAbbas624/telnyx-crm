@@ -15,8 +15,12 @@ import ContactMessages from "./contact-messages"
 import ContactEmails from "./contact-emails"
 import ContactTimeline from "./contact-timeline"
 import EditContactDialog from "./edit-contact-dialog"
+import TaskDashboard from "@/components/tasks/task-dashboard"
+import CustomFieldsDisplay from "./custom-fields-display"
 import { useContacts } from "@/lib/context/contacts-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
+import InlineTagEditor from "./inline-tag-editor"
+import { normalizePropertyType } from "@/lib/property-type-mapper"
 
 interface ContactDetailsProps {
   contact: Contact
@@ -187,6 +191,7 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
                     <p className="text-xs text-gray-500">Phone</p>
                     {c.phone1 && <p className="text-sm font-medium text-gray-900">{formatPhoneNumberForDisplay(c.phone1)}</p>}
                     {c.phone2 && <p className="text-xs text-gray-600">{formatPhoneNumberForDisplay(c.phone2)}</p>}
+                    {c.phone3 && <p className="text-xs text-gray-600">{formatPhoneNumberForDisplay(c.phone3)}</p>}
                     {!c.phone1 && <p className="text-sm text-gray-400">No phone</p>}
                   </div>
                 </div>
@@ -195,6 +200,8 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-gray-500">Email</p>
                     {c.email1 && <p className="text-sm font-medium text-gray-900 truncate">{c.email1}</p>}
+                    {c.email2 && <p className="text-xs text-gray-600 truncate">{c.email2}</p>}
+                    {c.email3 && <p className="text-xs text-gray-600 truncate">{c.email3}</p>}
                     {!c.email1 && <p className="text-sm text-gray-400">No email</p>}
                   </div>
                 </div>
@@ -215,10 +222,15 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
             {/* Property Details Card */}
             <Card className="shadow-sm hover:shadow-md transition-shadow">
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-gray-700">
-                  <Home className="h-4 w-4 text-green-600" />
-                  Property Details
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2 text-gray-700">
+                    <Home className="h-4 w-4 text-green-600" />
+                    Property Details
+                  </CardTitle>
+                  {properties.length > 1 && (
+                    <Badge variant="secondary" className="text-xs">{selectedPropertyIndex + 1} of {properties.length}</Badge>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-start gap-2">
@@ -226,10 +238,14 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-gray-500">Property Address</p>
                     <p className="text-sm font-medium text-gray-900 line-clamp-2">{activeProp.address || '—'}</p>
-                    <p className="text-xs text-gray-600">{[activeProp.city, activeProp.state].filter(Boolean).join(', ') || '—'}</p>
+                    <p className="text-xs text-gray-600">{[activeProp.city, activeProp.state, activeProp.county].filter(Boolean).join(', ') || '—'}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-50 rounded-lg p-2">
+                    <p className="text-xs text-gray-500">Type</p>
+                    <p className="text-sm font-bold text-gray-900">{normalizePropertyType(activeProp.propertyType) || '—'}</p>
+                  </div>
                   <div className="bg-gray-50 rounded-lg p-2">
                     <p className="text-xs text-gray-500">Beds</p>
                     <p className="text-sm font-bold text-gray-900">{activeProp.bedrooms ?? '—'}</p>
@@ -243,10 +259,30 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
                     <p className="text-sm font-bold text-gray-900">{activeProp.buildingSqft ? activeProp.buildingSqft.toLocaleString() : '—'}</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-2">
-                    <p className="text-xs text-gray-500">Year</p>
+                    <p className="text-xs text-gray-500">Year Built</p>
                     <p className="text-sm font-bold text-gray-900">{activeProp.effectiveYearBuilt ?? '—'}</p>
                   </div>
                 </div>
+                {properties.length > 1 && (
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedPropertyIndex(Math.max(0, selectedPropertyIndex - 1))}
+                      disabled={selectedPropertyIndex === 0}
+                    >
+                      ← Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedPropertyIndex(Math.min(properties.length - 1, selectedPropertyIndex + 1))}
+                      disabled={selectedPropertyIndex === properties.length - 1}
+                    >
+                      Next →
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -282,47 +318,102 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
 
           </div>
 
-          {/* Tags Row */}
-          {c.tags && c.tags.length > 0 && (
+          {/* All Properties Section */}
+          {properties.length > 0 && (
             <Card className="shadow-sm">
-              <CardContent className="py-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Tag className="h-4 w-4 text-gray-500" />
-                  {c.tags.map((tag: any) => (
-                    <Badge
-                      key={tag.id}
-                      variant="outline"
-                      className="text-xs"
-                      style={{
-                        backgroundColor: `${tag.color}15`,
-                        borderColor: tag.color,
-                        color: tag.color
-                      }}
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-gray-700">
+                  <Home className="h-4 w-4 text-green-600" />
+                  Properties Owned ({properties.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 gap-3">
+                  {properties.map((prop: any, idx: number) => (
+                    <div
+                      key={prop.id || idx}
+                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                        selectedPropertyIndex === idx
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                      }`}
+                      onClick={() => setSelectedPropertyIndex(idx)}
                     >
-                      {tag.name}
-                    </Badge>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 line-clamp-1">{prop.address || '—'}</p>
+                          <p className="text-xs text-gray-600">{[prop.city, prop.state].filter(Boolean).join(', ') || '—'}</p>
+                          {prop.llcName && (
+                            <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
+                              <Building2 className="h-3 w-3" />
+                              {prop.llcName}
+                            </p>
+                          )}
+                          <div className="flex gap-2 mt-2 text-xs text-gray-600">
+                            <span>{prop.bedrooms ?? '—'} bed</span>
+                            <span>•</span>
+                            <span>{prop.totalBathrooms ?? '—'} bath</span>
+                            <span>•</span>
+                            <span>{normalizePropertyType(prop.propertyType) || '—'}</span>
+                          </div>
+                          {prop.estValue && (
+                            <div className="mt-1 text-xs">
+                              <span className="text-green-600 font-medium">
+                                ${prop.estValue.toLocaleString()}
+                              </span>
+                              {prop.estEquity && (
+                                <span className="text-gray-500 ml-2">
+                                  (Equity: ${prop.estEquity.toLocaleString()})
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {selectedPropertyIndex === idx && (
+                          <Badge variant="default" className="ml-2 flex-shrink-0">Active</Badge>
+                        )}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </CardContent>
             </Card>
           )}
 
+          {/* Custom Fields Section */}
+          <CustomFieldsDisplay contact={c} />
+
+          {/* Tags Row - Inline Editor */}
+          <Card className="shadow-sm">
+            <CardContent className="py-3">
+              <InlineTagEditor
+                contactId={c.id}
+                initialTags={c.tags || []}
+                onTagsChange={(newTags) => {
+                  // Update local state
+                  setFullContact(prev => prev ? { ...prev, tags: newTags } : null);
+                }}
+              />
+            </CardContent>
+          </Card>
+
           {/* Tabs Section */}
           <Card className="shadow-sm">
             <Tabs defaultValue="timeline" className="w-full">
               <CardHeader className="pb-2">
-                <TabsList className="grid w-full grid-cols-6 h-9">
+                <TabsList className="grid w-full grid-cols-7 h-9">
                   <TabsTrigger value="timeline" className="text-xs">Timeline</TabsTrigger>
                   <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
                   <TabsTrigger value="activities" className="text-xs">Activities</TabsTrigger>
+                  <TabsTrigger value="tasks" className="text-xs">Tasks</TabsTrigger>
                   <TabsTrigger value="calls" className="text-xs">Calls</TabsTrigger>
                   <TabsTrigger value="messages" className="text-xs">Messages</TabsTrigger>
                   <TabsTrigger value="emails" className="text-xs">Emails</TabsTrigger>
                 </TabsList>
               </CardHeader>
 
-              <CardContent className="p-0">
-                <div className="max-h-[400px] overflow-y-auto">
+              <CardContent className="p-0 flex-1 overflow-hidden">
+                <div className="h-full overflow-y-auto">
                   <TabsContent value="timeline" className="mt-0 p-4">
                     <ContactTimeline contactId={contact.id} />
                   </TabsContent>
@@ -333,6 +424,10 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
 
                   <TabsContent value="activities" className="mt-0 p-4">
                     <ContactActivities contactId={contact.id} />
+                  </TabsContent>
+
+                  <TabsContent value="tasks" className="mt-0 p-4">
+                    <TaskDashboard contactId={contact.id} />
                   </TabsContent>
 
                   <TabsContent value="calls" className="mt-0 p-4">

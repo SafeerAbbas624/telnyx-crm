@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { X, Plus, Lightbulb } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 interface Tag {
   id: string
@@ -160,10 +161,12 @@ export function TagInput({
     console.log('createTag called:', { name, allowCreate, trimmed: name.trim() })
     if (!allowCreate || !name.trim()) {
       console.log('createTag early return:', { allowCreate, trimmed: name.trim() })
+      toast.error('Cannot create tag: allowCreate is false or name is empty')
       return
     }
     if (value.some(t => t.name.toLowerCase() === name.toLowerCase())) {
       console.log('createTag: tag already exists')
+      toast.info(`Tag "${name}" already added`)
       return
     }
 
@@ -180,11 +183,13 @@ export function TagInput({
       if (response.ok) {
         const newTag = await response.json()
         console.log('createTag: API success, adding tag:', newTag)
+        toast.success(`Tag "${name}" created`)
         addTag(newTag)
         loadAvailableTags() // Refresh available tags
       } else {
         const errorText = await response.text()
         console.log('createTag: API failed, creating temp tag:', errorText)
+        toast.info(`Tag "${name}" will be created when contact is saved`)
         // If API fails, create a temporary tag that will be handled by the parent component
         const tempTag: Tag = {
           id: `new:${name.trim()}`,
@@ -196,6 +201,7 @@ export function TagInput({
       }
     } catch (error) {
       console.error('createTag: Exception occurred:', error)
+      toast.info(`Tag "${name}" will be created when contact is saved`)
       // Fallback: create temporary tag
       const tempTag: Tag = {
         id: `new:${name.trim()}`,
@@ -314,7 +320,7 @@ export function TagInput({
           className="cursor-text"
         />
         {isOpen && (inputValue || filteredTags.length > 0) && (
-          <div ref={dropdownRef} className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
+          <div ref={dropdownRef} className="absolute z-[100] w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
             {loading && (
               <div className="p-2 text-sm text-muted-foreground">Loading...</div>
             )}
@@ -328,6 +334,7 @@ export function TagInput({
                 <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Available Tags</div>
                 {filteredTags.slice(0, 8).map((tag) => (
                   <button
+                    type="button"
                     key={tag.id}
                     onClick={() => addTag(tag)}
                     className="w-full flex items-center justify-between px-2 py-1.5 text-sm hover:bg-gray-100 rounded cursor-pointer"
@@ -359,6 +366,7 @@ export function TagInput({
               <div className="p-1 border-t">
                 <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Create New</div>
                 <button
+                  type="button"
                   onClick={() => createTag(inputValue)}
                   className="w-full flex items-center px-2 py-1.5 text-sm hover:bg-gray-100 rounded cursor-pointer"
                 >

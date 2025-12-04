@@ -33,7 +33,9 @@ import {
   X,
   Trash2,
   UserPlus,
-  Edit
+  Edit,
+  LayoutGrid,
+  List
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { format } from "date-fns"
@@ -49,6 +51,7 @@ import AdvancedFiltersRedesign from "./contacts/advanced-filters-redesign"
 import BulkTagOperations from "./contacts/bulk-tag-operations"
 import ContactTimeline from "./contacts/contact-timeline"
 import AssignContactModal from "./admin/assign-contact-modal"
+import ContactsDataGrid from "./contacts/contacts-data-grid"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -77,6 +80,8 @@ export default function ContactsRedesign({ onAddContact }: ContactsRedesignProps
   } = useContacts()
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
+  const [fullContact, setFullContact] = useState<Contact | null>(null)
+  const [selectedPropertyIndex, setSelectedPropertyIndex] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
   const [activityTab, setActivityTab] = useState("all")
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -91,6 +96,7 @@ export default function ContactsRedesign({ onAddContact }: ContactsRedesignProps
   const [deleting, setDeleting] = useState(false)
   const [phoneNumbers, setPhoneNumbers] = useState<any[]>([])
   const [contactTags, setContactTags] = useState<any[]>([])
+  // Removed viewMode - only using grid/excel view now
 
   // Dashboard-style activity dialog state
   const [activityType, setActivityType] = useState<'call' | 'meeting' | 'email' | 'task' | 'note'>('task')
@@ -123,33 +129,28 @@ export default function ContactsRedesign({ onAddContact }: ContactsRedesignProps
     fetchPhoneNumbers()
   }, [isAdmin])
 
-  // Fetch contact tags when contact is selected
+  // Fetch full contact data with properties and tags when contact is selected
   useEffect(() => {
     if (selectedContact) {
-      // If tags are already in selectedContact, use them
-      if (selectedContact.tags && selectedContact.tags.length > 0) {
-        console.log('Using tags from selectedContact:', selectedContact.tags)
-        setContactTags(selectedContact.tags)
-      } else {
-        // Otherwise fetch from API
-        const fetchContactTags = async () => {
-          try {
-            console.log('Fetching tags for contact:', selectedContact.id)
-            const res = await fetch(`/api/contacts/${selectedContact.id}`)
-            if (res.ok) {
-              const data = await res.json()
-              console.log('Fetched contact data:', data)
-              console.log('Tags from API:', data.tags)
-              setContactTags(data.tags || [])
-            }
-          } catch (error) {
-            console.error('Error fetching contact tags:', error)
+      const fetchFullContact = async () => {
+        try {
+          const res = await fetch(`/api/contacts/${selectedContact.id}`)
+          if (res.ok) {
+            const data = await res.json()
+            setFullContact(data)
+            setContactTags(data.tags || [])
+            setSelectedPropertyIndex(0)
           }
+        } catch (error) {
+          console.error('Error fetching full contact:', error)
+          setContactTags(selectedContact.tags || [])
         }
-        fetchContactTags()
       }
+      fetchFullContact()
     } else {
+      setFullContact(null)
       setContactTags([])
+      setSelectedPropertyIndex(0)
     }
   }, [selectedContact?.id])
 
@@ -182,11 +183,56 @@ export default function ContactsRedesign({ onAddContact }: ContactsRedesignProps
     }
   }
 
-  const handleSelectAll = () => {
-    if (selectedContactIds.length === contacts.length) {
-      setSelectedContactIds([])
-    } else {
-      setSelectedContactIds(contacts.map(c => c.id))
+  const handleSelectAll = async () => {
+    try {
+      // If all contacts are already selected, deselect all
+      if (selectedContactIds.length > 0) {
+        setSelectedContactIds([])
+        toast({
+          title: "Success",
+          description: "Deselected all contacts",
+        })
+        return
+      }
+
+      // Fetch ALL contacts matching current filters
+      const params = new URLSearchParams()
+      params.set('page', '1')
+      params.set('limit', '10000')
+
+      if (currentQuery) {
+        params.set('search', currentQuery)
+      }
+
+      if (currentFilters) {
+        Object.entries(currentFilters).forEach(([key, value]) => {
+          if (value != null && String(value).length > 0) {
+            params.set(key, String(value))
+          }
+        })
+      }
+
+      const res = await fetch(`/api/contacts?${params.toString()}`)
+      if (!res.ok) throw new Error('Failed to fetch contacts')
+
+      const data = await res.json()
+      const allContacts = data.contacts || data
+
+      if (Array.isArray(allContacts)) {
+        const allContactIds = allContacts.map((contact: Contact) => contact.id)
+        setSelectedContactIds(allContactIds)
+        toast({
+          title: "Success",
+          description: `Selected ${allContacts.length} contacts`,
+        })
+      }
+    } catch (error) {
+      console.error('Error selecting all contacts:', error)
+      toast({
+        title: "Error",
+        description: "Failed to select all contacts",
+        variant: "destructive",
+      })
     }
   }
 
@@ -462,491 +508,42 @@ export default function ContactsRedesign({ onAddContact }: ContactsRedesignProps
     }
   }
 
+  // Only Excel/Grid view - list view removed
   return (
-    <div className="flex h-screen bg-[#f8f9fa]">
-      {/* Left Panel - Contact List */}
-      <div className="w-[400px] border-r border-gray-200 bg-white flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-semibold text-gray-900">Contacts</h1>
-            <Button onClick={() => setShowAddDialog(true)} className="bg-primary hover:bg-primary/90">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Contact
-            </Button>
-          </div>
-
-          {/* All contacts info - no checkbox */}
-          <div className="mb-4">
-            <span className="text-sm font-medium text-gray-700">
-              All Contacts ({pagination?.totalCount || contacts.length})
-            </span>
-          </div>
-
-          {/* Search */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Search contacts, properties, LLC..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2">
-            <Popover open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-sm"
-                >
-                  <Filter className="h-4 w-4 mr-2" />
-                  Filters
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                className="w-[700px] p-0"
-                align="start"
-                side="bottom"
-              >
-                <div className="bg-white rounded-lg shadow-lg border border-gray-200">
-                  {/* Filter Header */}
-                  <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                    <h3 className="text-lg font-semibold text-gray-900">Advanced Filters</h3>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowAdvancedFilters(false)}
-                      className="h-8 w-8 p-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  {/* Filter Content */}
-                  <div className="p-4 max-h-[600px] overflow-y-auto">
-                    <AdvancedFiltersRedesign onClose={() => setShowAdvancedFilters(false)} />
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {isAdmin && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-sm"
-                onClick={handleExportCsv}
-                disabled={exporting}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                {exporting ? 'Exporting...' : 'Export CSV'}
-              </Button>
-            )}
-          </div>
+    <div className="h-screen bg-[#f8f9fa] flex flex-col">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-200 bg-white flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-semibold text-gray-900">Contacts</h1>
+          <span className="text-sm text-muted-foreground">
+            Excel-like view with resizable columns
+          </span>
         </div>
-
-        {/* Contact List */}
-        <div className="p-4">
-          {/* Bulk Selection Actions Card - Figma Design - ABOVE Select All */}
-          {selectedContactIds.length > 0 && (
-            <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-md" style={{ backgroundColor: '#E3F2FD', border: '1px solid #90CAF9' }}>
-              <span className="text-sm font-medium" style={{ color: '#1565C0' }}>
-                {selectedContactIds.length} selected
-              </span>
-              <div className="h-4 w-px mx-1" style={{ backgroundColor: '#64B5F6' }} />
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs hover:bg-white/50"
-                style={{ color: '#1976D2' }}
-                onClick={() => setShowBulkTagOperations(true)}
-              >
-                <Tags className="h-3 w-3 mr-1" />
-                Add Tags
-              </Button>
-              {isAdmin && (
-                <>
-                  <AssignContactModal
-                    contacts={contacts.filter(c => selectedContactIds.includes(c.id))}
-                    onAssignmentComplete={() => {
-                      toast({
-                        title: "Success",
-                        description: `${selectedContactIds.length} contact(s) assigned successfully`,
-                      })
-                      setSelectedContactIds([])
-                      refreshContacts()
-                    }}
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs hover:bg-white/50"
-                        style={{ color: '#1976D2' }}
-                      >
-                        <UserPlus className="h-3 w-3 mr-1" />
-                        Assign
-                      </Button>
-                    }
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-red-600 hover:text-red-800 hover:bg-red-50"
-                    onClick={handleDeleteContacts}
-                    disabled={deleting}
-                  >
-                    <Trash2 className="h-3 w-3 mr-1" />
-                    {deleting ? 'Deleting...' : 'Delete'}
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Select All Checkbox - Figma Design */}
-          <div className="mb-3">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                checked={selectedContactIds.length === contacts.length && contacts.length > 0}
-                onCheckedChange={handleSelectAll}
-              />
-              <span className="text-sm text-gray-700">
-                Select All ({contacts.length})
-              </span>
-            </div>
-          </div>
-
-          <ScrollArea className="h-[calc(100vh-340px)]">
-            <div className="space-y-3">
-              {isLoading ? (
-                <div className="text-center py-8 text-gray-500">Loading contacts...</div>
-              ) : contacts.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No contacts found</p>
-                </div>
-              ) : (
-                contacts.map((contact) => (
-                  <Card
-                    key={contact.id}
-                    className={`cursor-pointer transition-all hover:shadow-md ${
-                      selectedContact?.id === contact.id
-                        ? 'border-2'
-                        : 'hover:border-gray-300'
-                    }`}
-                    style={selectedContact?.id === contact.id ? {
-                      backgroundColor: '#E3F2FD',
-                      borderColor: '#2196F3'
-                    } : {}}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={selectedContactIds.includes(contact.id)}
-                          onCheckedChange={(checked) => handleContactCheckbox(contact.id, checked as boolean)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                        <div className="flex-1" onClick={() => handleContactSelect(contact)}>
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-gray-900">
-                                {contact.firstName} {contact.lastName}
-                              </h3>
-                              <div className="flex items-center gap-1 mt-1 flex-wrap">
-                                {contact.dealStatus === 'active' && (
-                                  <Badge className="text-white text-xs px-2 py-0" style={{ backgroundColor: '#2196F3' }}>active</Badge>
-                                )}
-                                {contact.dealStatus === 'hot-lead' && (
-                                  <Badge className="bg-orange-500 text-white text-xs px-2 py-0">hot-lead</Badge>
-                                )}
-                                {contact.dealStatus === 'qualified' && (
-                                  <Badge variant="outline" className="text-xs px-2 py-0">qualified</Badge>
-                                )}
-                                {contact.dealStatus === 'lead' && (
-                                  <Badge variant="secondary" className="text-xs px-2 py-0">lead</Badge>
-                                )}
-                                {/* Show real tags from database */}
-                                {contact.tags && contact.tags.map((tag: any) => (
-                                  <Badge
-                                    key={tag.id}
-                                    variant="outline"
-                                    style={{
-                                      backgroundColor: `${tag.color}15`,
-                                      borderColor: tag.color,
-                                      color: tag.color
-                                    }}
-                                    className="text-xs px-2 py-0"
-                                  >
-                                    {tag.name}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="space-y-1 text-sm text-gray-600">
-                            {contact.propertyAddress && (
-                              <div className="flex items-center gap-1.5">
-                                <Building2 className="h-3.5 w-3.5 text-gray-400" />
-                                <span className="text-sm">{contact.propertyAddress}</span>
-                              </div>
-                            )}
-                            {contact.city && contact.state && (
-                              <div className="flex items-center gap-1.5">
-                                <MapPin className="h-3.5 w-3.5 text-gray-400" />
-                                <span className="text-sm">{contact.city}, {contact.state} {contact.propertyCounty || ''}</span>
-                              </div>
-                            )}
-                            {contact.llcName && (
-                              <div className="flex items-center gap-1.5">
-                                <Building2 className="h-3.5 w-3.5 text-gray-400" />
-                                <span className="truncate text-sm">{contact.llcName}</span>
-                              </div>
-                            )}
-                            {contact.propertyType && (
-                              <div className="flex items-center gap-1.5 text-sm text-gray-700">
-                                <span className="font-medium">
-                                  {contact.propertyType}
-                                  {contact.bedrooms && ` - ${contact.bedrooms} units`}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="mt-3 space-y-1 text-sm">
-                            {contact.phone1 && (
-                              <div className="text-gray-900 font-medium">{contact.phone1}</div>
-                            )}
-                            {contact.email1 && (
-                              <div className="text-gray-600 truncate text-sm">{contact.email1}</div>
-                            )}
-                          </div>
-
-                          {contact.createdAt && (
-                            <div className="mt-2 text-xs text-gray-400">
-                              👤 {format(new Date(contact.createdAt), 'MMM d, yyyy')}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
-          </ScrollArea>
-
-          {/* Pagination */}
-          {pagination && pagination.totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-between border-t pt-4">
-              <div className="text-sm text-gray-600">
-                Page {pagination.page} of {pagination.totalPages}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => goToPage(pagination.page - 1)}
-                  disabled={pagination.page === 1}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => goToPage(pagination.page + 1)}
-                  disabled={!pagination.hasMore}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setShowAddDialog(true)} className="bg-primary hover:bg-primary/90">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Contact
+          </Button>
         </div>
       </div>
 
-      {/* Right Panel - Contact Details */}
-      <div className="flex-1 flex flex-col">
-        {selectedContact ? (
-          <>
-            {/* Contact Header */}
-            <div className="bg-white border-b border-gray-200 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
-                    {selectedContact.firstName} {selectedContact.lastName}
-                  </h2>
-                  <div className="flex items-center gap-2 mt-2 flex-wrap">
-                    {selectedContact.dealStatus === 'active' && (
-                      <Badge className="text-white text-xs" style={{ backgroundColor: '#2196F3' }}>active</Badge>
-                    )}
-                    {selectedContact.dealStatus === 'hot-lead' && (
-                      <Badge className="bg-orange-500 text-white text-xs">hot-lead</Badge>
-                    )}
-                    {selectedContact.dealStatus === 'qualified' && (
-                      <Badge variant="outline" className="text-xs">qualified</Badge>
-                    )}
-                    {selectedContact.dealStatus === 'lead' && (
-                      <Badge variant="secondary" className="text-xs">lead</Badge>
-                    )}
-                    {/* Show real tags */}
-                    {contactTags.map((tag: any) => (
-                      <Badge
-                        key={tag.id}
-                        variant="outline"
-                        style={{
-                          backgroundColor: `${tag.color}15`,
-                          borderColor: tag.color,
-                          color: tag.color
-                        }}
-                        className="text-xs"
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setShowEditDialog(true)}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleAddTask}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Task
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleTextContact}>
-                    <MessageSquare className="h-4 w-4 mr-2" />
-                    Text
-                  </Button>
-                  <Button className="bg-primary hover:bg-primary/90" size="sm" onClick={handleCallContact}>
-                    <PhoneCall className="h-4 w-4 mr-2" />
-                    Call
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* Contact Details Content */}
-            <ScrollArea className="flex-1 p-6">
-              <div className="max-w-4xl space-y-6">
-                {/* Property Information */}
-                <Card>
-                  <CardContent className="p-6">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Building2 className="h-5 w-5" />
-                      Property Information
-                    </h3>
-                    <div className="grid grid-cols-2 gap-6">
-                      <div>
-                        <label className="text-sm text-gray-600">Address</label>
-                        <p className="font-medium">{selectedContact.propertyAddress || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600">City, State ZIP</label>
-                        <p className="font-medium">
-                          {selectedContact.city}, {selectedContact.state} {selectedContact.propertyCounty}
-                        </p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600">Property Type</label>
-                        <p className="font-medium">{selectedContact.propertyType || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600">Bedrooms</label>
-                        <p className="font-medium">{selectedContact.bedrooms || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600">LLC Owner</label>
-                        <p className="font-medium">{selectedContact.llcName || 'N/A'}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Contact Information */}
-                <Card>
-                  <CardContent className="p-6">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <User className="h-5 w-5" />
-                      Contact Information
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="text-sm text-gray-600 flex items-center gap-2">
-                          <Phone className="h-4 w-4" />
-                          Phone
-                        </label>
-                        <p className="font-medium">+1 {selectedContact.phone1?.replace('+1', '') || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600 flex items-center gap-2">
-                          <Mail className="h-4 w-4" />
-                          Email
-                        </label>
-                        <p className="font-medium">{selectedContact.email1 || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600 flex items-center gap-2">
-                          <Building2 className="h-4 w-4" />
-                          Company
-                        </label>
-                        <p className="font-medium">{selectedContact.llcName || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600 flex items-center gap-2">
-                          <User className="h-4 w-4" />
-                          Assigned To
-                        </label>
-                        <p className="font-medium">John Doe</p>
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600 flex items-center gap-2">
-                          <Calendar className="h-4 w-4" />
-                          Last Contact
-                        </label>
-                        <p className="font-medium">
-                          {selectedContact.createdAt ? format(new Date(selectedContact.createdAt), 'yyyy-MM-dd') : 'N/A'}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Notes */}
-                <Card>
-                  <CardContent className="p-6">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Notes
-                    </h3>
-                    <p className="text-gray-600">
-                      {selectedContact.notes || 'Interested in purchasing multi-family property, follow up next week.'}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                {/* Activity Timeline - Real Data */}
-                <Card>
-                  <CardContent className="p-6">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Calendar className="h-5 w-5" />
-                      Activity Timeline
-                    </h3>
-                    <ContactTimeline contactId={selectedContact.id} />
-                  </CardContent>
-                </Card>
-              </div>
-            </ScrollArea>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            <p>Select a contact to view details</p>
-          </div>
-        )}
+      {/* Data Grid */}
+      <div className="flex-1 overflow-hidden">
+        <ContactsDataGrid
+          onContactSelect={(contact) => {
+            setSelectedContact(contact)
+          }}
+          onEditContact={(contact) => {
+            setSelectedContact(contact)
+            setShowEditDialog(true)
+          }}
+          onDeleteContact={async (contactId) => {
+            if (confirm('Are you sure you want to delete this contact?')) {
+              await deleteContact(contactId)
+              await refreshContacts()
+            }
+          }}
+        />
       </div>
 
       {/* Add Contact Dialog */}
@@ -956,99 +553,22 @@ export default function ContactsRedesign({ onAddContact }: ContactsRedesignProps
         onAddContact={handleAddContact}
       />
 
-      {/* Bulk Tag Operations Dialog */}
-      <BulkTagOperations
-        open={showBulkTagOperations}
-        onOpenChange={setShowBulkTagOperations}
-        selectedContactIds={selectedContactIds}
-        onComplete={() => {
-          setShowBulkTagOperations(false)
-          setSelectedContactIds([])
-          refreshContacts()
-          toast({
-            title: "Success",
-            description: "Tags updated successfully",
-          })
-        }}
-      />
-
-      {/* Add Activity Dialog - Dashboard Style */}
-      <Dialog open={showAddActivityDialog} onOpenChange={setShowAddActivityDialog}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>
-              Add Activity for {selectedContact ? `${selectedContact.firstName} ${selectedContact.lastName}` : ""}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="activity-type">Activity Type</Label>
-              <Select value={activityType} onValueChange={(value) => setActivityType(value as any)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select activity type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="call">Call</SelectItem>
-                  <SelectItem value="meeting">Meeting</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="task">Task</SelectItem>
-                  <SelectItem value="note">Note</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="title">Title</Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Enter activity title"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Enter activity description"
-                rows={3}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="due-date">Due Date</Label>
-                <Input id="due-date" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="due-time">Due Time</Label>
-                <Input id="due-time" type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddActivityDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveActivity} disabled={!title || !dueDate}>
-              Add Activity
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit Contact Dialog */}
-      <EditContactDialog
-        open={showEditDialog}
-        onOpenChange={setShowEditDialog}
-        contact={selectedContact}
-      />
+      {selectedContact && (
+        <EditContactDialog
+          open={showEditDialog}
+          onOpenChange={(open) => {
+            setShowEditDialog(open)
+            if (!open) refreshContacts()
+          }}
+          contact={selectedContact}
+        />
+      )}
     </div>
   )
 }
+
+// Removed old list view code - only using Excel view now
 
 interface ActivityItemProps {
   type: 'call' | 'email' | 'sms'

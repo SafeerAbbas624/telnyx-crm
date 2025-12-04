@@ -8,48 +8,61 @@ datasource db {
 }
 
 model Contact {
-  id                 String       @id @default(uuid()) @db.Uuid
-  firstName          String?      @map("first_name")
-  lastName           String?      @map("last_name")
-  llcName            String?      @map("llc_name")
-  phone1             String?
-  phone2             String?
-  phone3             String?
-  email1             String?
-  email2             String?
-  email3             String?
-  propertyAddress    String?      @map("property_address")
-  contactAddress     String?      @map("contact_address")
-  city               String?
-  state              String?
-  propertyCounty     String?      @map("property_county")
-  propertyType       String?      @map("property_type")
-  bedrooms           Int?
-  totalBathrooms     Decimal?     @map("total_bathrooms") @db.Decimal(4, 2)
-  buildingSqft       Int?         @map("building_sqft")
-  effectiveYearBuilt Int?         @map("effective_year_built")
-  estValue           Decimal?     @map("est_value") @db.Decimal(15, 2)
-  estEquity          Decimal?     @map("est_equity") @db.Decimal(15, 2)
-  dnc                Boolean?     @default(false)
-  dncReason          String?      @map("dnc_reason")
-  dealStatus         DealStatus?  @default(lead) @map("deal_status")
-  notes              String?
-  avatarUrl          String?      @map("avatar_url")
-  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime?    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  contact_tags       ContactTag[]
-  messages           Message[]
-  activities         Activity[]
-  telnyx_messages    TelnyxMessage[]
-  conversations      Conversation[]
-  email_messages     EmailMessage[]
-  email_conversations EmailConversation[]
-  assignments        ContactAssignment[]
-  properties         ContactProperty[]
-  powerDialerQueue   PowerDialerQueue[]
-  powerDialerCalls   PowerDialerCall[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  pipelineId              String?                  @map("pipeline_id") @db.Uuid
+  fullName                String?                  @map("full_name")
+  firstName               String?                  @map("first_name")
+  lastName                String?                  @map("last_name")
+  llcName                 String?                  @map("llc_name")
+  phone1                  String?
+  phone2                  String?
+  phone3                  String?
+  email1                  String?
+  email2                  String?
+  email3                  String?
+  propertyAddress         String?                  @map("property_address")
+  fullPropertyAddress     String?                  @map("full_property_address")
+  contactAddress          String?                  @map("contact_address")
+  contactCityStateZip     String?                  @map("contact_city_state_zip")
+  city                    String?
+  state                   String?
+  zipCode                 String?                  @map("zip_code")
+  propertyCounty          String?                  @map("property_county")
+  propertyType            String?                  @map("property_type")
+  bedrooms                Int?
+  totalBathrooms          Decimal?                 @map("total_bathrooms") @db.Decimal(6, 2)
+  buildingSqft            Int?                     @map("building_sqft")
+  lotSizeSqft             Int?                     @map("lot_size_sqft")
+  effectiveYearBuilt      Int?                     @map("effective_year_built")
+  lastSaleDate            DateTime?                @map("last_sale_date") @db.Timestamptz(6)
+  lastSaleAmount          Decimal?                 @map("last_sale_amount") @db.Decimal(15, 2)
+  estRemainingBalance     Decimal?                 @map("est_remaining_balance") @db.Decimal(15, 2)
+  estValue                Decimal?                 @map("est_value") @db.Decimal(15, 2)
+  estEquity               Decimal?                 @map("est_equity") @db.Decimal(15, 2)
+  dnc                     Boolean?                 @default(false)
+  dncReason               String?                  @map("dnc_reason")
+  dealStatus              DealStatus?              @default(lead) @map("deal_status")
+  notes                   String?
+  avatarUrl               String?                  @map("avatar_url")
+  customFields            Json?                    @default("{}") @map("custom_fields")
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime?                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  pipeline                Pipeline?                @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  contact_tags            ContactTag[]
+  messages                Message[]
+  activities              Activity[]
+  telnyx_messages         TelnyxMessage[]
+  conversations           Conversation[]
+  email_messages          EmailMessage[]
+  email_conversations     EmailConversation[]
+  assignments             ContactAssignment[]
+  properties              ContactProperty[]
+  powerDialerQueue        PowerDialerQueue[]
+  powerDialerCalls        PowerDialerCall[]
+  powerDialerListContacts PowerDialerListContact[] @relation("PowerDialerListContacts")
 
   // Performance indexes for common queries
+  @@index([pipelineId], name: "idx_contacts_pipeline_id")
   @@index([createdAt(sort: Desc)], name: "idx_contacts_created_at")
   @@index([firstName, lastName], name: "idx_contacts_name")
   @@index([phone1], name: "idx_contacts_phone1")
@@ -62,15 +75,17 @@ model Contact {
 }
 
 model Tag {
-  id           String        @id @default(uuid()) @db.Uuid
-  name         String        @unique
-  color        String        @default("#3B82F6")
-  description  String?
-  is_system    Boolean?      @default(false)
-  created_at   DateTime      @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime      @updatedAt @db.Timestamptz(6)
-  contact_tags ContactTag[]
+  id            String        @id @default(uuid()) @db.Uuid
+  name          String        @unique
+  color         String        @default("#3B82F6")
+  description   String?
+  is_system     Boolean?      @default(false)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime      @updatedAt @db.Timestamptz(6)
+  contact_tags  ContactTag[]
   activity_tags ActivityTag[]
+  Pipeline      Pipeline?     @relation(fields: [pipelineId], references: [id])
+  pipelineId    String?       @db.Uuid
 
   @@map("tags")
 }
@@ -179,40 +194,199 @@ model Email {
 }
 
 model Activity {
-  id                   String            @id @default(uuid()) @db.Uuid
-  contact_id           String            @db.Uuid
-  deal_id              String?           @db.Uuid
+  id                   String             @id @default(uuid()) @db.Uuid
+  pipelineId           String?            @map("pipeline_id") @db.Uuid
+  contact_id           String?            @db.Uuid
+  deal_id              String?            @db.Uuid
   type                 ActivityType
+  task_type            String?
   title                String
   description          String?
-  due_date             DateTime?         @db.Timestamptz(6)
-  status               ActivityStatus    @default(planned)
-  priority             ActivityPriority? @default(medium)
-  assigned_to          String?           @db.Uuid
-  created_by           String?           @db.Uuid
+  due_date             DateTime?          @db.Timestamptz(6)
+  status               ActivityStatus     @default(planned)
+  priority             ActivityPriority?  @default(medium)
+  assigned_to          String?            @db.Uuid
+  created_by           String?            @db.Uuid
   location             String?
   duration_minutes     Int?
   reminder_minutes     Int?
-  is_all_day           Boolean?          @default(false)
+  is_all_day           Boolean?           @default(false)
   recurrence_rule      String?
-  parent_activity_id   String?           @db.Uuid
+  parent_activity_id   String?            @db.Uuid
   external_calendar_id String?
   external_event_id    String?
-  completed_at         DateTime?         @db.Timestamptz(6)
-  completed_by         String?           @db.Uuid
+  completed_at         DateTime?          @db.Timestamptz(6)
+  completed_by         String?            @db.Uuid
   result               String?
   next_action          String?
-  created_at           DateTime          @default(now()) @db.Timestamptz(6)
-  updated_at           DateTime          @updatedAt @db.Timestamptz(6)
-  contact              Contact           @relation(fields: [contact_id], references: [id], onDelete: Cascade)
-  createdBy            User?             @relation("UserActivities", fields: [created_by], references: [id], onDelete: SetNull)
+  created_at           DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime           @updatedAt @db.Timestamptz(6)
+  pipeline             Pipeline?          @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  contact              Contact?           @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  createdBy            User?              @relation("UserActivities", fields: [created_by], references: [id], onDelete: SetNull)
+  assignedUser         User?              @relation("AssignedTasks", fields: [assigned_to], references: [id], onDelete: SetNull)
   activity_tags        ActivityTag[]
+  comments             TaskComment[]      @relation("ActivityComments")
+  attachments          TaskAttachment[]   @relation("ActivityAttachments")
+  timeEntries          TaskTimeEntry[]    @relation("ActivityTimeEntries")
+  dependsOnTasks       TaskDependency[]   @relation("DependsOn")
+  dependentTasks       TaskDependency[]   @relation("DependentOn")
+  notifications        TaskNotification[] @relation("ActivityNotifications")
+  replies              TaskReply[]        @relation("TaskReplies")
 
   @@index([contact_id, due_date], name: "idx_activities_contact_due")
   @@index([created_by, created_at(sort: Desc)], name: "idx_activities_created_by")
   @@index([status, due_date], name: "idx_activities_status_due")
   @@index([assigned_to, due_date], name: "idx_activities_assigned_due")
   @@map("activities")
+}
+
+// Task Templates
+model TaskTemplate {
+  id              String            @id @default(uuid()) @db.Uuid
+  pipelineId      String?           @map("pipeline_id") @db.Uuid
+  userId          String            @db.Uuid
+  name            String
+  description     String?
+  type            ActivityType
+  priority        ActivityPriority?
+  durationMinutes Int?
+  reminderMinutes Int?
+  tags            String[]
+  createdAt       DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(6)
+
+  pipeline Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  user     User      @relation("UserTaskTemplates", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([pipelineId])
+  @@map("task_templates")
+}
+
+// Task Comments
+model TaskComment {
+  id         String   @id @default(uuid()) @db.Uuid
+  activityId String   @db.Uuid
+  userId     String   @db.Uuid
+  content    String
+  mentions   String[] // User IDs mentioned
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
+
+  activity Activity @relation("ActivityComments", fields: [activityId], references: [id], onDelete: Cascade)
+  user     User     @relation("UserTaskComments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@index([userId])
+  @@map("task_comments")
+}
+
+// Task Replies (for team member responses)
+model TaskReply {
+  id          String   @id @default(uuid()) @db.Uuid
+  activityId  String   @db.Uuid
+  userId      String   @db.Uuid
+  content     String
+  status      String? // "completed", "in_progress", "issue", "blocked", "on_hold"
+  attachments String[] // File URLs
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  activity Activity @relation("TaskReplies", fields: [activityId], references: [id], onDelete: Cascade)
+  user     User     @relation("UserTaskReplies", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@index([userId])
+  @@map("task_replies")
+}
+
+// Task Attachments
+model TaskAttachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  activityId String   @db.Uuid
+  fileName   String
+  fileUrl    String
+  fileSize   Int
+  mimeType   String
+  uploadedBy String   @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  activity Activity @relation("ActivityAttachments", fields: [activityId], references: [id], onDelete: Cascade)
+  user     User     @relation("UserTaskAttachments", fields: [uploadedBy], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@index([uploadedBy])
+  @@map("task_attachments")
+}
+
+// Task Time Entries
+model TaskTimeEntry {
+  id          String   @id @default(uuid()) @db.Uuid
+  activityId  String   @db.Uuid
+  userId      String   @db.Uuid
+  minutes     Int
+  description String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  activity Activity @relation("ActivityTimeEntries", fields: [activityId], references: [id], onDelete: Cascade)
+  user     User     @relation("UserTaskTimeEntries", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([activityId])
+  @@index([userId])
+  @@map("task_time_entries")
+}
+
+// Task Dependencies
+model TaskDependency {
+  id             String   @id @default(uuid()) @db.Uuid
+  dependsOnId    String   @db.Uuid
+  dependentId    String   @db.Uuid
+  dependencyType String // "blocks", "blocked_by", "related"
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  dependsOn Activity @relation("DependsOn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  dependent Activity @relation("DependentOn", fields: [dependentId], references: [id], onDelete: Cascade)
+
+  @@unique([dependsOnId, dependentId])
+  @@index([dependsOnId])
+  @@index([dependentId])
+  @@map("task_dependencies")
+}
+
+// Task Notifications
+model TaskNotification {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  activityId String   @map("activity_id") @db.Uuid
+  type       String // "due_soon", "overdue", "assigned", "mentioned"
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  user     User     @relation("UserTaskNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity @relation("ActivityNotifications", fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([activityId])
+  @@map("task_notifications")
+}
+
+// Task Workflows/Automation
+model TaskWorkflow {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String
+  trigger   String // "deal_stage_change", "contact_import", etc.
+  condition Json? // Conditional logic
+  action    Json // What to do
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  user User @relation("UserTaskWorkflows", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, enabled])
+  @@map("task_workflows")
 }
 
 model Deal {
@@ -238,6 +412,8 @@ model Deal {
   custom_fields       Json?     @default("{}")
   created_at          DateTime  @default(now()) @db.Timestamptz(6)
   updated_at          DateTime  @updatedAt @db.Timestamptz(6)
+  Pipeline            Pipeline? @relation(fields: [pipelineId], references: [id])
+  pipelineId          String?   @db.Uuid
 
   @@map("deals")
 }
@@ -305,7 +481,8 @@ model Document {
 model Conversation {
   id                     String                @id @default(uuid()) @db.Uuid
   contact_id             String                @db.Uuid
-  phone_number           String
+  phone_number           String // Prospect's phone number (E.164)
+  our_number             String?               @map("our_number") // Our Telnyx line (E.164)
   channel                ConversationChannel?  @default(sms)
   last_message_id        String?               @db.Uuid
   last_message_content   String?
@@ -331,6 +508,7 @@ model Conversation {
   @@index([last_message_at(sort: Desc)], name: "idx_conversations_last_message")
   @@index([unread_count], name: "idx_conversations_unread")
   @@index([assigned_to], name: "idx_conversations_assigned")
+  @@index([our_number], name: "idx_conversations_our_number")
   @@map("conversations")
 }
 
@@ -413,6 +591,30 @@ model PhoneNumber {
   @@map("phone_numbers")
 }
 
+model VapiApiKey {
+  id                 String    @id @default(uuid()) @db.Uuid
+  name               String    @map("name")
+  apiKey             String    @map("api_key") // Encrypted
+  isActive           Boolean   @default(true) @map("is_active")
+  isDefault          Boolean   @default(false) @map("is_default")
+  defaultAssistantId String?   @map("default_assistant_id")
+  defaultPhoneNumber String?   @map("default_phone_number")
+  maxCallDuration    Int?      @default(600) @map("max_call_duration") // in seconds
+  recordingEnabled   Boolean   @default(true) @map("recording_enabled")
+  transcriptEnabled  Boolean   @default(true) @map("transcript_enabled")
+  webhookUrl         String?   @map("webhook_url")
+  webhookSecret      String?   @map("webhook_secret") // Encrypted
+  metadata           Json?     @default("{}")
+  lastTestedAt       DateTime? @map("last_tested_at") @db.Timestamptz(6)
+  testStatus         String?   @map("test_status") // "success", "failed", "pending"
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive], name: "idx_vapi_api_keys_is_active")
+  @@index([isDefault], name: "idx_vapi_api_keys_is_default")
+  @@map("vapi_api_keys")
+}
+
 model VapiCall {
   id                             String             @id @default(uuid()) @db.Uuid
   vapi_call_id                   String?            @unique
@@ -438,6 +640,8 @@ model VapiCall {
   cost                           Decimal?           @db.Decimal(10, 4)
   cost_breakdown                 Json?              @default("{}")
   transcript                     String?
+  transcript_searchable          String?            @map("transcript_searchable") // For full-text search
+  keywords                       String[]           @default([])
   recording_url                  String?
   stereo_recording_url           String?
   mono_recording_url             String?
@@ -449,15 +653,36 @@ model VapiCall {
   transport_configuration_twilio Json?              @default("{}")
   transport_configuration_vonage Json?              @default("{}")
   transport_configuration_vapi   Json?              @default("{}")
-  created_at                     DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime           @updatedAt @db.Timestamptz(6)
 
+  // Call outcome & notes
+  callOutcome      String?   @map("call_outcome")
+  callNotes        String?   @map("call_notes")
+  dispositionSetAt DateTime? @map("disposition_set_at") @db.Timestamptz(6)
+  dispositionSetBy String?   @map("disposition_set_by") @db.Uuid
+
+  // Automation tracking
+  automationTriggered Boolean? @default(false) @map("automation_triggered")
+  automationActions   Json?    @default("[]") @map("automation_actions")
+
+  // Sentiment analysis
+  sentiment        String? // positive, neutral, negative
+  sentimentScore   Int?    @map("sentiment_score") // 0-100
+  sentimentSummary String? @map("sentiment_summary")
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([callOutcome], name: "idx_vapi_calls_outcome")
+  @@index([sentiment], name: "idx_vapi_calls_sentiment")
+  @@index([created_at(sort: Desc)], name: "idx_vapi_calls_created")
   @@map("vapi_calls")
 }
 
 model ImportHistory {
   id                String   @id @default(uuid()) @db.Uuid
   fileName          String?  @map("file_name")
+  fileUrl           String?  @map("file_url") // S3 or local path to uploaded file
+  tags              String[] @default([]) // Tags to apply to imported contacts
   importedAt        DateTime @default(now()) @map("imported_at")
   totalRecords      Int?     @map("total_records")
   importedCount     Int?     @map("imported_count")
@@ -476,6 +701,7 @@ model ContactProperty {
   city               String?
   state              String?
   county             String?  @map("county")
+  llcName            String?  @map("llc_name")
   propertyType       String?  @map("property_type")
   bedrooms           Int?
   totalBathrooms     Int?     @map("total_bathrooms")
@@ -490,51 +716,73 @@ model ContactProperty {
   @@map("contact_properties")
 }
 
+// Custom Field Definitions - Pipedrive-style dynamic fields
+model FieldDefinition {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String // Display name (e.g., "Customer Source")
+  fieldKey     String    @unique @map("field_key") // Unique key (e.g., "customer_source")
+  fieldType    FieldType @map("field_type") // text, number, date, select, multiselect, etc.
+  category     String? // Group fields (e.g., "Basic", "Property", "Financial")
+  options      Json? // For select/multiselect: ["Option 1", "Option 2"]
+  isRequired   Boolean   @default(false) @map("is_required")
+  isSystem     Boolean   @default(false) @map("is_system") // System fields can't be deleted
+  isActive     Boolean   @default(true) @map("is_active")
+  displayOrder Int?      @map("display_order")
+  placeholder  String?
+  helpText     String?   @map("help_text")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive, displayOrder])
+  @@map("field_definitions")
+}
+
 model TelnyxPhoneNumber {
-  id                String   @id @default(uuid()) @db.Uuid
-  phoneNumber       String   @unique @map("phone_number")
-  telnyxId          String?  @map("telnyx_id")
-  state             String?
-  city              String?
-  country           String   @default("US")
-  isActive          Boolean  @default(true) @map("is_active")
-  capabilities      String[] @default(["SMS", "VOICE"])
-  monthlyPrice      Decimal? @map("monthly_price") @db.Decimal(8, 2)
-  setupPrice        Decimal? @map("setup_price") @db.Decimal(8, 2)
-  purchasedAt       DateTime @default(now()) @map("purchased_at")
-  lastUsedAt        DateTime? @map("last_used_at")
-  totalSmsCount     Int      @default(0) @map("total_sms_count")
-  totalCallCount    Int      @default(0) @map("total_call_count")
-  totalCost         Decimal  @default(0) @map("total_cost") @db.Decimal(10, 4)
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  phoneNumber    String    @unique @map("phone_number")
+  friendlyName   String?   @map("friendly_name")
+  telnyxId       String?   @map("telnyx_id")
+  state          String?
+  city           String?
+  country        String    @default("US")
+  isActive       Boolean   @default(true) @map("is_active")
+  capabilities   String[]  @default(["SMS", "VOICE"])
+  monthlyPrice   Decimal?  @map("monthly_price") @db.Decimal(8, 2)
+  setupPrice     Decimal?  @map("setup_price") @db.Decimal(8, 2)
+  purchasedAt    DateTime  @default(now()) @map("purchased_at")
+  lastUsedAt     DateTime? @map("last_used_at")
+  totalSmsCount  Int       @default(0) @map("total_sms_count")
+  totalCallCount Int       @default(0) @map("total_call_count")
+  totalCost      Decimal   @default(0) @map("total_cost") @db.Decimal(10, 4)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@map("telnyx_phone_numbers")
 }
 
 model TelnyxMessage {
-  id                String            @id @default(uuid()) @db.Uuid
-  telnyxMessageId   String?           @unique @map("telnyx_message_id")
-  contactId         String?           @map("contact_id") @db.Uuid
-  fromNumber        String            @map("from_number")
-  toNumber          String            @map("to_number")
-  direction         MessageDirection
-  content           String
-  status            TelnyxMessageStatus @default(queued)
-  cost              Decimal?          @db.Decimal(10, 4)
-  segments          Int?              @default(1)
-  errorCode         String?           @map("error_code")
-  errorMessage      String?           @map("error_message")
-  deliveredAt       DateTime?         @map("delivered_at")
-  failedAt          DateTime?         @map("failed_at")
-  readAt            DateTime?         @map("read_at")
-  webhookData       Json?             @map("webhook_data")
-  blastId           String?           @map("blast_id") @db.Uuid
-  automationId     String?           @map("automation_id") @db.Uuid
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
-  contact           Contact?          @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  automation        TextAutomation?   @relation("AutomationMessages", fields: [automationId], references: [id], onDelete: SetNull)
+  id              String              @id @default(uuid()) @db.Uuid
+  telnyxMessageId String?             @unique @map("telnyx_message_id")
+  contactId       String?             @map("contact_id") @db.Uuid
+  fromNumber      String              @map("from_number")
+  toNumber        String              @map("to_number")
+  direction       MessageDirection
+  content         String
+  status          TelnyxMessageStatus @default(queued)
+  cost            Decimal?            @db.Decimal(10, 4)
+  segments        Int?                @default(1)
+  errorCode       String?             @map("error_code")
+  errorMessage    String?             @map("error_message")
+  deliveredAt     DateTime?           @map("delivered_at")
+  failedAt        DateTime?           @map("failed_at")
+  readAt          DateTime?           @map("read_at")
+  webhookData     Json?               @map("webhook_data")
+  blastId         String?             @map("blast_id") @db.Uuid
+  automationId    String?             @map("automation_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  contact         Contact?            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  automation      TextAutomation?     @relation("AutomationMessages", fields: [automationId], references: [id], onDelete: SetNull)
 
   @@index([contactId, createdAt(sort: Desc)], name: "idx_telnyx_messages_contact_created")
   @@index([fromNumber], name: "idx_telnyx_messages_from")
@@ -544,61 +792,85 @@ model TelnyxMessage {
 }
 
 model TelnyxCall {
-  id                String         @id @default(uuid()) @db.Uuid
-  telnyxCallId      String?        @unique @map("telnyx_call_id")
-  telnyxSessionId   String?        @unique @map("telnyx_session_id")
-  contactId         String?        @map("contact_id") @db.Uuid
-  initiatedBy       String?        @map("initiated_by") @db.Uuid
-  fromNumber        String         @map("from_number")
-  toNumber          String         @map("to_number")
-  direction         CallDirection
-  status            TelnyxCallStatus @default(initiated)
-  duration          Int?           @default(0) // in seconds
-  cost              Decimal?       @db.Decimal(10, 4)
-  recordingUrl      String?        @map("recording_url")
-  answeredAt        DateTime?      @map("answered_at")
-  endedAt           DateTime?      @map("ended_at")
-  hangupCause       String?        @map("hangup_cause")
-  webhookData       Json?          @map("webhook_data")
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
+  id              String           @id @default(uuid()) @db.Uuid
+  telnyxCallId    String?          @unique @map("telnyx_call_id")
+  telnyxSessionId String?          @unique @map("telnyx_session_id")
+  contactId       String?          @map("contact_id") @db.Uuid
+  initiatedBy     String?          @map("initiated_by") @db.Uuid
+  fromNumber      String           @map("from_number")
+  toNumber        String           @map("to_number")
+  direction       CallDirection
+  status          TelnyxCallStatus @default(initiated)
+  duration        Int?             @default(0) // in seconds
+  cost            Decimal?         @db.Decimal(10, 4)
+  recordingUrl    String?          @map("recording_url")
+  answeredAt      DateTime?        @map("answered_at")
+  endedAt         DateTime?        @map("ended_at")
+  hangupCause     String?          @map("hangup_cause")
+  webhookData     Json?            @map("webhook_data")
+
+  // Call outcome & notes
+  callOutcome      String?   @map("call_outcome") // interested, not_interested, callback, voicemail, wrong_number, no_answer, busy
+  callNotes        String?   @map("call_notes")
+  dispositionSetAt DateTime? @map("disposition_set_at") @db.Timestamptz(6)
+  dispositionSetBy String?   @map("disposition_set_by") @db.Uuid
+
+  // Automation tracking
+  automationTriggered Boolean? @default(false) @map("automation_triggered")
+  automationActions   Json?    @default("[]") @map("automation_actions")
+
+  // Sentiment analysis
+  sentiment        String? // positive, neutral, negative
+  sentimentScore   Int?    @map("sentiment_score") // 0-100
+  sentimentSummary String? @map("sentiment_summary")
+
+  // Transcript & search
+  transcript           String?
+  transcriptSearchable String?  @map("transcript_searchable") // For full-text search
+  keywords             String[] @default([])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  initiatedByUser   User?          @relation("UserCalls", fields: [initiatedBy], references: [id], onDelete: SetNull)
+  initiatedByUser User? @relation("UserCalls", fields: [initiatedBy], references: [id], onDelete: SetNull)
 
   @@index([telnyxSessionId])
   @@index([contactId, createdAt(sort: Desc)], name: "idx_telnyx_calls_contact_created")
   @@index([fromNumber], name: "idx_telnyx_calls_from")
   @@index([toNumber], name: "idx_telnyx_calls_to")
   @@index([direction, createdAt(sort: Desc)], name: "idx_telnyx_calls_direction_created")
+  @@index([callOutcome], name: "idx_telnyx_calls_outcome")
+  @@index([sentiment], name: "idx_telnyx_calls_sentiment")
+  @@index([createdAt(sort: Desc)], name: "idx_telnyx_calls_created")
   @@map("telnyx_calls")
 }
 
 model TelnyxBilling {
-  id                String   @id @default(uuid()) @db.Uuid
-  phoneNumber       String   @map("phone_number")
-  recordType        TelnyxBillingType @map("record_type")
-  recordId          String   @map("record_id") // message_id or call_id
-  cost              Decimal  @db.Decimal(10, 4)
-  currency          String   @default("USD")
-  billingDate       DateTime @map("billing_date")
-  description       String?
-  metadata          Json?
-  createdAt         DateTime @default(now()) @map("created_at")
+  id          String            @id @default(uuid()) @db.Uuid
+  phoneNumber String            @map("phone_number")
+  recordType  TelnyxBillingType @map("record_type")
+  recordId    String            @map("record_id") // message_id or call_id
+  cost        Decimal           @db.Decimal(10, 4)
+  currency    String            @default("USD")
+  billingDate DateTime          @map("billing_date")
+  description String?
+  metadata    Json?
+  createdAt   DateTime          @default(now()) @map("created_at")
 
   @@map("telnyx_billing")
 }
 
 model TelnyxCdrReconcileJob {
-  id              String             @id @default(uuid()) @db.Uuid
-  telnyxCallId    String?            @map("telnyx_call_id")
-  telnyxSessionId String?            @map("telnyx_session_id")
-  status          ReconcileStatus    @default(pending)
-  attempts        Int                @default(0)
-  nextRunAt       DateTime           @db.Timestamptz(6)
+  id              String          @id @default(uuid()) @db.Uuid
+  telnyxCallId    String?         @map("telnyx_call_id")
+  telnyxSessionId String?         @map("telnyx_session_id")
+  status          ReconcileStatus @default(pending)
+  attempts        Int             @default(0)
+  nextRunAt       DateTime        @db.Timestamptz(6)
   lastError       String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@index([status, nextRunAt])
   @@index([telnyxSessionId])
@@ -614,32 +886,35 @@ enum ReconcileStatus {
 }
 
 model TextBlast {
-  id                String            @id @default(uuid()) @db.Uuid
-  name              String?
-  message           String
-  totalContacts     Int               @map("total_contacts")
-  sentCount         Int               @default(0) @map("sent_count")
-  deliveredCount    Int               @default(0) @map("delivered_count")
-  failedCount       Int               @default(0) @map("failed_count")
-  status            TextBlastStatus   @default(pending)
-  senderNumbers     Json              @map("sender_numbers") // Array of phone numbers
-  delaySeconds      Int               @default(1) @map("delay_seconds")
-  contactFilters    Json?             @map("contact_filters") // Store filter criteria
-  selectedContacts  Json?             @map("selected_contacts") // Store contact IDs
-  currentIndex      Int               @default(0) @map("current_index")
-  isPaused          Boolean           @default(false) @map("is_paused")
-  startedAt         DateTime?         @map("started_at")
-  completedAt       DateTime?         @map("completed_at")
-  pausedAt          DateTime?         @map("paused_at")
-  resumedAt         DateTime?         @map("resumed_at")
-  createdAt         DateTime          @default(now()) @map("created_at")
-  updatedAt         DateTime          @updatedAt @map("updated_at")
+  id               String          @id @default(uuid()) @db.Uuid
+  name             String?
+  message          String
+  totalContacts    Int             @map("total_contacts")
+  sentCount        Int             @default(0) @map("sent_count")
+  deliveredCount   Int             @default(0) @map("delivered_count")
+  failedCount      Int             @default(0) @map("failed_count")
+  status           TextBlastStatus @default(pending)
+  senderNumbers    Json            @map("sender_numbers") // Array of phone numbers
+  delaySeconds     Int             @default(1) @map("delay_seconds")
+  contactFilters   Json?           @map("contact_filters") // Store filter criteria
+  selectedContacts Json?           @map("selected_contacts") // Store contact IDs
+  currentIndex     Int             @default(0) @map("current_index")
+  isPaused         Boolean         @default(false) @map("is_paused")
+  startedAt        DateTime?       @map("started_at")
+  completedAt      DateTime?       @map("completed_at")
+  pausedAt         DateTime?       @map("paused_at")
+  resumedAt        DateTime?       @map("resumed_at")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  Pipeline         Pipeline?       @relation(fields: [pipelineId], references: [id])
+  pipelineId       String?         @db.Uuid
 
   @@map("text_blasts")
 }
 
 model MessageTemplate {
   id          String   @id @default(uuid()) @db.Uuid
+  pipelineId  String?  @map("pipeline_id") @db.Uuid
   name        String
   content     String   @db.Text
   variables   Json     @default("[]") // Array of variable names like ["firstName", "lastName"]
@@ -649,40 +924,45 @@ model MessageTemplate {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  pipeline Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+
+  @@index([pipelineId])
   @@map("message_templates")
 }
 
 model TextAutomation {
-  id                String                @id @default(uuid()) @db.Uuid
-  name              String?
-  message           String                @db.Text
-  totalContacts     Int                   @map("total_contacts")
-  currentCycle      Int                   @default(1) @map("current_cycle")
-  totalCycles       Int?                  @map("total_cycles")
-  isIndefinite      Boolean               @default(true) @map("is_indefinite")
-  status            TextAutomationStatus  @default(draft)
-  messageDelay      Int                   @default(1) @map("message_delay") // seconds
-  loopDelay         Int                   @default(1) @map("loop_delay")
-  loopDelayUnit     TextAutomationDelayUnit @map("loop_delay_unit") @default(weeks)
-  senderNumbers     Json                  @map("sender_numbers") // Array of phone numbers
-  selectedContacts  Json                  @map("selected_contacts") // Array of contact IDs
-  contactFilters    Json?                 @map("contact_filters") // Store filter criteria
-  currentIndex      Int                   @default(0) @map("current_index")
-  sentCount         Int                   @default(0) @map("sent_count")
-  deliveredCount    Int                   @default(0) @map("delivered_count")
-  failedCount       Int                   @default(0) @map("failed_count")
-  nextRunAt         DateTime?             @map("next_run_at")
-  startedAt         DateTime?             @map("started_at")
-  lastRunAt         DateTime?             @map("last_run_at")
-  pausedAt          DateTime?             @map("paused_at")
-  completedAt       DateTime?             @map("completed_at")
-  createdBy         String?               @map("created_by") @db.Uuid
-  createdAt         DateTime              @default(now()) @map("created_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
+  id               String                  @id @default(uuid()) @db.Uuid
+  name             String?
+  message          String                  @db.Text
+  totalContacts    Int                     @map("total_contacts")
+  currentCycle     Int                     @default(1) @map("current_cycle")
+  totalCycles      Int?                    @map("total_cycles")
+  isIndefinite     Boolean                 @default(true) @map("is_indefinite")
+  status           TextAutomationStatus    @default(draft)
+  messageDelay     Int                     @default(1) @map("message_delay") // seconds
+  loopDelay        Int                     @default(1) @map("loop_delay")
+  loopDelayUnit    TextAutomationDelayUnit @default(weeks) @map("loop_delay_unit")
+  senderNumbers    Json                    @map("sender_numbers") // Array of phone numbers
+  selectedContacts Json                    @map("selected_contacts") // Array of contact IDs
+  contactFilters   Json?                   @map("contact_filters") // Store filter criteria
+  currentIndex     Int                     @default(0) @map("current_index")
+  sentCount        Int                     @default(0) @map("sent_count")
+  deliveredCount   Int                     @default(0) @map("delivered_count")
+  failedCount      Int                     @default(0) @map("failed_count")
+  nextRunAt        DateTime?               @map("next_run_at")
+  startedAt        DateTime?               @map("started_at")
+  lastRunAt        DateTime?               @map("last_run_at")
+  pausedAt         DateTime?               @map("paused_at")
+  completedAt      DateTime?               @map("completed_at")
+  createdBy        String?                 @map("created_by") @db.Uuid
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
 
   // Relations
-  messages          TelnyxMessage[]       @relation("AutomationMessages")
-  createdByUser     User?                 @relation("UserAutomations", fields: [createdBy], references: [id], onDelete: SetNull)
+  messages      TelnyxMessage[] @relation("AutomationMessages")
+  createdByUser User?           @relation("UserAutomations", fields: [createdBy], references: [id], onDelete: SetNull)
+  Pipeline      Pipeline?       @relation(fields: [pipelineId], references: [id])
+  pipelineId    String?         @db.Uuid
 
   @@map("text_automations")
 }
@@ -949,257 +1229,277 @@ enum EmailMessageStatus {
 }
 
 model EmailAccount {
-  id                String              @id @default(uuid()) @db.Uuid
-  emailAddress      String              @unique @map("email_address")
-  displayName       String              @map("display_name")
+  id           String @id @default(uuid()) @db.Uuid
+  emailAddress String @unique @map("email_address")
+  displayName  String @map("display_name")
 
   // SMTP Settings (Outgoing)
-  smtpHost          String              @map("smtp_host")
-  smtpPort          Int                 @map("smtp_port")
-  smtpEncryption    EmailEncryptionType @map("smtp_encryption")
-  smtpUsername      String              @map("smtp_username")
-  smtpPassword      String              @map("smtp_password") // Encrypted
+  smtpHost       String              @map("smtp_host")
+  smtpPort       Int                 @map("smtp_port")
+  smtpEncryption EmailEncryptionType @map("smtp_encryption")
+  smtpUsername   String              @map("smtp_username")
+  smtpPassword   String              @map("smtp_password") // Encrypted
 
   // IMAP Settings (Incoming)
-  imapHost          String?             @map("imap_host")
-  imapPort          Int?                @map("imap_port")
-  imapEncryption    EmailEncryptionType? @map("imap_encryption")
-  imapUsername      String?             @map("imap_username")
-  imapPassword      String?             @map("imap_password") // Encrypted
+  imapHost       String?              @map("imap_host")
+  imapPort       Int?                 @map("imap_port")
+  imapEncryption EmailEncryptionType? @map("imap_encryption")
+  imapUsername   String?              @map("imap_username")
+  imapPassword   String?              @map("imap_password") // Encrypted
 
   // Additional Settings
-  signature         String?
-  isDefault         Boolean             @default(false) @map("is_default")
-  status            EmailAccountStatus  @default(active)
-  lastSyncAt        DateTime?           @map("last_sync_at")
+  signature  String?
+  isDefault  Boolean            @default(false) @map("is_default")
+  status     EmailAccountStatus @default(active)
+  lastSyncAt DateTime?          @map("last_sync_at")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  sentEmails        EmailMessage[]      @relation("SentEmails")
-  emailBlasts       EmailBlast[]
-  assignedUsers     User[]
+  sentEmails    EmailMessage[] @relation("SentEmails")
+  emailBlasts   EmailBlast[]
+  assignedUsers User[]
 
   @@map("email_accounts")
 }
 
 model EmailMessage {
-  id                String              @id @default(uuid()) @db.Uuid
-  messageId         String?             @unique @map("message_id") // Email Message-ID header
-  contactId         String?             @map("contact_id") @db.Uuid
-  emailAccountId    String              @map("email_account_id") @db.Uuid
-  sentBy            String?             @map("sent_by") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  messageId      String? @unique @map("message_id") // Email Message-ID header
+  contactId      String? @map("contact_id") @db.Uuid
+  emailAccountId String  @map("email_account_id") @db.Uuid
+  sentBy         String? @map("sent_by") @db.Uuid
 
   // Email Details
-  fromEmail         String              @map("from_email")
-  fromName          String?             @map("from_name")
-  toEmails          String[]            @map("to_emails")
-  ccEmails          String[]            @default([]) @map("cc_emails")
-  bccEmails         String[]            @default([]) @map("bcc_emails")
+  fromEmail String   @map("from_email")
+  fromName  String?  @map("from_name")
+  toEmails  String[] @map("to_emails")
+  ccEmails  String[] @default([]) @map("cc_emails")
+  bccEmails String[] @default([]) @map("bcc_emails")
 
-  subject           String
-  content           String              // HTML content
-  textContent       String?             @map("text_content") // Plain text version
+  subject     String
+  content     String // HTML content
+  textContent String? @map("text_content") // Plain text version
 
   // Message Properties
-  direction         MessageDirection
-  status            EmailMessageStatus  @default(draft)
-  priority          String?             @default("normal")
+  direction MessageDirection
+  status    EmailMessageStatus @default(draft)
+  priority  String?            @default("normal")
 
   // Tracking
-  sentAt            DateTime?           @map("sent_at")
-  deliveredAt       DateTime?           @map("delivered_at")
-  openedAt          DateTime?           @map("opened_at")
-  clickedAt         DateTime?           @map("clicked_at")
+  sentAt      DateTime? @map("sent_at")
+  deliveredAt DateTime? @map("delivered_at")
+  openedAt    DateTime? @map("opened_at")
+  clickedAt   DateTime? @map("clicked_at")
 
   // Blast Association
-  blastId           String?             @map("blast_id") @db.Uuid
+  blastId String? @map("blast_id") @db.Uuid
 
   // Email Threading
-  threadId          String?             @map("thread_id") // Thread identifier for grouping related emails
-  inReplyTo         String?             @map("in_reply_to") // Message-ID of the email this is replying to
-  references        String[]            @default([]) // Array of Message-IDs in the thread
+  threadId   String?  @map("thread_id") // Thread identifier for grouping related emails
+  inReplyTo  String?  @map("in_reply_to") // Message-ID of the email this is replying to
+  references String[] @default([]) // Array of Message-IDs in the thread
 
   // Metadata
-  headers           Json?               // Email headers
-  attachments       Json?               // Attachment info
+  headers     Json? // Email headers
+  attachments Json? // Attachment info
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  contact           Contact?            @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  emailAccount      EmailAccount        @relation("SentEmails", fields: [emailAccountId], references: [id], onDelete: Cascade)
-  blast             EmailBlast?         @relation(fields: [blastId], references: [id], onDelete: SetNull)
-  sentByUser        User?               @relation("UserEmails", fields: [sentBy], references: [id], onDelete: SetNull)
+  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  emailAccount EmailAccount @relation("SentEmails", fields: [emailAccountId], references: [id], onDelete: Cascade)
+  blast        EmailBlast?  @relation(fields: [blastId], references: [id], onDelete: SetNull)
+  sentByUser   User?        @relation("UserEmails", fields: [sentBy], references: [id], onDelete: SetNull)
 
   @@map("email_messages")
 }
 
 model EmailConversation {
-  id                String              @id @default(uuid()) @db.Uuid
-  contactId         String              @map("contact_id") @db.Uuid
-  emailAddress      String              @map("email_address")
+  id           String @id @default(uuid()) @db.Uuid
+  contactId    String @map("contact_id") @db.Uuid
+  emailAddress String @map("email_address")
 
-  lastMessageId     String?             @map("last_message_id") @db.Uuid
-  lastMessageContent String?            @map("last_message_content")
-  lastMessageAt     DateTime?           @map("last_message_at")
+  lastMessageId        String?           @map("last_message_id") @db.Uuid
+  lastMessageContent   String?           @map("last_message_content")
+  lastMessageAt        DateTime?         @map("last_message_at")
   lastMessageDirection MessageDirection? @map("last_message_direction")
 
-  messageCount      Int                 @default(0) @map("message_count")
-  unreadCount       Int                 @default(0) @map("unread_count")
+  messageCount Int @default(0) @map("message_count")
+  unreadCount  Int @default(0) @map("unread_count")
 
-  isArchived        Boolean             @default(false) @map("is_archived")
-  isStarred         Boolean             @default(false) @map("is_starred")
-  deletedAt         DateTime?           @map("deleted_at")
+  isArchived Boolean   @default(false) @map("is_archived")
+  isStarred  Boolean   @default(false) @map("is_starred")
+  deletedAt  DateTime? @map("deleted_at")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  contact           Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([contactId, emailAddress])
   @@map("email_conversations")
 }
 
 model EmailTemplate {
-  id                String              @id @default(uuid()) @db.Uuid
-  name              String
-  subject           String
-  content           String              // HTML content
-  textContent       String?             @map("text_content") // Plain text version
-  category          String?             @default("general")
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  subject     String
+  content     String // HTML content
+  textContent String? @map("text_content") // Plain text version
+  category    String? @default("general")
 
-  isSystem          Boolean             @default(false) @map("is_system")
-  isActive          Boolean             @default(true) @map("is_active")
+  isSystem Boolean @default(false) @map("is_system")
+  isActive Boolean @default(true) @map("is_active")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  Pipeline   Pipeline? @relation(fields: [pipelineId], references: [id])
+  pipelineId String?   @db.Uuid
 
   @@map("email_templates")
 }
 
 model EmailBlast {
-  id                String              @id @default(uuid()) @db.Uuid
-  name              String?
-  subject           String
-  content           String              // HTML content
-  textContent       String?             @map("text_content")
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String?
+  subject     String
+  content     String // HTML content
+  textContent String? @map("text_content")
 
-  emailAccountId    String              @map("email_account_id") @db.Uuid
+  emailAccountId String @map("email_account_id") @db.Uuid
 
   // Recipients
-  contactIds        String[]            @map("contact_ids") @db.Uuid
-  ccEmails          String[]            @default([]) @map("cc_emails")
-  bccEmails         String[]            @default([]) @map("bcc_emails")
+  contactIds String[] @map("contact_ids") @db.Uuid
+  ccEmails   String[] @default([]) @map("cc_emails")
+  bccEmails  String[] @default([]) @map("bcc_emails")
 
   // Blast Settings
-  delayBetweenEmails Int               @default(0) @map("delay_between_emails") // seconds
+  delayBetweenEmails Int @default(0) @map("delay_between_emails") // seconds
 
   // Status
-  status            TextBlastStatus     @default(draft)
-  totalContacts     Int                 @default(0) @map("total_contacts")
-  sentCount         Int                 @default(0) @map("sent_count")
-  failedCount       Int                 @default(0) @map("failed_count")
+  status        TextBlastStatus @default(draft)
+  totalContacts Int             @default(0) @map("total_contacts")
+  sentCount     Int             @default(0) @map("sent_count")
+  failedCount   Int             @default(0) @map("failed_count")
 
-  startedAt         DateTime?           @map("started_at")
-  completedAt       DateTime?           @map("completed_at")
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  emailAccount      EmailAccount        @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
-  messages          EmailMessage[]
+  emailAccount EmailAccount   @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  messages     EmailMessage[]
 
   @@map("email_blasts")
 }
 
 model User {
-  id                String              @id @default(uuid()) @db.Uuid
-  email             String              @unique
-  firstName         String              @map("first_name")
-  lastName          String              @map("last_name")
-  password          String              // Hashed password
-  role              UserRole            @default(TEAM_USER)
-  status            UserStatus          @default(active)
+  id        String     @id @default(uuid()) @db.Uuid
+  email     String     @unique
+  firstName String     @map("first_name")
+  lastName  String     @map("last_name")
+  password  String // Hashed password
+  role      UserRole   @default(TEAM_USER)
+  status    UserStatus @default(active)
 
   // Admin relationship
-  adminId           String?             @map("admin_id") @db.Uuid
-  admin             User?               @relation("AdminTeam", fields: [adminId], references: [id], onDelete: Cascade)
-  teamUsers         User[]              @relation("AdminTeam")
+  adminId   String? @map("admin_id") @db.Uuid
+  admin     User?   @relation("AdminTeam", fields: [adminId], references: [id], onDelete: Cascade)
+  teamUsers User[]  @relation("AdminTeam")
 
   // Assigned resources for team users
-  assignedPhoneNumber String?           @map("assigned_phone_number")
-  assignedEmailId   String?             @map("assigned_email_id") @db.Uuid
-  assignedEmail     EmailAccount?       @relation(fields: [assignedEmailId], references: [id], onDelete: SetNull)
+  assignedPhoneNumber String?       @map("assigned_phone_number")
+  assignedEmailId     String?       @map("assigned_email_id") @db.Uuid
+  assignedEmail       EmailAccount? @relation(fields: [assignedEmailId], references: [id], onDelete: SetNull)
 
   // Profile settings
-  avatar            String?
-  timezone          String?             @default("UTC")
-  lastLoginAt       DateTime?           @map("last_login_at")
+  avatar      String?
+  timezone    String?   @default("UTC")
+  lastLoginAt DateTime? @map("last_login_at")
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  sessions          Session[]
-  assignedContacts  ContactAssignment[]
-  assignedContactsBy ContactAssignment[] @relation("AssignedBy")
-  activities        Activity[]          @relation("UserActivities")
-  sentMessages      Message[]           @relation("UserMessages")
-  sentEmails        EmailMessage[]      @relation("UserEmails")
-  calls             TelnyxCall[]        @relation("UserCalls")
-  accounts          Account[]           @relation("UserAccounts")
-  automations       TextAutomation[]    @relation("UserAutomations")
-  filterPresets     FilterPreset[]      @relation("UserFilterPresets")
+  sessions            Session[]
+  assignedContacts    ContactAssignment[]
+  assignedContactsBy  ContactAssignment[]  @relation("AssignedBy")
+  activities          Activity[]           @relation("UserActivities")
+  assignedTasks       Activity[]           @relation("AssignedTasks")
+  sentMessages        Message[]            @relation("UserMessages")
+  sentEmails          EmailMessage[]       @relation("UserEmails")
+  calls               TelnyxCall[]         @relation("UserCalls")
+  accounts            Account[]            @relation("UserAccounts")
+  automations         TextAutomation[]     @relation("UserAutomations")
+  filterPresets       FilterPreset[]       @relation("UserFilterPresets")
   powerDialerSessions PowerDialerSession[] @relation("PowerDialerSessions")
+  powerDialerLists    PowerDialerList[]    @relation("PowerDialerLists")
+  taskReplies         TaskReply[]          @relation("UserTaskReplies")
+
+  // Task-related relations
+  taskTemplates     TaskTemplate[]     @relation("UserTaskTemplates")
+  taskComments      TaskComment[]      @relation("UserTaskComments")
+  taskAttachments   TaskAttachment[]   @relation("UserTaskAttachments")
+  taskTimeEntries   TaskTimeEntry[]    @relation("UserTaskTimeEntries")
+  taskNotifications TaskNotification[] @relation("UserTaskNotifications")
+  taskWorkflows     TaskWorkflow[]     @relation("UserTaskWorkflows")
+  settings          UserSettings?      @relation("UserSettings")
+
+  // Pipeline-related relations
+  pipelineSettings UserPipelineSettings[] @relation("UserPipelineSettings")
+  activePipeline   UserActivePipeline?    @relation("UserActivePipeline")
 
   @@map("users")
 }
 
 model FilterPreset {
-  id          String   @id @default(uuid()) @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
   name        String
   description String?
-  filters     Json     // Store filter configuration as JSON
-  userId      String   @map("user_id") @db.Uuid
-  user        User     @relation("UserFilterPresets", fields: [userId], references: [id], onDelete: Cascade)
-  isDefault   Boolean  @default(false) @map("is_default")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  filters     Json // Store filter configuration as JSON
+  userId      String    @map("user_id") @db.Uuid
+  user        User      @relation("UserFilterPresets", fields: [userId], references: [id], onDelete: Cascade)
+  isDefault   Boolean   @default(false) @map("is_default")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  Pipeline    Pipeline? @relation(fields: [pipelineId], references: [id])
+  pipelineId  String?   @db.Uuid
 
-  @@map("filter_presets")
   @@index([userId])
+  @@map("filter_presets")
 }
 
 model Session {
-  id                String              @id @default(uuid()) @db.Uuid
-  userId            String              @map("user_id") @db.Uuid
-  sessionToken      String              @unique @map("session_token")
-  expires           DateTime
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  sessionToken String   @unique @map("session_token")
+  expires      DateTime
 
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
 
 model ContactAssignment {
-  id                String              @id @default(uuid()) @db.Uuid
-  userId            String              @map("user_id") @db.Uuid
-  contactId         String              @map("contact_id") @db.Uuid
-  assignedBy        String              @map("assigned_by") @db.Uuid
-  assignedAt        DateTime            @default(now()) @map("assigned_at")
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  contactId  String   @map("contact_id") @db.Uuid
+  assignedBy String   @map("assigned_by") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at")
 
   // Relations
-  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  contact           Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  assignedByUser    User                @relation("AssignedBy", fields: [assignedBy], references: [id], onDelete: Cascade)
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact        Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignedByUser User    @relation("AssignedBy", fields: [assignedBy], references: [id], onDelete: Cascade)
 
   @@unique([userId, contactId])
   @@index([userId], name: "idx_contact_assignments_user")
@@ -1209,29 +1509,29 @@ model ContactAssignment {
 }
 
 model Account {
-  id                String              @id @default(uuid()) @db.Uuid
-  userId            String              @map("user_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @map("user_id") @db.Uuid
   type              String
   provider          String
-  providerAccountId String              @map("provider_account_id")
-  refresh_token     String?             @db.Text
-  access_token      String?             @db.Text
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?             @db.Text
+  id_token          String? @db.Text
   session_state     String?
 
-  user              User                @relation("UserAccounts", fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation("UserAccounts", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
   @@map("accounts")
 }
 
 model VerificationToken {
-  identifier        String
-  token             String              @unique
-  expires           DateTime
+  identifier String
+  token      String   @unique
+  expires    DateTime
 
   @@unique([identifier, token])
   @@map("verification_tokens")
@@ -1239,34 +1539,38 @@ model VerificationToken {
 
 // Power Dialer Models
 model PowerDialerSession {
-  id                String              @id @default(uuid()) @db.Uuid
-  userId            String              @map("user_id") @db.Uuid
-  user              User                @relation("PowerDialerSessions", fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation("PowerDialerSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Link to named list (optional - session can be standalone or from a list)
+  listId String?          @map("list_id") @db.Uuid
+  list   PowerDialerList? @relation(fields: [listId], references: [id], onDelete: SetNull)
 
   // Session configuration
-  concurrentLines   Int                 @default(1) @map("concurrent_lines")
-  selectedNumbers   String[]            @map("selected_numbers") // Array of phone numbers to use for outbound
+  concurrentLines Int      @default(1) @map("concurrent_lines")
+  selectedNumbers String[] @map("selected_numbers") // Array of phone numbers to use for outbound
 
   // Session status
-  status            PowerDialerStatus   @default(IDLE)
+  status PowerDialerStatus @default(IDLE)
 
   // Statistics
-  totalCalls        Int                 @default(0) @map("total_calls")
-  totalContacted    Int                 @default(0) @map("total_contacted")
-  totalAnswered     Int                 @default(0) @map("total_answered")
-  totalNoAnswer     Int                 @default(0) @map("total_no_answer")
-  totalTalkTime     Int                 @default(0) @map("total_talk_time") // in seconds
+  totalCalls     Int @default(0) @map("total_calls")
+  totalContacted Int @default(0) @map("total_contacted")
+  totalAnswered  Int @default(0) @map("total_answered")
+  totalNoAnswer  Int @default(0) @map("total_no_answer")
+  totalTalkTime  Int @default(0) @map("total_talk_time") // in seconds
 
   // Timestamps
-  startedAt         DateTime?           @map("started_at")
-  pausedAt          DateTime?           @map("paused_at")
-  completedAt       DateTime?           @map("completed_at")
-  createdAt         DateTime            @default(now()) @map("created_at")
-  updatedAt         DateTime            @updatedAt @map("updated_at")
+  startedAt   DateTime? @map("started_at")
+  pausedAt    DateTime? @map("paused_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  queueItems        PowerDialerQueue[]
-  calls             PowerDialerCall[]
+  queueItems PowerDialerQueue[]
+  calls      PowerDialerCall[]
 
   @@index([userId, status])
   @@index([createdAt(sort: Desc)])
@@ -1274,32 +1578,33 @@ model PowerDialerSession {
 }
 
 model PowerDialerQueue {
-  id                String              @id @default(uuid()) @db.Uuid
-  sessionId         String              @map("session_id") @db.Uuid
-  session           PowerDialerSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id        String             @id @default(uuid()) @db.Uuid
+  sessionId String             @map("session_id") @db.Uuid
+  session   PowerDialerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  contactId         String              @map("contact_id") @db.Uuid
-  contact           Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String  @map("contact_id") @db.Uuid
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   // Queue status
-  status            QueueItemStatus     @default(PENDING)
-  priority          Int                 @default(0) // Higher priority = called first
+  status   QueueItemStatus @default(PENDING)
+  priority Int             @default(0) // Higher priority = called first
 
   // Retry tracking
-  attemptCount      Int                 @default(0) @map("attempt_count")
-  maxAttempts       Int                 @default(3) @map("max_attempts")
-  lastAttemptAt     DateTime?           @map("last_attempt_at")
+  attemptCount  Int       @default(0) @map("attempt_count")
+  maxAttempts   Int       @default(3) @map("max_attempts")
+  lastAttemptAt DateTime? @map("last_attempt_at")
 
   // Result tracking
-  wasContacted      Boolean             @default(false) @map("was_contacted")
-  wasAnswered       Boolean             @default(false) @map("was_answered")
+  wasContacted Boolean @default(false) @map("was_contacted")
+  wasAnswered  Boolean @default(false) @map("was_answered")
+  callOutcome  String? @map("call_outcome") // NO_ANSWER, BUSY, ANSWERED, FAILED, etc.
 
   // Timestamps
-  addedAt           DateTime            @default(now()) @map("added_at")
-  completedAt       DateTime?           @map("completed_at")
+  addedAt     DateTime  @default(now()) @map("added_at")
+  completedAt DateTime? @map("completed_at")
 
   // Relations
-  calls             PowerDialerCall[]
+  calls PowerDialerCall[]
 
   @@index([sessionId, status])
   @@index([sessionId, priority(sort: Desc)])
@@ -1307,40 +1612,52 @@ model PowerDialerQueue {
 }
 
 model PowerDialerCall {
-  id                String              @id @default(uuid()) @db.Uuid
-  sessionId         String              @map("session_id") @db.Uuid
-  session           PowerDialerSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id        String             @id @default(uuid()) @db.Uuid
+  sessionId String             @map("session_id") @db.Uuid
+  session   PowerDialerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  queueItemId       String              @map("queue_item_id") @db.Uuid
-  queueItem         PowerDialerQueue    @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+  queueItemId String           @map("queue_item_id") @db.Uuid
+  queueItem   PowerDialerQueue @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
 
-  contactId         String              @map("contact_id") @db.Uuid
-  contact           Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contactId String  @map("contact_id") @db.Uuid
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   // Call details
-  fromNumber        String              @map("from_number")
-  toNumber          String              @map("to_number")
+  fromNumber String @map("from_number")
+  toNumber   String @map("to_number")
 
   // Call tracking
-  webrtcSessionId   String?             @map("webrtc_session_id")
-  telnyxCallId      String?             @map("telnyx_call_id")
+  webrtcSessionId String? @map("webrtc_session_id")
+  telnyxCallId    String? @map("telnyx_call_id")
 
   // Call status
-  status            PowerDialerCallStatus @default(INITIATED)
+  status PowerDialerCallStatus @default(INITIATED)
 
   // Call outcome
-  answered          Boolean             @default(false)
-  droppedBusy       Boolean             @default(false) @map("dropped_busy") // Dropped because admin was busy
-  duration          Int?                // in seconds
+  answered    Boolean @default(false)
+  droppedBusy Boolean @default(false) @map("dropped_busy") // Dropped because admin was busy
+  duration    Int? // in seconds
+
+  // Call outcome & notes
+  callOutcome      String?   @map("call_outcome")
+  callNotes        String?   @map("call_notes")
+  dispositionSetAt DateTime? @map("disposition_set_at") @db.Timestamptz(6)
+
+  // Sentiment analysis
+  sentiment        String?
+  sentimentScore   Int?    @map("sentiment_score")
+  sentimentSummary String? @map("sentiment_summary")
 
   // Timestamps
-  initiatedAt       DateTime            @default(now()) @map("initiated_at")
-  answeredAt        DateTime?           @map("answered_at")
-  endedAt           DateTime?           @map("ended_at")
+  initiatedAt DateTime  @default(now()) @map("initiated_at")
+  answeredAt  DateTime? @map("answered_at")
+  endedAt     DateTime? @map("ended_at")
 
   @@index([sessionId, status])
   @@index([queueItemId])
   @@index([contactId])
+  @@index([callOutcome], name: "idx_power_dialer_calls_outcome")
+  @@index([sentiment], name: "idx_power_dialer_calls_sentiment")
   @@map("power_dialer_calls")
 }
 
@@ -1370,11 +1687,180 @@ enum PowerDialerCallStatus {
   COMPLETED
 }
 
+enum PowerDialerListStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum PowerDialerListContactStatus {
+  PENDING
+  CALLED
+  ANSWERED
+  NO_ANSWER
+  FAILED
+}
+
+// Power Dialer Named Lists - Persistent call lists that can span multiple sessions
+model PowerDialerList {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation("PowerDialerLists", fields: [userId], references: [id], onDelete: Cascade)
+
+  // List metadata
+  name        String // User-defined name (e.g., "Hot Leads - January")
+  description String? // Optional description
+
+  // List status
+  status PowerDialerListStatus @default(ACTIVE)
+
+  // Progress tracking
+  totalContacts    Int @default(0) @map("total_contacts")
+  contactsCalled   Int @default(0) @map("contacts_called")
+  contactsAnswered Int @default(0) @map("contacts_answered")
+  contactsNoAnswer Int @default(0) @map("contacts_no_answer")
+  totalTalkTime    Int @default(0) @map("total_talk_time") // in seconds
+
+  // Timestamps
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  lastWorkedOn DateTime? @map("last_worked_on") // Last time dialing was done on this list
+  completedAt  DateTime? @map("completed_at") // When list was marked complete
+
+  // Relations
+  contacts   PowerDialerListContact[]
+  sessions   PowerDialerSession[]
+  Pipeline   Pipeline?                @relation(fields: [pipelineId], references: [id])
+  pipelineId String?                  @db.Uuid
+
+  @@index([userId, status])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, lastWorkedOn(sort: Desc)])
+  @@map("power_dialer_lists")
+}
+
+// Many-to-many relationship between PowerDialerList and Contact
+model PowerDialerListContact {
+  id     String          @id @default(uuid()) @db.Uuid
+  listId String          @map("list_id") @db.Uuid
+  list   PowerDialerList @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  contactId String  @map("contact_id") @db.Uuid
+  contact   Contact @relation("PowerDialerListContacts", fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Contact status in list
+  status       PowerDialerListContactStatus @default(PENDING)
+  attemptCount Int                          @default(0) @map("attempt_count")
+  lastCalledAt DateTime?                    @map("last_called_at")
+
+  // Timestamps
+  addedAt DateTime @default(now()) @map("added_at")
+
+  @@unique([listId, contactId])
+  @@index([listId, status])
+  @@index([listId, lastCalledAt(sort: Desc)])
+  @@map("power_dialer_list_contacts")
+}
+
 model Funder {
-  id                   String   @id @default(uuid()) @db.Uuid
-  name                 String   @unique
-  description          String?
-  requiredDocuments    String[] @default([])
-  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @unique
+  description       String?
+  requiredDocuments String[] @default([])
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+}
+
+// Enum for custom field types
+enum FieldType {
+  text
+  textarea
+  number
+  decimal
+  date
+  datetime
+  boolean
+  select
+  multiselect
+  phone
+  email
+  url
+  currency
+}
+
+model UserSettings {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  taskTypes String[] @default([]) @map("task_types")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation("UserSettings", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// Pipeline model - represents different business pipelines
+model Pipeline {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(255)
+  description  String?
+  color        String?  @default("#3B82F6") @db.VarChar(50)
+  icon         String?  @default("briefcase") @db.VarChar(50)
+  isActive     Boolean  @default(true) @map("is_active")
+  isDefault    Boolean  @default(false) @map("is_default")
+  displayOrder Int      @default(0) @map("display_order")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  contacts             Contact[]
+  activities           Activity[]
+  messageTemplates     MessageTemplate[]
+  emailTemplates       EmailTemplate[]
+  taskTemplates        TaskTemplate[]
+  deals                Deal[]
+  tags                 Tag[]
+  textBlasts           TextBlast[]
+  textAutomations      TextAutomation[]
+  filterPresets        FilterPreset[]
+  powerDialerLists     PowerDialerList[]
+  userPipelineSettings UserPipelineSettings[]
+  userActivePipelines  UserActivePipeline[]
+
+  @@map("pipelines")
+}
+
+// User-specific settings per pipeline
+model UserPipelineSettings {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  pipelineId     String   @map("pipeline_id") @db.Uuid
+  taskTypes      String[] @default([]) @map("task_types")
+  customSettings Json     @default("{}") @map("custom_settings")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user     User     @relation("UserPipelineSettings", fields: [userId], references: [id], onDelete: Cascade)
+  pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pipelineId])
+  @@index([userId])
+  @@index([pipelineId])
+  @@map("user_pipeline_settings")
+}
+
+// Tracks which pipeline each user is currently viewing
+model UserActivePipeline {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @unique @map("user_id") @db.Uuid
+  pipelineId String   @map("pipeline_id") @db.Uuid
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user     User     @relation("UserActivePipeline", fields: [userId], references: [id], onDelete: Cascade)
+  pipeline Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_active_pipeline")
 }

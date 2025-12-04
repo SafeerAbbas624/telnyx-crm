@@ -74,11 +74,11 @@ const EMAIL_PRESETS = {
   hostinger: {
     name: 'Hostinger',
     smtpHost: 'smtp.hostinger.com',
-    smtpPort: 587,
-    smtpEncryption: 'TLS' as const,
+    smtpPort: 465,
+    smtpEncryption: 'SSL' as const,
     imapHost: 'imap.hostinger.com',
-    imapPort: 143,
-    imapEncryption: 'TLS' as const,
+    imapPort: 993,
+    imapEncryption: 'SSL' as const,
   },
 }
 
@@ -361,7 +361,7 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
                     <SelectItem value="gmail">Gmail</SelectItem>
                     <SelectItem value="outlook">Outlook/Hotmail</SelectItem>
                     <SelectItem value="yahoo">Yahoo</SelectItem>
-                    <SelectItem value="hostinger">Hostinger (Alternative Port)</SelectItem>
+                    <SelectItem value="hostinger">Hostinger</SelectItem>
                     <SelectItem value="custom">Custom Configuration</SelectItem>
                   </SelectContent>
                 </Select>

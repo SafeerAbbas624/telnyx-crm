@@ -101,21 +101,21 @@ export default function ContactName({ contactId, contact: contactProp, name, cla
             {displayName}
           </button>
         </HoverCardTrigger>
-        <HoverCardContent align="start" className="w-[360px] p-0 overflow-hidden border-none shadow-lg">
+        <HoverCardContent align="start" className="w-[340px] p-0 overflow-hidden">
           {contactFromContext ? (
-            <div className="bg-gradient-to-br from-blue-50 via-white to-purple-50">
-              {/* Header with Avatar */}
-              <div className="p-4 pb-3 bg-gradient-to-r from-blue-600 to-purple-600">
+            <div className="bg-white">
+              {/* Header */}
+              <div className="p-4 pb-3 border-b bg-gray-50">
                 <div className="flex items-center gap-3">
-                  <Avatar className="h-12 w-12 border-2 border-white shadow-md">
-                    <AvatarFallback className="bg-white text-blue-600 font-semibold text-base">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
                       {contactFromContext.firstName?.[0] || ''}{contactFromContext.lastName?.[0] || ''}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-white text-base truncate">{displayName}</div>
+                    <div className="font-semibold text-sm truncate">{displayName}</div>
                     {contactFromContext.dealStatus && (
-                      <Badge variant="secondary" className="mt-1 bg-white/20 text-white border-white/30 text-xs">
+                      <Badge variant="secondary" className="mt-1 text-xs">
                         {contactFromContext.dealStatus}
                       </Badge>
                     )}
@@ -124,48 +124,40 @@ export default function ContactName({ contactId, contact: contactProp, name, cla
               </div>
 
               {/* Contact Information */}
-              <div className="p-4 space-y-2.5 bg-white/80 backdrop-blur-sm">
+              <div className="p-3 space-y-2">
                 {contactFromContext.phone1 && (
-                  <div className="flex items-center gap-2.5 text-sm group">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-                      <Phone className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <span className="text-gray-700 font-medium">{formatPhoneNumberForDisplay(contactFromContext.phone1)}</span>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-foreground">{formatPhoneNumberForDisplay(contactFromContext.phone1)}</span>
                   </div>
                 )}
                 {contactFromContext.email1 && (
-                  <div className="flex items-center gap-2.5 text-sm group">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center group-hover:bg-purple-200 transition-colors">
-                      <Mail className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <span className="text-gray-700 truncate">{contactFromContext.email1}</span>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-foreground truncate">{contactFromContext.email1}</span>
                   </div>
                 )}
                 {contactFromContext.propertyAddress && (
-                  <div className="flex items-start gap-2.5 text-sm group">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center group-hover:bg-green-200 transition-colors">
-                      <Home className="h-4 w-4 text-green-600" />
-                    </div>
-                    <span className="text-gray-700 line-clamp-2">{contactFromContext.propertyAddress}</span>
+                  <div className="flex items-start gap-2 text-sm">
+                    <Home className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                    <span className="text-foreground line-clamp-2">{contactFromContext.propertyAddress}</span>
                   </div>
                 )}
                 {contactFromContext.propertyValue && (
-                  <div className="flex items-center gap-2.5 text-sm group">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
-                      <DollarSign className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <span className="text-gray-700 font-medium">${contactFromContext.propertyValue.toLocaleString()}</span>
+                  <div className="flex items-center gap-2 text-sm">
+                    <DollarSign className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-foreground font-medium">${contactFromContext.propertyValue.toLocaleString()}</span>
                   </div>
                 )}
               </div>
 
               {/* Footer */}
-              <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-100">
-                <p className="text-xs text-gray-500 text-center">Click name to view full details</p>
+              <div className="px-3 py-2 bg-muted/50 border-t">
+                <p className="text-xs text-muted-foreground text-center">Click name to view full details</p>
               </div>
             </div>
           ) : (
-            <div className="p-4 text-sm text-muted-foreground bg-white">
+            <div className="p-4 text-sm text-muted-foreground">
               Hover to preview. Click to load full details…
             </div>
           )}

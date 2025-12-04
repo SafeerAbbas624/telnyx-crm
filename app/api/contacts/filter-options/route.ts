@@ -18,7 +18,11 @@ export async function GET() {
       dealStatuses,
       tags,
       valueStats,
-      equityStats
+      equityStats,
+      sqftStats,
+      bedsStats,
+      bathsStats,
+      propertiesStats
     ] = await Promise.all([
       // Cities
       prisma.contact.findMany({
@@ -83,7 +87,41 @@ export async function GET() {
         _min: { estEquity: true },
         _max: { estEquity: true },
         where: { estEquity: { not: null } }
-      })
+      }),
+
+      // Square Feet Stats
+      prisma.contact.aggregate({
+        _min: { buildingSqft: true },
+        _max: { buildingSqft: true },
+        where: { buildingSqft: { not: null } }
+      }),
+
+      // Bedrooms Stats
+      prisma.contact.aggregate({
+        _min: { bedrooms: true },
+        _max: { bedrooms: true },
+        where: { bedrooms: { not: null } }
+      }),
+
+      // Bathrooms Stats
+      prisma.contact.aggregate({
+        _min: { totalBathrooms: true },
+        _max: { totalBathrooms: true },
+        where: { totalBathrooms: { not: null } }
+      }),
+
+      // Properties Count Stats - get min/max of property counts per contact
+      prisma.$queryRaw`
+        SELECT
+          COALESCE(MIN(property_count), 1) as min_properties,
+          COALESCE(MAX(property_count), 1) as max_properties
+        FROM (
+          SELECT c.id, COUNT(cp.id) as property_count
+          FROM contacts c
+          LEFT JOIN contact_properties cp ON c.id = cp.contact_id
+          GROUP BY c.id
+        ) property_counts
+      `
     ]);
 
     console.log('✅ [FILTER OPTIONS API] Query results:', {
@@ -92,7 +130,7 @@ export async function GET() {
       counties: counties.length,
       propertyTypes: propertyTypes.length,
       dealStatuses: dealStatuses.length,
-      tags: tags.length
+      tags: (tags as any[]).length
     })
 
     // Format the response
@@ -102,7 +140,7 @@ export async function GET() {
       counties: counties.map(c => c.propertyCounty).filter(Boolean),
       propertyTypes: propertyTypes.map(p => p.propertyType).filter(Boolean),
       dealStatuses: dealStatuses.map(d => d.dealStatus).filter(Boolean),
-      tags: tags.map(t => ({
+      tags: (tags as any[]).map(t => ({
         id: t.id,
         name: t.name,
         color: t.color || '#3B82F6'
@@ -114,6 +152,22 @@ export async function GET() {
       equityRange: {
         min: equityStats._min.estEquity ? Number(equityStats._min.estEquity) : 0,
         max: equityStats._max.estEquity ? Number(equityStats._max.estEquity) : 1000000
+      },
+      sqftRange: {
+        min: sqftStats._min.buildingSqft ? Number(sqftStats._min.buildingSqft) : 0,
+        max: sqftStats._max.buildingSqft ? Number(sqftStats._max.buildingSqft) : 10000
+      },
+      bedsRange: {
+        min: bedsStats._min.bedrooms ? Number(bedsStats._min.bedrooms) : 0,
+        max: bedsStats._max.bedrooms ? Number(bedsStats._max.bedrooms) : 10
+      },
+      bathsRange: {
+        min: bathsStats._min.totalBathrooms ? Number(bathsStats._min.totalBathrooms) : 0,
+        max: bathsStats._max.totalBathrooms ? Number(bathsStats._max.totalBathrooms) : 10
+      },
+      propertiesRange: {
+        min: (propertiesStats as any[])?.[0]?.min_properties ? Number((propertiesStats as any[])[0].min_properties) : 1,
+        max: (propertiesStats as any[])?.[0]?.max_properties ? Number((propertiesStats as any[])[0].max_properties) : 20
       }
     };
 

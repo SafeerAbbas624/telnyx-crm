@@ -117,6 +117,48 @@ export async function GET(
     console.log(`Team conversation ${conversationId} messages:`,
       `Generic: ${genericMessages.length}, Telnyx: ${telnyxMessages.length}`)
 
+    // FIX: Mark all unread inbound messages as read
+    await prisma.telnyxMessage.updateMany({
+      where: {
+        OR: [
+          { contactId: contactId },
+          {
+            AND: [
+              { direction: 'inbound' },
+              { fromNumber: { in: phoneNumbers } }
+            ]
+          }
+        ],
+        direction: 'inbound',
+        readAt: null
+      },
+      data: {
+        readAt: new Date()
+      }
+    })
+
+    // Update conversation unread count
+    const unreadCount = await prisma.telnyxMessage.count({
+      where: {
+        OR: [
+          { contactId: contactId },
+          {
+            AND: [
+              { direction: 'inbound' },
+              { fromNumber: { in: phoneNumbers } }
+            ]
+          }
+        ],
+        direction: 'inbound',
+        readAt: null
+      }
+    })
+
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { unread_count: unreadCount }
+    })
+
     // Combine and sort messages by timestamp
     const allMessages = [
       ...genericMessages.map(msg => ({

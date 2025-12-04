@@ -15,89 +15,552 @@ type StartCallOpts = { toNumber: string; fromNumber?: string }
 
 type Listener = (event: any) => void
 
+export type InboundCallInfo = {
+  callId: string
+  callerNumber: string
+  callerName?: string
+  destinationNumber?: string  // Which Telnyx number was called
+  call: any
+}
+
 class TelnyxWebRTCClient {
+  // VERSION: 2024-12-03-16:40 - RINGTONE AND AUDIO FIXES
   private client: any | null = null
   private registered = false
   private currentCall: any | null = null
+  private inboundCall: any | null = null
   private listeners: Record<string, Listener[]> = {}
   private audioEl: HTMLAudioElement | null = null
+  private ringtoneEl: HTMLAudioElement | null = null
   private localStream: MediaStream | null = null
+  private audioContext: AudioContext | null = null
+  private ringtoneOscillator: OscillatorNode | null = null
+  private ringtoneGain: GainNode | null = null
+  private ringtoneInterval: NodeJS.Timeout | null = null
+  // For tracking pending inbound calls from invite messages
+  private pendingInboundCallId: string | null = null
+  private pendingInboundInfo: { callerNumber?: string; callerName?: string; destinationNumber?: string } | null = null
+  // Flag to track if AudioContext has been unlocked by user gesture
+  private audioContextUnlocked = false
+  // Track outbound call IDs to distinguish from inbound
+  private outboundCallIds = new Set<string>()
+
+  constructor() {
+    console.log('[RTC] 🔧 WebRTC Client Version: 2024-12-03-16:40 - WITH FALLBACK RINGTONE')
+  }
 
   on(event: string, handler: Listener) {
     this.listeners[event] = this.listeners[event] || []
     this.listeners[event].push(handler)
   }
+
+  off(event: string, handler: Listener) {
+    if (!this.listeners[event]) return
+    this.listeners[event] = this.listeners[event].filter(fn => fn !== handler)
+  }
+
   private emit(event: string, payload?: any) {
     ;(this.listeners[event] || []).forEach((fn) => fn(payload))
+  }
+
+  // Initialize Web Audio API ringtone and set up user gesture unlock
+  private initRingtone() {
+    if (typeof window === 'undefined') return
+    try {
+      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+
+      // If AudioContext is suspended (browser policy), we need a user gesture to unlock it
+      if (this.audioContext.state === 'suspended') {
+        console.log('[RTC] AudioContext suspended, will unlock on user gesture')
+        const unlockAudio = () => {
+          if (this.audioContext && this.audioContext.state === 'suspended') {
+            this.audioContext.resume().then(() => {
+              console.log('[RTC] 🔊 AudioContext unlocked!')
+              this.audioContextUnlocked = true
+            }).catch(console.warn)
+          }
+          // Remove listeners after first interaction
+          document.removeEventListener('click', unlockAudio)
+          document.removeEventListener('keydown', unlockAudio)
+          document.removeEventListener('touchstart', unlockAudio)
+        }
+        document.addEventListener('click', unlockAudio)
+        document.addEventListener('keydown', unlockAudio)
+        document.addEventListener('touchstart', unlockAudio)
+      } else {
+        this.audioContextUnlocked = true
+      }
+    } catch (e) {
+      console.warn('[RTC] Could not create AudioContext for ringtone:', e)
+    }
+  }
+
+  // Play ringtone using Web Audio API (gentle chime pattern - more pleasant than harsh phone ring)
+  private playRingtone() {
+    if (!this.audioContext) {
+      this.initRingtone()
+    }
+
+    this.stopRingtone()
+
+    // Try to resume AudioContext if suspended - wait for it to be ready
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume().then(() => {
+        console.log('[RTC] ✓ AudioContext resumed for ringtone')
+        this.startRingtoneChimes()
+      }).catch((err) => {
+        console.warn('[RTC] Could not resume AudioContext, using fallback:', err)
+        // If AudioContext can't resume, use fallback immediately
+        this.playFallbackRingtone()
+      })
+      return
+    }
+
+    this.startRingtoneChimes()
+  }
+
+  private startRingtoneChimes() {
+    // If AudioContext isn't ready, use fallback immediately
+    if (!this.audioContext || this.audioContext.state !== 'running') {
+      console.log('[RTC] AudioContext not ready for ringtone, using fallback')
+      this.playFallbackRingtone()
+      return
+    }
+
+    const playChime = () => {
+      if (!this.audioContext || this.audioContext.state !== 'running') {
+        console.log('[RTC] AudioContext not ready for ringtone chime')
+        return
+      }
+
+      try {
+        const ctx = this.audioContext
+        const now = ctx.currentTime
+
+        // Create a pleasant two-note chime (like iPhone or modern phone ringtones)
+        // Notes: E5 (659Hz) and G5 (784Hz) - a pleasant minor third interval
+        const notes = [
+          { freq: 659.25, start: 0, duration: 0.15 },      // E5
+          { freq: 783.99, start: 0.18, duration: 0.15 },   // G5
+          { freq: 659.25, start: 0.36, duration: 0.15 },   // E5
+          { freq: 783.99, start: 0.54, duration: 0.25 },   // G5 (longer)
+        ]
+
+        notes.forEach(note => {
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+
+          // Use triangle wave for softer, more pleasant tone
+          osc.type = 'triangle'
+          osc.frequency.setValueAtTime(note.freq, now + note.start)
+
+          // Gentle envelope: quick attack, smooth decay
+          gain.gain.setValueAtTime(0, now + note.start)
+          gain.gain.linearRampToValueAtTime(0.25, now + note.start + 0.02) // Quick attack
+          gain.gain.exponentialRampToValueAtTime(0.01, now + note.start + note.duration) // Smooth decay
+
+          osc.connect(gain)
+          gain.connect(ctx.destination)
+
+          osc.start(now + note.start)
+          osc.stop(now + note.start + note.duration + 0.1)
+        })
+      } catch (e) {
+        console.warn('[RTC] Error playing ringtone chime:', e)
+        this.playFallbackRingtone()
+      }
+    }
+
+    // Play immediately
+    playChime()
+
+    // Repeat every 2.5 seconds (gentler, more frequent pattern)
+    this.ringtoneInterval = setInterval(playChime, 2500)
+
+    // Also show browser notification for visibility
+    this.showInboundNotification()
+  }
+
+  // Fallback ringtone using HTML audio element
+  private playFallbackRingtone() {
+    console.log('[RTC] 🔔 playFallbackRingtone() called')
+
+    if (!this.ringtoneEl && typeof document !== 'undefined') {
+      console.log('[RTC] Creating fallback ringtone audio element...')
+      const el = document.createElement('audio')
+      el.loop = true
+      el.volume = 0.5
+      // Use a longer, more noticeable beep pattern
+      // This is a 440Hz tone (A4 note) - standard phone ring frequency
+      const duration = 0.5 // seconds
+      const sampleRate = 8000
+      const numSamples = duration * sampleRate
+      const buffer = new ArrayBuffer(44 + numSamples)
+      const view = new DataView(buffer)
+
+      // WAV header
+      const writeString = (offset: number, string: string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i))
+        }
+      }
+
+      writeString(0, 'RIFF')
+      view.setUint32(4, 36 + numSamples, true)
+      writeString(8, 'WAVE')
+      writeString(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, 1, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate, true)
+      view.setUint16(32, 1, true)
+      view.setUint16(34, 8, true)
+      writeString(36, 'data')
+      view.setUint32(40, numSamples, true)
+
+      // Generate 440Hz sine wave
+      for (let i = 0; i < numSamples; i++) {
+        const t = i / sampleRate
+        const value = Math.sin(2 * Math.PI * 440 * t)
+        view.setUint8(44 + i, (value * 127 + 128))
+      }
+
+      const blob = new Blob([buffer], { type: 'audio/wav' })
+      el.src = URL.createObjectURL(blob)
+      this.ringtoneEl = el
+      console.log('[RTC] ✓ Fallback ringtone audio element created')
+    }
+
+    if (this.ringtoneEl) {
+      console.log('[RTC] Attempting to play fallback ringtone...')
+      this.ringtoneEl.play().then(() => {
+        console.log('[RTC] ✓✓✓ Fallback ringtone IS PLAYING ✓✓✓')
+      }).catch((err) => {
+        console.error('[RTC] ✗✗✗ Could not play fallback ringtone:', err)
+      })
+    } else {
+      console.error('[RTC] ✗ ringtoneEl is null!')
+    }
+  }
+
+  // Show browser notification for inbound call
+  private showInboundNotification() {
+    if (typeof window === 'undefined' || !('Notification' in window)) return
+
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification('📞 Incoming Call', {
+          body: 'You have an incoming call',
+          icon: '/favicon.ico',
+          tag: 'inbound-call',
+          requireInteraction: true
+        })
+      } catch (e) {
+        console.warn('[RTC] Could not show notification:', e)
+      }
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission()
+    }
+  }
+
+  // Stop ringtone
+  private stopRingtone() {
+    if (this.ringtoneInterval) {
+      clearInterval(this.ringtoneInterval)
+      this.ringtoneInterval = null
+    }
+    if (this.ringtoneOscillator) {
+      try { this.ringtoneOscillator.stop() } catch {}
+      this.ringtoneOscillator = null
+    }
+    if (this.ringtoneGain) {
+      this.ringtoneGain = null
+    }
+    // Also stop fallback ringtone
+    if (this.ringtoneEl) {
+      try {
+        this.ringtoneEl.pause()
+        this.ringtoneEl.currentTime = 0
+      } catch {}
+    }
   }
 
   async ensureRegistered() {
     if (this.registered && this.client) return
 
+    console.log("[RTC] 🔄 Fetching credentials...")
     const res = await fetch("/api/telnyx/rtc/creds")
     if (!res.ok) throw new Error("RTC credentials missing or unauthorized")
-    const { login, password } = await res.json()
+    const { login, password, sipDomain } = await res.json()
+    console.log("[RTC] ✓ Got credentials for user:", login, "domain:", sipDomain)
 
     const sdk = await getSDK()
     const TelnyxRTC: typeof TelnyxRTCType = (sdk.default || sdk.TelnyxRTC || sdk)
+    console.log("[RTC] ✓ SDK loaded")
 
+    // Create WebRTC client with full configuration for proper SIP registration
     this.client = new TelnyxRTC({
       login,
       password,
-      // Provide ringback tone if you want local ringing; left undefined for now
-      ringtoneFile: undefined,
-      ringbackFile: undefined,
+      // Realm is important for proper SIP registration
+      // @ts-ignore - realm exists in SDK but might not be in types
+      realm: sipDomain || 'sip.telnyx.com',
+      // Enable WebSocket keep-alive for persistent connection
+      // @ts-ignore
+      pingPongInterval: 30,
+      // Logging for debugging
       debug: true,
+      debugOutput: 'socket',
     })
+    console.log("[RTC] ✓ Client created with realm:", sipDomain || 'sip.telnyx.com')
 
     // Ensure an audio element exists to play remote media
     if (!this.audioEl && typeof document !== 'undefined') {
       const el = document.createElement('audio')
       el.id = 'telnyx-remote-audio'
       el.autoplay = true
+      // @ts-ignore - playsInline exists in browsers
       el.playsInline = true
       el.hidden = true
+      el.volume = 1.0
+      el.muted = false
+      // Add event listeners for debugging
+      el.addEventListener('loadedmetadata', () => {
+        console.log('[RTC] Audio element: metadata loaded')
+      })
+      el.addEventListener('canplay', () => {
+        console.log('[RTC] Audio element: can play')
+      })
+      el.addEventListener('playing', () => {
+        console.log('[RTC] Audio element: playing')
+      })
+      el.addEventListener('error', (e) => {
+        console.error('[RTC] Audio element error:', e)
+      })
       document.body.appendChild(el)
       this.audioEl = el
+      console.log('[RTC] ✓ Audio element created and configured')
     }
 
-    // Promise that resolves on ready
-    const readyPromise = new Promise<void>((resolve) => {
+    // Create ringtone using Web Audio API for inbound calls
+    if (!this.ringtoneEl && typeof document !== 'undefined') {
+      // Create a synthetic ringtone using Web Audio API
+      this.initRingtone()
+    }
+
+    // Promise that resolves on ready with timeout
+    const readyPromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("WebRTC connection timeout - Telnyx didn't respond within 30s"))
+      }, 30000)
+
       this.client.on("telnyx.ready", () => {
+        clearTimeout(timeout)
+        console.log("[RTC] ✅ CONNECTED AND REGISTERED - Ready for inbound calls!")
         this.registered = true
         this.emit("ready")
         resolve()
       })
     })
 
-    this.client.on("telnyx.error", (e: any) => this.emit("error", e))
+    this.client.on("telnyx.error", (e: any) => {
+      console.error("[RTC] ❌ ERROR:", e)
+      this.emit("error", e)
+    })
+
+    // Log all socket events for debugging
+    this.client.on("telnyx.socket.open", () => {
+      console.log("[RTC] 🔌 WebSocket OPENED")
+    })
+    this.client.on("telnyx.socket.close", (e: any) => {
+      console.log("[RTC] 🔌 WebSocket CLOSED:", e)
+      this.registered = false
+    })
+    this.client.on("telnyx.socket.error", (e: any) => {
+      console.error("[RTC] 🔌 WebSocket ERROR:", e)
+    })
+
+    // Handle inbound calls - detect via telnyx_rtc.invite message
+    this.client.on("telnyx.socket.message", (msg: any) => {
+      console.log("[RTC] socket.message:", msg)
+
+      // telnyx_rtc.invite indicates an INBOUND call
+      if (msg?.method === 'telnyx_rtc.invite') {
+        const params = msg.params || {}
+        const callId = params.callID || params.callId || params.dialogParams?.callID
+        const callerNumber = params.callerIdNumber || params.caller_id_number || params.dialogParams?.callerIdNumber
+        const callerName = params.callerIdName || params.caller_id_name || params.dialogParams?.callerIdName
+        // Destination is the Telnyx number that was called (callee)
+        const destinationNumber = params.calleeIdNumber || params.callee_id_number || params.dialogParams?.calleeIdNumber
+
+        console.log("[RTC] 📞 INBOUND INVITE DETECTED!", { callId, callerNumber, callerName, destinationNumber, params })
+
+        // Store as pending inbound - we'll match it with the call object
+        this.pendingInboundCallId = callId
+        this.pendingInboundInfo = { callerNumber, callerName, destinationNumber }
+      }
+    })
+
     this.client.on("telnyx.notification", (n: any) => {
       const type = n?.type
-      if (type === "callUpdate") {
-        const state = n?.call?.state
-        this.emit("callUpdate", { state, raw: n })
-        console.log("[RTC] callUpdate:", state)
-        const remote = n?.call?.remoteStream
-        if (remote && this.audioEl) {
+      const call = n?.call
+
+      // Handle inbound call notification
+      if (type === "callUpdate" && call) {
+        const state = call.state
+        const direction = call.direction
+        const callId = call.callId || call.id
+
+        console.log("[RTC] callUpdate:", { state, direction, callId })
+
+        // Check if this is an inbound call:
+        // 1. direction === 'inbound' (when available)
+        // 2. OR state is 'new'/'ringing' and we didn't initiate it (not in outboundCallIds)
+        // 3. OR we have a pending inbound from invite message
+        const isInbound = direction === 'inbound' ||
+                         (state === 'ringing' && !this.outboundCallIds.has(callId)) ||
+                         (state === 'new' && !this.outboundCallIds.has(callId) && !this.currentCall)
+
+        if (isInbound && (state === 'new' || state === 'ringing') && !this.inboundCall) {
+          // Get caller info from call object or pending invite
+          let callerNumber = call.remoteCallerNumber || call.options?.remoteCallerNumber
+          let callerName = call.remoteCallerName || call.options?.remoteCallerName
+          let destinationNumber = call.localCallerNumber || call.options?.localCallerNumber
+
+          // Try to get from pending invite info
+          if (this.pendingInboundInfo) {
+            callerNumber = callerNumber || this.pendingInboundInfo.callerNumber
+            callerName = callerName || this.pendingInboundInfo.callerName
+            destinationNumber = destinationNumber || this.pendingInboundInfo.destinationNumber
+          }
+
+          // Also try various places in the call object
+          if (!callerNumber && call.options) {
+            callerNumber = call.options.callerIdNumber || call.options.remote_caller_id_number
+          }
+
+          console.log("[RTC] 📞 INBOUND CALL RINGING!", {
+            from: callerNumber,
+            to: destinationNumber,
+            callId: callId,
+            name: callerName
+          })
+
+          this.inboundCall = call
+
+          // Play ringtone using Web Audio API
+          this.playRingtone()
+
+          // Emit inbound call event
+          this.emit("inboundCall", {
+            callId: callId,
+            callerNumber: callerNumber || 'Unknown',
+            callerName: callerName,
+            destinationNumber: destinationNumber,
+            call
+          } as InboundCallInfo)
+
+          // Clear pending info
+          this.pendingInboundCallId = null
+          this.pendingInboundInfo = null
+        }
+
+        // Call answered (either direction)
+        if (state === 'active' || state === 'answering') {
+          // Stop ringtone
+          this.stopRingtone()
+
+          // Ensure remote audio is playing when call becomes active
+          console.log('[RTC] Call active, checking remote audio...')
+          const remote = call.remoteStream
+          if (remote && this.audioEl) {
+            console.log('[RTC] Remote stream available in active state, attaching...')
+            try {
+              // @ts-ignore - srcObject exists in browsers
+              this.audioEl.srcObject = remote
+              this.audioEl.volume = 1.0
+              this.audioEl.muted = false
+              this.audioEl.play().then(() => {
+                console.log('[RTC] ✓ Remote audio playing (from active state)')
+              }).catch((err) => {
+                console.error('[RTC] Failed to play remote audio:', err)
+              })
+            } catch (err) {
+              console.error('[RTC] Error setting remote audio:', err)
+            }
+          } else {
+            console.warn('[RTC] Remote stream not available in active state')
+          }
+        }
+
+        // Include callId so listeners can filter for their specific call
+        this.emit("callUpdate", { state, direction, callId, raw: n })
+
+        // Always try to attach remote stream when available (backup mechanism)
+        const remote = call.remoteStream
+        if (remote && this.audioEl && !this.audioEl.srcObject) {
+          console.log('[RTC] Attaching remote stream (backup mechanism)')
           try {
-            // Attach remote audio and play
             // @ts-ignore - srcObject exists in browsers
             this.audioEl.srcObject = remote
-            this.audioEl.play().catch(() => {})
-          } catch {}
+            this.audioEl.volume = 1.0
+            this.audioEl.muted = false
+            this.audioEl.play().catch((err) => {
+              console.error('[RTC] Backup audio play failed:', err)
+            })
+          } catch (err) {
+            console.error('[RTC] Backup audio setup failed:', err)
+          }
         }
-        if ((state === 'hangup' || state === 'destroy') && this.audioEl) {
-          try {
-            // @ts-ignore
-            this.audioEl.srcObject = null
-          } catch {}
+
+        // Detect call end states (hangup, destroy, failed, bye, cancel, rejected)
+        const endStates = ['hangup', 'destroy', 'failed', 'bye', 'cancel', 'rejected']
+        if (endStates.includes(state)) {
+          console.log("[RTC] ☎️ Call ended with state:", state)
+
+          // Stop ringtone
+          this.stopRingtone()
+
+          if (this.audioEl) {
+            try {
+              // @ts-ignore
+              this.audioEl.srcObject = null
+            } catch {}
+          }
+
+          // Clear current call reference (outbound calls)
+          const currentCallId = this.currentCall?.callId || this.currentCall?.id
+          if (currentCallId === call.callId || currentCallId === call.id) {
+            console.log("[RTC] Clearing currentCall reference")
+            this.currentCall = null
+            // Clean up local stream
+            if (this.localStream) {
+              try { this.localStream.getTracks().forEach(t => t.stop()) } catch {}
+              this.localStream = null
+            }
+          }
+
+          // Clear inbound call reference
+          if (this.inboundCall?.callId === call.callId || this.inboundCall?.id === call.id) {
+            this.inboundCall = null
+            this.emit("inboundCallEnded", { callId: call.callId || call.id })
+          }
         }
       }
     })
 
     // Connect (constructor creds handle registration; no explicit login() in SDK v2.22.x)
-    await this.client.connect()
-    await readyPromise
+    console.log("[RTC] 🔄 Connecting to Telnyx...")
+    try {
+      await this.client.connect()
+      console.log("[RTC] ✓ connect() completed, waiting for ready event...")
+      await readyPromise
+      console.log("[RTC] ✅ FULLY REGISTERED - Ready to receive inbound calls")
+    } catch (err) {
+      console.error("[RTC] ❌ Failed to connect:", err)
+      throw err
+    }
   }
 
   async startCall(opts: StartCallOpts) {
@@ -140,7 +603,15 @@ class TelnyxWebRTCClient {
     }
     this.currentCall = call
 
-    return { sessionId: call?.callId || call?.id || Math.random().toString(36).slice(2) }
+    // Track this as an outbound call so we don't mistake it for inbound
+    const callId = call?.callId || call?.id
+    if (callId) {
+      this.outboundCallIds.add(callId)
+      // Clean up after call ends (30 minutes max)
+      setTimeout(() => this.outboundCallIds.delete(callId), 30 * 60 * 1000)
+    }
+
+    return { sessionId: callId || Math.random().toString(36).slice(2) }
   }
   getLocalStream(): MediaStream | null {
     return this.localStream
@@ -204,10 +675,179 @@ class TelnyxWebRTCClient {
     }
   }
 
+  // Get current call state for UI updates
+  getCallState(): { state: string; callId?: string } | null {
+    // Check both currentCall and inboundCall (inboundCall becomes currentCall after answering)
+    const activeCall = this.currentCall || this.inboundCall
+    if (!activeCall) return null
+    return {
+      state: activeCall.state || 'unknown',
+      callId: activeCall.callId || activeCall.id,
+    }
+  }
 
+  // Check if there's an active call
+  hasActiveCall(): boolean {
+    // Check both currentCall and inboundCall
+    const activeCall = this.currentCall || this.inboundCall
+    if (!activeCall) return false
+    const state = activeCall.state
+    // Also consider 'ringing', 'new', 'answering' as active states
+    const endedStates = ['hangup', 'destroy', 'done', 'failed', 'bye']
+    return state && !endedStates.includes(state)
+  }
+
+  // Check if there's an inbound call ringing
+  hasInboundCall(): boolean {
+    return !!this.inboundCall
+  }
+
+  // Get inbound call info
+  getInboundCallInfo(): InboundCallInfo | null {
+    if (!this.inboundCall) return null
+    return {
+      callId: this.inboundCall.callId || this.inboundCall.id,
+      callerNumber: this.inboundCall.remoteCallerNumber || this.inboundCall.options?.remoteCallerNumber || 'Unknown',
+      callerName: this.inboundCall.remoteCallerName || this.inboundCall.options?.remoteCallerName,
+      call: this.inboundCall
+    }
+  }
+
+  // Answer an inbound call
+  async answerInbound(): Promise<{ sessionId: string }> {
+    console.log('[RTC] ========== answerInbound() CALLED ==========')
+
+    if (!this.inboundCall) {
+      console.error('[RTC] No inbound call to answer!')
+      throw new Error("No inbound call to answer")
+    }
+
+    // Stop ringtone
+    console.log('[RTC] Stopping ringtone...')
+    this.stopRingtone()
+
+    // Get microphone access
+    console.log('[RTC] Requesting microphone access...')
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      })
+      console.log('[RTC] ✓ Microphone access granted')
+    } catch (err) {
+      console.error('[RTC] ✗ Microphone access denied:', err)
+      throw new Error("Microphone access denied or unavailable")
+    }
+    stream.getAudioTracks().forEach(t => (t.enabled = true))
+    this.localStream = stream
+    this.emit('localStreamChanged', { source: 'answerInbound' })
+
+    console.log('[RTC] Answering inbound call...')
+
+    // Answer the call
+    try {
+      await this.inboundCall.answer({
+        audio: true,
+        video: false,
+        localStream: stream as any,
+      })
+      console.log('[RTC] ✓ Call answered successfully')
+    } catch (err) {
+      console.error('[RTC] Error answering call:', err)
+      throw err
+    }
+
+    // Move inbound call to current call
+    this.currentCall = this.inboundCall
+    this.inboundCall = null
+
+    // CRITICAL: Immediately attach remote audio stream after answering
+    // Wait a moment for the stream to be ready
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    const remoteStream = this.currentCall?.remoteStream
+    console.log('[RTC] Remote stream after answer:', remoteStream ? 'Available' : 'Not available')
+
+    if (remoteStream && this.audioEl) {
+      try {
+        console.log('[RTC] Attaching remote audio stream to audio element')
+        // @ts-ignore - srcObject exists in browsers
+        this.audioEl.srcObject = remoteStream
+        this.audioEl.volume = 1.0
+        this.audioEl.muted = false
+
+        // Explicitly play the audio
+        await this.audioEl.play()
+        console.log('[RTC] ✓ Remote audio playing')
+      } catch (err) {
+        console.error('[RTC] Error setting up remote audio:', err)
+        // Try again without await
+        try {
+          this.audioEl.play().catch(e => console.error('[RTC] Audio play failed:', e))
+        } catch {}
+      }
+    } else {
+      console.warn('[RTC] Remote stream not available immediately after answer')
+      // Set up a listener to catch it when it becomes available
+      const checkRemoteStream = () => {
+        const stream = this.currentCall?.remoteStream
+        if (stream && this.audioEl) {
+          console.log('[RTC] Remote stream now available, attaching...')
+          try {
+            // @ts-ignore
+            this.audioEl.srcObject = stream
+            this.audioEl.volume = 1.0
+            this.audioEl.muted = false
+            this.audioEl.play().catch(e => console.error('[RTC] Delayed audio play failed:', e))
+          } catch (err) {
+            console.error('[RTC] Error in delayed audio setup:', err)
+          }
+        }
+      }
+
+      // Check periodically for up to 3 seconds
+      let attempts = 0
+      const interval = setInterval(() => {
+        attempts++
+        checkRemoteStream()
+        if (attempts >= 6 || (this.currentCall?.remoteStream && this.audioEl?.srcObject)) {
+          clearInterval(interval)
+        }
+      }, 500)
+    }
+
+    return { sessionId: this.currentCall?.callId || this.currentCall?.id || Math.random().toString(36).slice(2) }
+  }
+
+  // Decline/reject an inbound call
+  async declineInbound(): Promise<void> {
+    if (!this.inboundCall) return
+
+    // Stop ringtone
+    if (this.ringtoneEl) {
+      this.ringtoneEl.pause()
+      this.ringtoneEl.currentTime = 0
+    }
+
+    try {
+      await this.inboundCall.hangup()
+    } catch (err) {
+      console.warn('[RTC] Error declining call:', err)
+    }
+
+    this.inboundCall = null
+    this.emit("inboundCallEnded", { declined: true })
+  }
 
   async hangup() {
+    // Stop ringtone if playing
+    if (this.ringtoneEl) {
+      this.ringtoneEl.pause()
+      this.ringtoneEl.currentTime = 0
+    }
+
     try {
+      // Hangup current call
       if (this.currentCall) {
         try {
           await this.currentCall.hangup()
@@ -218,12 +858,61 @@ class TelnyxWebRTCClient {
           }
         }
       }
+
+      // Also hangup inbound call if exists
+      if (this.inboundCall) {
+        try {
+          await this.inboundCall.hangup()
+        } catch {}
+        this.inboundCall = null
+      }
     } finally {
       this.currentCall = null
       if (this.localStream) {
         try { this.localStream.getTracks().forEach(t => t.stop()) } catch {}
         this.localStream = null
       }
+    }
+  }
+
+  // Check if the client is registered and ready
+  isReady(): boolean {
+    return this.registered && !!this.client
+  }
+
+  // Manually ensure remote audio is playing (useful for troubleshooting)
+  ensureRemoteAudioPlaying(): boolean {
+    if (!this.currentCall) {
+      console.warn('[RTC] No active call to ensure audio for')
+      return false
+    }
+
+    const remoteStream = this.currentCall.remoteStream
+    if (!remoteStream) {
+      console.warn('[RTC] No remote stream available')
+      return false
+    }
+
+    if (!this.audioEl) {
+      console.error('[RTC] Audio element not initialized')
+      return false
+    }
+
+    try {
+      console.log('[RTC] Manually ensuring remote audio is playing...')
+      // @ts-ignore
+      this.audioEl.srcObject = remoteStream
+      this.audioEl.volume = 1.0
+      this.audioEl.muted = false
+      this.audioEl.play().then(() => {
+        console.log('[RTC] ✓ Remote audio manually started')
+      }).catch((err) => {
+        console.error('[RTC] Failed to manually start audio:', err)
+      })
+      return true
+    } catch (err) {
+      console.error('[RTC] Error in ensureRemoteAudioPlaying:', err)
+      return false
     }
   }
 }

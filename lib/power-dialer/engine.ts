@@ -253,21 +253,23 @@ export class PowerDialerEngine {
         // Check if call was answered
         if (callState.state === 'active' && call.status !== 'ANSWERED') {
           call.status = 'ANSWERED'
-          
+
           // Check if admin is busy
           if (this.currentCallInProgress) {
-            // Drop this call and queue for retry
+            // Drop this call and queue for retry with HIGHEST priority
             await this.hangupCall(call.webrtcSessionId)
             call.status = 'BUSY'
             this.activeCalls.delete(call.id)
             this.notifyActiveCallsUpdate()
 
-            // Update queue item for retry
+            // Update queue item for retry with MAXIMUM priority (999999)
+            // This ensures it's called NEXT when admin is free
             const queueItem = this.queue.find(q => q.id === call.queueItemId)
-            if (queueItem && queueItem.attemptCount < queueItem.maxAttempts) {
+            if (queueItem) {
               await this.updateQueueItem(call.queueItemId, {
                 status: 'PENDING',
-                priority: queueItem.priority + 1000, // Boost priority for immediate retry
+                priority: 999999, // MAXIMUM priority - call this NEXT
+                callOutcome: 'ADMIN_BUSY',
               })
             }
 
@@ -282,10 +284,11 @@ export class PowerDialerEngine {
           this.stats.totalContacted++
           this.config.onStatsUpdate(this.stats)
           this.config.onCallAnswered(call)
-          
+
           // Update queue item
           await this.updateQueueItem(call.queueItemId, {
             status: 'COMPLETED',
+            callOutcome: 'ANSWERED',
           })
         }
 
@@ -301,19 +304,18 @@ export class PowerDialerEngine {
             this.stats.totalTalkTime += duration
             this.config.onStatsUpdate(this.stats)
           } else {
-            // Call was not answered
+            // Call was not answered - NO RETRY, mark as FAILED and skip
             call.status = 'NO_ANSWER'
             this.stats.totalNoAnswer++
             this.config.onStatsUpdate(this.stats)
             this.config.onCallNoAnswer(call)
-            
-            // Update queue item for potential retry
-            const queueItem = this.queue.find(q => q.id === call.queueItemId)
-            if (queueItem && queueItem.attemptCount < queueItem.maxAttempts) {
-              await this.updateQueueItem(call.queueItemId, { status: 'PENDING' })
-            } else {
-              await this.updateQueueItem(call.queueItemId, { status: 'FAILED' })
-            }
+
+            // NEW LOGIC: No answer = SKIP (no retry)
+            // Mark as FAILED immediately, do not queue for retry
+            await this.updateQueueItem(call.queueItemId, {
+              status: 'FAILED',
+              callOutcome: 'NO_ANSWER',
+            })
           }
         }
       } catch (error) {

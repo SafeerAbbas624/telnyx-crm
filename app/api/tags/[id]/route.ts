@@ -104,7 +104,7 @@ export async function PATCH(
     }
 
     // Team members cannot update tags
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       return NextResponse.json(
         { error: 'Forbidden - Team members cannot update tags' },
         { status: 403 }
@@ -187,7 +187,7 @@ export async function DELETE(
     }
 
     // Team members cannot delete tags
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       return NextResponse.json(
         { error: 'Forbidden - Team members cannot delete tags' },
         { status: 403 }

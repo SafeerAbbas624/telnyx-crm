@@ -1,0 +1,331 @@
+================================================================================
+VAPI.AI INTEGRATION - DEPLOYMENT CHECKLIST
+Adler Capital CRM - Step-by-Step Deployment Guide
+================================================================================
+
+PHASE 1: PREPARATION
+====================
+
+[ ] Read VAPI_INDEX.txt
+    → Navigation guide for all documentation
+
+[ ] Read VAPI_README.txt
+    → Overview of what Vapi.ai is and what you can do
+
+[ ] Read VAPI_SETUP_GUIDE.txt
+    → Complete Vapi.ai setup instructions
+
+[ ] Create Vapi.ai Account
+    → Go to https://dashboard.vapi.ai
+    → Sign up for an account
+    → Verify your email
+
+[ ] Get Your API Key
+    → Log in to Vapi Dashboard
+    → Go to Settings → API Keys
+    → Copy your API key
+    → Save it somewhere safe
+
+[ ] Create an AI Assistant
+    → Go to Assistants in Vapi Dashboard
+    → Click "Create Assistant"
+    → Configure the assistant
+    → Save the Assistant ID
+
+[ ] Get a Phone Number
+    → Go to Phone Numbers in Vapi Dashboard
+    → Either use Vapi's built-in numbers or connect Twilio/Vonage
+    → Save the Phone Number ID
+
+
+PHASE 2: DEPLOYMENT
+===================
+
+[ ] Navigate to CRM Directory
+    cd /var/www/adlercapitalcrm.com
+
+[ ] Run Database Migration
+    npx prisma migrate deploy
+    → This creates the vapi_api_keys table
+
+[ ] Verify Migration Success
+    → Check for any error messages
+    → If errors, review VAPI_IMPLEMENTATION_GUIDE.txt
+
+[ ] Build the Project
+    npm run build
+    → This compiles all TypeScript and React code
+
+[ ] Verify Build Success
+    → Check for any error messages
+    → If errors, review VAPI_IMPLEMENTATION_GUIDE.txt
+
+[ ] Start Development Server
+    npm run dev
+    → Server should start on http://localhost:3000
+
+[ ] Verify Server is Running
+    → Open browser to http://localhost:3000
+    → Check that CRM loads normally
+
+
+PHASE 3: CONFIGURATION
+======================
+
+[ ] Set Environment Variables
+    → Open .env file
+    → Add: VAPI_API_KEY=your_api_key_here
+    → Add: EMAIL_ENCRYPTION_KEY=your-32-char-secret-key-here-123456
+    → Save the file
+
+[ ] Restart Development Server
+    → Stop the server (Ctrl+C)
+    → Run: npm run dev
+    → Wait for server to start
+
+[ ] Verify Environment Variables Loaded
+    → Check server logs for any errors
+    → Should see no encryption-related errors
+
+
+PHASE 4: FEATURE TESTING
+========================
+
+[ ] Navigate to Vapi Page
+    → Open http://localhost:3000/vapi
+    → Should see the Vapi AI Calls page with 4 tabs
+
+[ ] Verify API Keys Tab
+    → Click "API Keys" tab
+    → Should see "Add API Key" button
+    → Should see empty list initially
+
+[ ] Add Your First API Key
+    → Click "Add API Key" button
+    → Fill in the form:
+      - Name: "Production" (or any name)
+      - API Key: Paste your Vapi API key
+      - Default Assistant ID: Paste your assistant ID
+      - Default Phone Number: Paste your phone number ID
+    → Click "Save API Key"
+
+[ ] Test API Key Validity
+    → Click "Test" button next to your API key
+    → Should see "Valid" status
+    → If "Invalid", check your API key and try again
+
+[ ] Verify Make Calls Tab
+    → Click "Make Calls" tab
+    → Should see contact search box
+    → Should see list of contacts from your CRM
+
+[ ] Verify Call History Tab
+    → Click "Call History" tab
+    → Should see empty list initially
+    → Should see search and filter options
+
+[ ] Verify Settings Tab
+    → Click "Settings" tab
+    → Should see configuration options
+    → Should see your API key selected
+
+
+PHASE 5: FIRST CALL TEST
+========================
+
+[ ] Select a Test Contact
+    → Go to "Make Calls" tab
+    → Search for a contact
+    → Check the checkbox to select the contact
+
+[ ] Start a Test Call
+    → Click "Start Calls" button
+    → Should see call appear in "Active Calls" section
+    → Should see call status updating
+
+[ ] Monitor the Call
+    → Watch the call status change
+    → Should see: queued → ringing → in_progress → ended
+    → Call should complete within a few seconds
+
+[ ] Verify Call History
+    → Go to "Call History" tab
+    → Should see your test call in the list
+    → Should see call details (duration, status, etc.)
+
+[ ] Verify Call Recording
+    → Click on the call to expand details
+    → Should see recording URL if available
+    → Should see transcript if available
+
+
+PHASE 6: WEBHOOK CONFIGURATION (Optional)
+==========================================
+
+[ ] Get Your Webhook URL
+    → Your webhook URL is: https://yourdomain.com/api/vapi/webhooks/calls
+    → Replace yourdomain.com with your actual domain
+
+[ ] Configure Webhook in Vapi Dashboard
+    → Go to Vapi Dashboard
+    → Go to Settings → Webhooks
+    → Add your webhook URL
+    → Save the configuration
+
+[ ] Test Webhook
+    → Make another test call
+    → Check server logs for webhook events
+    → Should see call.started, call.ended events
+
+[ ] Verify Webhook Events
+    → Check that call status updates in real-time
+    → Check that recordings are saved when ready
+    → Check that transcripts are saved when ready
+
+
+PHASE 7: PRODUCTION SETUP
+=========================
+
+[ ] Review Security Checklist
+    → See VAPI_QUICK_REFERENCE.txt (Security Checklist section)
+    → Ensure all security measures are in place
+
+[ ] Configure Rate Limiting
+    → Add rate limiting to API routes if needed
+    → See VAPI_QUICK_REFERENCE.txt for details
+
+[ ] Set Up Monitoring
+    → Configure error logging
+    → Set up alerts for failed calls
+    → Monitor API usage and costs
+
+[ ] Train Your Team
+    → Show team how to use the feature
+    → Explain the 4 tabs and their functions
+    → Provide access to documentation
+
+[ ] Document Your Setup
+    → Document your API key management process
+    → Document your webhook configuration
+    → Document your assistant configuration
+
+[ ] Set Up Backups
+    → Ensure database backups are enabled
+    → Test backup restoration process
+    → Document backup procedures
+
+
+PHASE 8: MONITORING & MAINTENANCE
+==================================
+
+[ ] Monitor Call Success Rate
+    → Track successful vs failed calls
+    → Investigate any failures
+    → Adjust settings if needed
+
+[ ] Monitor Costs
+    → Check Vapi Dashboard for usage and costs
+    → Monitor call duration and frequency
+    → Optimize if costs are too high
+
+[ ] Monitor Performance
+    → Check response times
+    → Monitor database performance
+    → Check for any errors in logs
+
+[ ] Regular Maintenance
+    → Review and update API keys periodically
+    → Update assistant configurations as needed
+    → Monitor for Vapi.ai service updates
+
+[ ] Gather Feedback
+    → Get feedback from team members
+    → Identify improvement opportunities
+    → Plan for future enhancements
+
+
+TROUBLESHOOTING
+===============
+
+If you encounter issues, check these files:
+
+Database Migration Failed
+  → See VAPI_IMPLEMENTATION_GUIDE.txt (Troubleshooting section)
+  → Check PostgreSQL is running
+  → Verify DATABASE_URL is correct
+
+API Key Not Working
+  → See VAPI_SETUP_GUIDE.txt (Troubleshooting section)
+  → Verify API key is correct
+  → Test in Vapi Dashboard
+  → Generate new key if needed
+
+Calls Not Starting
+  → See VAPI_SETUP_GUIDE.txt (Troubleshooting section)
+  → Verify API key is valid
+  → Check Assistant ID is set
+  → Check Phone Number is set
+  → Verify contacts have phone numbers
+
+Webhooks Not Working
+  → See VAPI_SETUP_GUIDE.txt (Troubleshooting section)
+  → Verify webhook URL is correct
+  → Check firewall/security settings
+  → Ensure URL is publicly accessible
+
+Components Not Rendering
+  → See VAPI_QUICK_REFERENCE.txt (Debugging section)
+  → Check browser console for errors
+  → Verify all imports are correct
+  → Check Zustand is installed
+
+
+SUPPORT RESOURCES
+=================
+
+Documentation Files
+  - VAPI_INDEX.txt: Navigation guide
+  - VAPI_README.txt: Overview
+  - VAPI_SETUP_GUIDE.txt: Setup instructions
+  - VAPI_IMPLEMENTATION_GUIDE.txt: Deployment guide
+  - VAPI_QUICK_REFERENCE.txt: Developer reference
+  - VAPI_INTEGRATION_SUMMARY.txt: What was built
+  - VAPI_COMPLETE_IMPLEMENTATION.txt: Final report
+
+Vapi.ai Resources
+  - Documentation: https://docs.vapi.ai
+  - API Reference: https://docs.vapi.ai/api-reference
+  - Dashboard: https://dashboard.vapi.ai
+  - Community: https://vapi.ai/community
+  - Status: https://status.vapi.ai
+
+CRM Support
+  - Contact your system administrator
+  - Check browser console for errors
+  - Review server logs for issues
+
+
+COMPLETION CHECKLIST
+====================
+
+[ ] All phases completed
+[ ] All tests passed
+[ ] Team trained
+[ ] Documentation reviewed
+[ ] Monitoring set up
+[ ] Backups configured
+[ ] Ready for production use
+
+SIGN-OFF
+========
+
+Deployment Date: _______________
+Deployed By: _______________
+Verified By: _______________
+Notes: _______________________________________________
+
+
+================================================================================
+END OF DEPLOYMENT CHECKLIST
+================================================================================
+

@@ -6,10 +6,12 @@ import { authOptions } from '@/lib/auth'
 
 // Schema for validating activity creation
 const createActivitySchema = z.object({
-  contactId: z.string().uuid(),
+  contactId: z.string().uuid().optional(),
   dealId: z.string().uuid().optional(),
   type: z.enum(['call', 'email', 'meeting', 'note', 'task']),
-  title: z.string().min(1).max(500),
+  taskType: z.string().optional(),
+  subject: z.string().min(1).max(500).optional(),
+  title: z.string().min(1).max(500).optional(),
   description: z.string().optional(),
   dueDate: z.string().datetime().optional(),
   status: z.enum(['planned', 'completed', 'cancelled']).default('planned'),
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
     let whereClause: any = contactId ? { contact_id: contactId } : {}
 
     // If user is a team member, only show activities for assigned contacts
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       if (contactId) {
         // Check if the contact is assigned to this team member
         const assignedContact = await prisma.contactAssignment.findFirst({
@@ -87,6 +89,16 @@ export async function GET(request: NextRequest) {
     const activities = await prisma.activity.findMany({
       where: whereClause,
       include: {
+        contact: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email1: true,
+            phone1: true,
+            avatarUrl: true
+          }
+        },
         activity_tags: {
           include: {
             tag: {
@@ -109,7 +121,9 @@ export async function GET(request: NextRequest) {
       contactId: activity.contact_id,
       dealId: activity.deal_id,
       type: activity.type,
+      taskType: activity.task_type,
       title: activity.title,
+      subject: activity.title,
       description: activity.description,
       dueDate: activity.due_date?.toISOString(),
       status: activity.status,
@@ -126,13 +140,26 @@ export async function GET(request: NextRequest) {
       createdAt: activity.created_at.toISOString(),
       updatedAt: activity.updated_at.toISOString(),
       tags: activity.activity_tags?.map((at: any) => at.tag) || [],
+      contact: activity.contact
+        ? {
+            id: activity.contact.id,
+            firstName: activity.contact.firstName,
+            lastName: activity.contact.lastName,
+            email: activity.contact.email1,
+            phone: activity.contact.phone1,
+            avatar: activity.contact.avatarUrl ?? null,
+          }
+        : null,
     }))
 
     return NextResponse.json(transformedActivities)
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching activities:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch activities' },
+      {
+        error: 'Failed to fetch activities',
+        details: error?.message ?? String(error),
+      },
       { status: 500 }
     )
   }
@@ -155,8 +182,34 @@ export async function POST(request: NextRequest) {
     // Validate the request body
     const validatedData = createActivitySchema.parse(body)
 
+    // Use subject as title if title is not provided
+    const finalTitle = validatedData.title || validatedData.subject || 'Untitled Task'
+
+    // Verify user exists in database
+    let creatorId = session.user.id
+    const userExists = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true }
+    })
+
+    if (!userExists) {
+      // Fallback to first admin user if session user doesn't exist
+      const adminUser = await prisma.user.findFirst({
+        where: { role: 'ADMIN' },
+        select: { id: true }
+      })
+      if (adminUser) {
+        creatorId = adminUser.id
+      } else {
+        return NextResponse.json(
+          { error: 'No valid user found to create activity' },
+          { status: 400 }
+        )
+      }
+    }
+
     // If user is a team member, check if they have access to this contact
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER' && validatedData.contactId) {
       const assignedContact = await prisma.contactAssignment.findFirst({
         where: {
           contactId: validatedData.contactId,
@@ -175,15 +228,17 @@ export async function POST(request: NextRequest) {
     // Create the activity in the database
     const activity = await prisma.activity.create({
       data: {
-        contact_id: validatedData.contactId,
+        contact_id: validatedData.contactId || null,
         deal_id: validatedData.dealId,
         type: validatedData.type,
-        title: validatedData.title,
+        task_type: validatedData.taskType,
+        title: finalTitle,
         description: validatedData.description,
         due_date: validatedData.dueDate ? new Date(validatedData.dueDate) : null,
         status: validatedData.status,
         priority: validatedData.priority,
         assigned_to: validatedData.assignedTo,
+        created_by: creatorId,
         location: validatedData.location,
         duration_minutes: validatedData.durationMinutes,
         reminder_minutes: validatedData.reminderMinutes,

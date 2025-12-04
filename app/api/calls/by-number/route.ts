@@ -4,6 +4,8 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { formatPhoneNumberForTelnyx, last10Digits, stripBidiAndZeroWidth } from '@/lib/phone-utils'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     // Role-based access: team users may only fetch logs for their assigned number
     const role = session.user.role
-    if (role === 'TEAM_USER' || role === 'TEAM_MEMBER') {
+    if (role === 'TEAM_USER' || role === 'TEAM_USER') {
       const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { assignedPhoneNumber: true } })
       const assigned = user?.assignedPhoneNumber || ''
       const assignedLast10 = last10Digits(assigned)

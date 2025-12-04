@@ -1,0 +1,968 @@
+You have triggered an unhandledRejection, you may have forgotten to catch a Promise rejection:
+Error: Could not find a production build in the '.next' directory. Try building your app with 'next build' before starting the production server. https://nextjs.org/docs/messages/production-start-no-build-id
+    at setupFsCheck (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-utils/filesystem.js:151:19)
+    at async initialize (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-server.js:62:23)
+    at async NextCustomServer.prepare (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/next.js:242:28)
+2025-11-30T00:16:09: ❌ [API DEBUG] Error fetching contacts: PrismaClientValidationError: 
+Invalid `prisma.contact.findMany()` invocation:
+
+{
+  where: {},
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    llcName: true,
+    phone1: true,
+    phone2: true,
+    phone3: true,
+    email1: true,
+    email2: true,
+    email3: true,
+    propertyAddress: true,
+    contactAddress: true,
+    city: true,
+    state: true,
+    propertyCounty: true,
+    propertyType: true,
+    bedrooms: true,
+    totalBathrooms: true,
+    buildingSqft: true,
+    effectiveYearBuilt: true,
+    estValue: true,
+    estEquity: true,
+    dnc: true,
+    dncReason: true,
+    dealStatus: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    contact_tags: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true
+          }
+        }
+      }
+    },
+    activities: {
+      where: {
+        type: "task",
+        status: {
+          not: "completed"
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        priority: true,
+        due_date: true
+      },
+      orderBy: {
+        due_date: "asc"
+      },
+      take: 5
+    },
+    deals: {
+    ~~~~~
+      select: {
+        id: true,
+        name: true,
+        stage: true,
+        value: true,
+        probability: true,
+        expected_close_date: true,
+        created_at: true
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      take: 5
+    },
+?   fullName?: true,
+?   fullPropertyAddress?: true,
+?   contactCityStateZip?: true,
+?   zipCode?: true,
+?   lotSizeSqft?: true,
+?   lastSaleDate?: true,
+?   lastSaleAmount?: true,
+?   estRemainingBalance?: true,
+?   customFields?: true,
+?   messages?: true,
+?   telnyx_messages?: true,
+?   conversations?: true,
+?   email_messages?: true,
+?   email_conversations?: true,
+?   assignments?: true,
+?   properties?: true,
+?   powerDialerQueue?: true,
+?   powerDialerCalls?: true,
+?   powerDialerListContacts?: true,
+?   _count?: true
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  skip: 0,
+  take: 50
+}
+
+Unknown field `deals` for select statement on model `Contact`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async Promise.all (index 1)
+    at async h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:7660)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  clientVersion: '6.12.0'
+}
+2025-11-30T00:16:09: ❌ [API DEBUG] Error stack: PrismaClientValidationError: 
+Invalid `prisma.contact.findMany()` invocation:
+
+{
+  where: {},
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    llcName: true,
+    phone1: true,
+    phone2: true,
+    phone3: true,
+    email1: true,
+    email2: true,
+    email3: true,
+    propertyAddress: true,
+    contactAddress: true,
+    city: true,
+    state: true,
+    propertyCounty: true,
+    propertyType: true,
+    bedrooms: true,
+    totalBathrooms: true,
+    buildingSqft: true,
+    effectiveYearBuilt: true,
+    estValue: true,
+    estEquity: true,
+    dnc: true,
+    dncReason: true,
+    dealStatus: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    contact_tags: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true
+          }
+        }
+      }
+    },
+    activities: {
+      where: {
+        type: "task",
+        status: {
+          not: "completed"
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        priority: true,
+        due_date: true
+      },
+      orderBy: {
+        due_date: "asc"
+      },
+      take: 5
+    },
+    deals: {
+    ~~~~~
+      select: {
+        id: true,
+        name: true,
+        stage: true,
+        value: true,
+        probability: true,
+        expected_close_date: true,
+        created_at: true
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      take: 5
+    },
+?   fullName?: true,
+?   fullPropertyAddress?: true,
+?   contactCityStateZip?: true,
+?   zipCode?: true,
+?   lotSizeSqft?: true,
+?   lastSaleDate?: true,
+?   lastSaleAmount?: true,
+?   estRemainingBalance?: true,
+?   customFields?: true,
+?   messages?: true,
+?   telnyx_messages?: true,
+?   conversations?: true,
+?   email_messages?: true,
+?   email_conversations?: true,
+?   assignments?: true,
+?   properties?: true,
+?   powerDialerQueue?: true,
+?   powerDialerCalls?: true,
+?   powerDialerListContacts?: true,
+?   _count?: true
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  skip: 0,
+  take: 50
+}
+
+Unknown field `deals` for select statement on model `Contact`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async Promise.all (index 1)
+    at async h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:7660)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+2025-11-30T00:16:09:  ⨯ ReferenceError: search is not defined
+    at h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:11260)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28)
+    at async NextNodeServer.renderToResponseWithComponentsImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1482:28)
+    at async NextNodeServer.renderPageComponent (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1908:24)
+    at async NextNodeServer.renderToResponseImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1946:32)
+    at async NextNodeServer.pipeImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:921:25)
+2025-11-30T00:16:09: ❌ [API DEBUG] Error fetching contacts: PrismaClientValidationError: 
+Invalid `prisma.contact.findMany()` invocation:
+
+{
+  where: {},
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    llcName: true,
+    phone1: true,
+    phone2: true,
+    phone3: true,
+    email1: true,
+    email2: true,
+    email3: true,
+    propertyAddress: true,
+    contactAddress: true,
+    city: true,
+    state: true,
+    propertyCounty: true,
+    propertyType: true,
+    bedrooms: true,
+    totalBathrooms: true,
+    buildingSqft: true,
+    effectiveYearBuilt: true,
+    estValue: true,
+    estEquity: true,
+    dnc: true,
+    dncReason: true,
+    dealStatus: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    contact_tags: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true
+          }
+        }
+      }
+    },
+    activities: {
+      where: {
+        type: "task",
+        status: {
+          not: "completed"
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        priority: true,
+        due_date: true
+      },
+      orderBy: {
+        due_date: "asc"
+      },
+      take: 5
+    },
+    deals: {
+    ~~~~~
+      select: {
+        id: true,
+        name: true,
+        stage: true,
+        value: true,
+        probability: true,
+        expected_close_date: true,
+        created_at: true
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      take: 5
+    },
+?   fullName?: true,
+?   fullPropertyAddress?: true,
+?   contactCityStateZip?: true,
+?   zipCode?: true,
+?   lotSizeSqft?: true,
+?   lastSaleDate?: true,
+?   lastSaleAmount?: true,
+?   estRemainingBalance?: true,
+?   customFields?: true,
+?   messages?: true,
+?   telnyx_messages?: true,
+?   conversations?: true,
+?   email_messages?: true,
+?   email_conversations?: true,
+?   assignments?: true,
+?   properties?: true,
+?   powerDialerQueue?: true,
+?   powerDialerCalls?: true,
+?   powerDialerListContacts?: true,
+?   _count?: true
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  skip: 0,
+  take: 50
+}
+
+Unknown field `deals` for select statement on model `Contact`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async Promise.all (index 1)
+    at async h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:7660)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  clientVersion: '6.12.0'
+}
+2025-11-30T00:16:09: ❌ [API DEBUG] Error stack: PrismaClientValidationError: 
+Invalid `prisma.contact.findMany()` invocation:
+
+{
+  where: {},
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    llcName: true,
+    phone1: true,
+    phone2: true,
+    phone3: true,
+    email1: true,
+    email2: true,
+    email3: true,
+    propertyAddress: true,
+    contactAddress: true,
+    city: true,
+    state: true,
+    propertyCounty: true,
+    propertyType: true,
+    bedrooms: true,
+    totalBathrooms: true,
+    buildingSqft: true,
+    effectiveYearBuilt: true,
+    estValue: true,
+    estEquity: true,
+    dnc: true,
+    dncReason: true,
+    dealStatus: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    contact_tags: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true
+          }
+        }
+      }
+    },
+    activities: {
+      where: {
+        type: "task",
+        status: {
+          not: "completed"
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        priority: true,
+        due_date: true
+      },
+      orderBy: {
+        due_date: "asc"
+      },
+      take: 5
+    },
+    deals: {
+    ~~~~~
+      select: {
+        id: true,
+        name: true,
+        stage: true,
+        value: true,
+        probability: true,
+        expected_close_date: true,
+        created_at: true
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      take: 5
+    },
+?   fullName?: true,
+?   fullPropertyAddress?: true,
+?   contactCityStateZip?: true,
+?   zipCode?: true,
+?   lotSizeSqft?: true,
+?   lastSaleDate?: true,
+?   lastSaleAmount?: true,
+?   estRemainingBalance?: true,
+?   customFields?: true,
+?   messages?: true,
+?   telnyx_messages?: true,
+?   conversations?: true,
+?   email_messages?: true,
+?   email_conversations?: true,
+?   assignments?: true,
+?   properties?: true,
+?   powerDialerQueue?: true,
+?   powerDialerCalls?: true,
+?   powerDialerListContacts?: true,
+?   _count?: true
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  skip: 0,
+  take: 50
+}
+
+Unknown field `deals` for select statement on model `Contact`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async Promise.all (index 1)
+    at async h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:7660)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+2025-11-30T00:16:09:  ⨯ ReferenceError: search is not defined
+    at h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:11260)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28)
+    at async NextNodeServer.renderToResponseWithComponentsImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1482:28)
+    at async NextNodeServer.renderPageComponent (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1908:24)
+    at async NextNodeServer.renderToResponseImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1946:32)
+    at async NextNodeServer.pipeImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:921:25)
+2025-11-30T00:16:10: ❌ [API DEBUG] Error fetching contacts: PrismaClientValidationError: 
+Invalid `prisma.contact.findMany()` invocation:
+
+{
+  where: {},
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    llcName: true,
+    phone1: true,
+    phone2: true,
+    phone3: true,
+    email1: true,
+    email2: true,
+    email3: true,
+    propertyAddress: true,
+    contactAddress: true,
+    city: true,
+    state: true,
+    propertyCounty: true,
+    propertyType: true,
+    bedrooms: true,
+    totalBathrooms: true,
+    buildingSqft: true,
+    effectiveYearBuilt: true,
+    estValue: true,
+    estEquity: true,
+    dnc: true,
+    dncReason: true,
+    dealStatus: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    contact_tags: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true
+          }
+        }
+      }
+    },
+    activities: {
+      where: {
+        type: "task",
+        status: {
+          not: "completed"
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        priority: true,
+        due_date: true
+      },
+      orderBy: {
+        due_date: "asc"
+      },
+      take: 5
+    },
+    deals: {
+    ~~~~~
+      select: {
+        id: true,
+        name: true,
+        stage: true,
+        value: true,
+        probability: true,
+        expected_close_date: true,
+        created_at: true
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      take: 5
+    },
+?   fullName?: true,
+?   fullPropertyAddress?: true,
+?   contactCityStateZip?: true,
+?   zipCode?: true,
+?   lotSizeSqft?: true,
+?   lastSaleDate?: true,
+?   lastSaleAmount?: true,
+?   estRemainingBalance?: true,
+?   customFields?: true,
+?   messages?: true,
+?   telnyx_messages?: true,
+?   conversations?: true,
+?   email_messages?: true,
+?   email_conversations?: true,
+?   assignments?: true,
+?   properties?: true,
+?   powerDialerQueue?: true,
+?   powerDialerCalls?: true,
+?   powerDialerListContacts?: true,
+?   _count?: true
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  skip: 0,
+  take: 50
+}
+
+Unknown field `deals` for select statement on model `Contact`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async Promise.all (index 1)
+    at async h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:7660)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  clientVersion: '6.12.0'
+}
+2025-11-30T00:16:10: ❌ [API DEBUG] Error stack: PrismaClientValidationError: 
+Invalid `prisma.contact.findMany()` invocation:
+
+{
+  where: {},
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    llcName: true,
+    phone1: true,
+    phone2: true,
+    phone3: true,
+    email1: true,
+    email2: true,
+    email3: true,
+    propertyAddress: true,
+    contactAddress: true,
+    city: true,
+    state: true,
+    propertyCounty: true,
+    propertyType: true,
+    bedrooms: true,
+    totalBathrooms: true,
+    buildingSqft: true,
+    effectiveYearBuilt: true,
+    estValue: true,
+    estEquity: true,
+    dnc: true,
+    dncReason: true,
+    dealStatus: true,
+    notes: true,
+    avatarUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    contact_tags: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            name: true,
+            color: true
+          }
+        }
+      }
+    },
+    activities: {
+      where: {
+        type: "task",
+        status: {
+          not: "completed"
+        }
+      },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        status: true,
+        priority: true,
+        due_date: true
+      },
+      orderBy: {
+        due_date: "asc"
+      },
+      take: 5
+    },
+    deals: {
+    ~~~~~
+      select: {
+        id: true,
+        name: true,
+        stage: true,
+        value: true,
+        probability: true,
+        expected_close_date: true,
+        created_at: true
+      },
+      orderBy: {
+        created_at: "desc"
+      },
+      take: 5
+    },
+?   fullName?: true,
+?   fullPropertyAddress?: true,
+?   contactCityStateZip?: true,
+?   zipCode?: true,
+?   lotSizeSqft?: true,
+?   lastSaleDate?: true,
+?   lastSaleAmount?: true,
+?   estRemainingBalance?: true,
+?   customFields?: true,
+?   messages?: true,
+?   telnyx_messages?: true,
+?   conversations?: true,
+?   email_messages?: true,
+?   email_conversations?: true,
+?   assignments?: true,
+?   properties?: true,
+?   powerDialerQueue?: true,
+?   powerDialerCalls?: true,
+?   powerDialerListContacts?: true,
+?   _count?: true
+  },
+  orderBy: {
+    createdAt: "desc"
+  },
+  skip: 0,
+  take: 50
+}
+
+Unknown field `deals` for select statement on model `Contact`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async Promise.all (index 1)
+    at async h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:7660)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+2025-11-30T00:16:10:  ⨯ ReferenceError: search is not defined
+    at h (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/route.js:1:11260)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28)
+    at async NextNodeServer.renderToResponseWithComponentsImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1482:28)
+    at async NextNodeServer.renderPageComponent (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1908:24)
+    at async NextNodeServer.renderToResponseImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1946:32)
+    at async NextNodeServer.pipeImpl (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:921:25)
+2025-11-30T00:16:21: Error updating contact: o [ConnectionError]
+    at s._request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:456039)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457310
+    at async s.request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457188)
+    at async B.i [as update] (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:396310)
+    at async s.updateContact (/var/www/adlercapitalcrm.com/.next/server/chunks/3743.js:1:6591)
+    at async y (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/[id]/route.js:1:8500)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  options: { redaction: { type: 'replace', additionalKeys: [] } },
+  meta: {
+    body: undefined,
+    statusCode: 0,
+    headers: {},
+    meta: {
+      context: null,
+      request: [Object],
+      name: 'elasticsearch-js',
+      connection: [Object],
+      attempts: 3,
+      aborted: false
+    },
+    warnings: null
+  }
+}
+2025-11-30T00:16:21: ES updateContact failed (non-fatal): o [ConnectionError]
+    at s._request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:456039)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457310
+    at async s.request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457188)
+    at async B.i [as update] (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:396310)
+    at async s.updateContact (/var/www/adlercapitalcrm.com/.next/server/chunks/3743.js:1:6591)
+    at async y (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/[id]/route.js:1:8500)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  options: { redaction: { type: 'replace', additionalKeys: [] } },
+  meta: {
+    body: undefined,
+    statusCode: 0,
+    headers: {},
+    meta: {
+      context: null,
+      request: [Object],
+      name: 'elasticsearch-js',
+      connection: [Object],
+      attempts: 3,
+      aborted: false
+    },
+    warnings: null
+  }
+}
+2025-11-30T00:16:34: Error updating contact: o [ConnectionError]
+    at s._request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:456039)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457310
+    at async s.request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457188)
+    at async B.i [as update] (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:396310)
+    at async s.updateContact (/var/www/adlercapitalcrm.com/.next/server/chunks/3743.js:1:6591)
+    at async y (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/[id]/route.js:1:8500)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  options: { redaction: { type: 'replace', additionalKeys: [] } },
+  meta: {
+    body: undefined,
+    statusCode: 0,
+    headers: {},
+    meta: {
+      context: null,
+      request: [Object],
+      name: 'elasticsearch-js',
+      connection: [Object],
+      attempts: 3,
+      aborted: false
+    },
+    warnings: null
+  }
+}
+2025-11-30T00:16:34: ES updateContact failed (non-fatal): o [ConnectionError]
+    at s._request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:456039)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async /var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457310
+    at async s.request (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:457188)
+    at async B.i [as update] (/var/www/adlercapitalcrm.com/.next/server/chunks/180.js:1:396310)
+    at async s.updateContact (/var/www/adlercapitalcrm.com/.next/server/chunks/3743.js:1:6591)
+    at async y (/var/www/adlercapitalcrm.com/.next/server/app/api/contacts/[id]/route.js:1:8500)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291) {
+  options: { redaction: { type: 'replace', additionalKeys: [] } },
+  meta: {
+    body: undefined,
+    statusCode: 0,
+    headers: {},
+    meta: {
+      context: null,
+      request: [Object],
+      name: 'elasticsearch-js',
+      connection: [Object],
+      attempts: 3,
+      aborted: false
+    },
+    warnings: null
+  }
+}
+You have triggered an unhandledRejection, you may have forgotten to catch a Promise rejection:
+Error: ENOENT: no such file or directory, open '/var/www/adlercapitalcrm.com/.next/prerender-manifest.json'
+    at async open (node:internal/fs/promises:641:25)
+    at async Object.readFile (node:internal/fs/promises:1245:14)
+    at async setupFsCheck (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-utils/filesystem.js:188:40)
+    at async initialize (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-server.js:62:23)
+    at async NextCustomServer.prepare (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/next.js:242:28)
+2025-11-30T00:27:26: [TASKS POST] Error creating task: PrismaClientKnownRequestError: 
+Invalid `prisma.activity.create()` invocation:
+
+
+Foreign key constraint violated on the constraint: `activities_contact_id_fkey`
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7459)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async p (/var/www/adlercapitalcrm.com/.next/server/app/api/tasks/route.js:1:2448)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28) {
+  code: 'P2003',
+  meta: { modelName: 'Activity', constraint: 'activities_contact_id_fkey' },
+  clientVersion: '6.12.0'
+}
+2025-11-30T00:27:28: [TASKS POST] Error creating task: PrismaClientKnownRequestError: 
+Invalid `prisma.activity.create()` invocation:
+
+
+Foreign key constraint violated on the constraint: `activities_contact_id_fkey`
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7459)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async p (/var/www/adlercapitalcrm.com/.next/server/app/api/tasks/route.js:1:2448)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28) {
+  code: 'P2003',
+  meta: { modelName: 'Activity', constraint: 'activities_contact_id_fkey' },
+  clientVersion: '6.12.0'
+}
+2025-11-30T00:27:28: [TASKS POST] Error creating task: PrismaClientKnownRequestError: 
+Invalid `prisma.activity.create()` invocation:
+
+
+Foreign key constraint violated on the constraint: `activities_contact_id_fkey`
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7459)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async p (/var/www/adlercapitalcrm.com/.next/server/app/api/tasks/route.js:1:2448)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28) {
+  code: 'P2003',
+  meta: { modelName: 'Activity', constraint: 'activities_contact_id_fkey' },
+  clientVersion: '6.12.0'
+}
+2025-11-30T00:27:29: [TASKS POST] Error creating task: PrismaClientKnownRequestError: 
+Invalid `prisma.activity.create()` invocation:
+
+
+Foreign key constraint violated on the constraint: `activities_contact_id_fkey`
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7459)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async p (/var/www/adlercapitalcrm.com/.next/server/app/api/tasks/route.js:1:2448)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28) {
+  code: 'P2003',
+  meta: { modelName: 'Activity', constraint: 'activities_contact_id_fkey' },
+  clientVersion: '6.12.0'
+}
+You have triggered an unhandledRejection, you may have forgotten to catch a Promise rejection:
+Error: ENOENT: no such file or directory, open '/var/www/adlercapitalcrm.com/.next/prerender-manifest.json'
+    at async open (node:internal/fs/promises:641:25)
+    at async Object.readFile (node:internal/fs/promises:1245:14)
+    at async setupFsCheck (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-utils/filesystem.js:188:40)
+    at async initialize (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-server.js:62:23)
+    at async NextCustomServer.prepare (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/next.js:242:28)

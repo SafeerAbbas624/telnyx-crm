@@ -10,7 +10,7 @@ import Footer from "./footer"
 import { useMediaQuery } from "@/hooks/use-media-query"
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("dashboard")
+  const [activeTab, setActiveTab] = useState("contacts")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const isMobile = useMediaQuery("(max-width: 768px)")

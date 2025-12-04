@@ -28,9 +28,11 @@ interface NewEmailModalProps {
   onClose: () => void
   emailAccount: EmailAccount | null
   onEmailSent: () => void
+  prefilledContact?: Contact | null
+  prefilledEmail?: string
 }
 
-export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: NewEmailModalProps) {
+export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, prefilledContact, prefilledEmail }: NewEmailModalProps) {
   const [toEmail, setToEmail] = useState('')
   const [ccEmail, setCcEmail] = useState('')
   const [bccEmail, setBccEmail] = useState('')
@@ -43,27 +45,35 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent }: Ne
   const [showSuggestions, setShowSuggestions] = useState(false)
   const { toast } = useToast()
 
-  // Load draft from localStorage on mount
+  // Load draft from localStorage on mount and prefill contact if provided
   useEffect(() => {
     if (isOpen && emailAccount) {
-      const draftKey = `email-draft-${emailAccount.id}`
-      const savedDraft = localStorage.getItem(draftKey)
-      if (savedDraft) {
-        try {
-          const draft = JSON.parse(savedDraft)
-          setToEmail(draft.toEmail || '')
-          setCcEmail(draft.ccEmail || '')
-          setBccEmail(draft.bccEmail || '')
-          setSubject(draft.subject || '')
-          setMessage(draft.message || '')
-          setShowCc(!!draft.ccEmail)
-          setShowBcc(!!draft.bccEmail)
-        } catch (err) {
-          console.error('Failed to load draft:', err)
+      // First, try to prefill with provided contact or email
+      if (prefilledContact?.email1) {
+        setToEmail(prefilledContact.email1)
+      } else if (prefilledEmail) {
+        setToEmail(prefilledEmail)
+      } else {
+        // Otherwise, load draft from localStorage
+        const draftKey = `email-draft-${emailAccount.id}`
+        const savedDraft = localStorage.getItem(draftKey)
+        if (savedDraft) {
+          try {
+            const draft = JSON.parse(savedDraft)
+            setToEmail(draft.toEmail || '')
+            setCcEmail(draft.ccEmail || '')
+            setBccEmail(draft.bccEmail || '')
+            setSubject(draft.subject || '')
+            setMessage(draft.message || '')
+            setShowCc(!!draft.ccEmail)
+            setShowBcc(!!draft.bccEmail)
+          } catch (err) {
+            console.error('Failed to load draft:', err)
+          }
         }
       }
     }
-  }, [isOpen, emailAccount])
+  }, [isOpen, emailAccount, prefilledContact, prefilledEmail])
 
   // Auto-save draft to localStorage every 5 seconds
   useEffect(() => {

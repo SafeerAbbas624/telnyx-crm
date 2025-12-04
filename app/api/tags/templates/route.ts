@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     // If contactIds provided, apply tags to those contacts
     if (contactIds.length > 0) {
       // For team members, verify they have access to all contacts
-      if (session.user.role === 'TEAM_MEMBER') {
+      if (session.user.role === 'TEAM_USER') {
         const assignedContacts = await prisma.contactAssignment.findMany({
           where: {
             userId: session.user.id,

@@ -269,29 +269,34 @@ class ElasticsearchClient {
 
     // Full-text search across multiple fields
     if (search) {
-      must.push({
-        multi_match: {
-          query: search,
-          fields: [
-            'fullName^3',
-            'firstName^2',
-            'lastName^2',
-            'llcName^2',
-            'phone1',
-            'phone2',
-            'phone3',
-            'email1',
-            'email2',
-            'email3',
-            'propertyAddress',
-            'contactAddress',
-            'tags^2'
-          ],
-          type: 'best_fields',
-          fuzziness: 'AUTO',
-          operator: 'or'
-        }
-      })
+      // Trim whitespace to handle trailing/leading spaces
+      const trimmedSearch = search.trim();
+
+      if (trimmedSearch) {
+        must.push({
+          multi_match: {
+            query: trimmedSearch,
+            fields: [
+              'fullName^3',
+              'firstName^2',
+              'lastName^2',
+              'llcName^2',
+              'phone1',
+              'phone2',
+              'phone3',
+              'email1',
+              'email2',
+              'email3',
+              'propertyAddress',
+              'contactAddress',
+              'tags^2'
+            ],
+            type: 'cross_fields', // Changed from 'best_fields' to 'cross_fields' for better multi-word matching
+            fuzziness: 'AUTO',
+            operator: 'and' // Changed from 'or' to 'and' so "Eunice Choi" requires both words
+          }
+        })
+      }
     }
 
     // Filters

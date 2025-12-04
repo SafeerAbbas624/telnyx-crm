@@ -5,19 +5,19 @@ import { Badge } from "@/components/ui/badge"
 import ContactsRedesign from "./contacts-redesign"
 import TextCenter from "./text/text-center"
 import EmailCenter from "./email/email-center"
-import DashboardOverviewFigma from "./dashboard-overview-figma"
-import CallsCenter from "./calls/calls-center"
+import CallsCenter from "./calls/calls-center-modern"
 import BillingRedesign from "./billing/billing-redesign"
 import SettingsPage from "./settings/settings-page"
 import TeamOverview from "./admin/team-overview"
 import DealsPipeline from "./deals/deals-pipeline"
 import LoanCoPilot from "./loan-copilot/loan-copilot"
 import Sequences from "./sequences/sequences"
+import TasksModern from "./tasks/tasks-modern"
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from "react";
 
-// Dynamically import the ImportPage component with no SSR
-const ImportPage = dynamic(() => import('@/app/import/page'), {
+// Dynamically import the new ImportV2 component with no SSR
+const ImportV2Page = dynamic(() => import('@/app/import-v2/page'), {
   ssr: false,
   loading: () => <div className="flex items-center justify-center h-64">Loading...</div>
 });
@@ -54,10 +54,10 @@ export default function DashboardTabs({ activeTab, setActiveTab, selectedContact
   // Render content based on activeTab without the tab header
   const renderContent = () => {
     switch (activeTab) {
-      case "dashboard":
-        return <DashboardOverviewFigma />
       case "contacts":
         return <ContactsRedesign />
+      case "tasks":
+        return <TasksModern />
       case "deals":
         return <DealsPipeline />
       case "loan-copilot":
@@ -73,13 +73,13 @@ export default function DashboardTabs({ activeTab, setActiveTab, selectedContact
       case "billing":
         return <BillingRedesign />
       case "import":
-        return <ImportPage />
+        return <ImportV2Page />
       case "team-overview":
         return <TeamOverview />
       case "settings":
         return <SettingsPage />
       default:
-        return <DashboardOverviewFigma />
+        return <ContactsRedesign />
     }
   }
 

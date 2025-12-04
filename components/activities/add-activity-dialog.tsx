@@ -223,7 +223,7 @@ export default function AddActivityDialog({
                   {formData.dueDate ? format(formData.dueDate, "PPP") : "Pick a date"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0">
+              <PopoverContent className="w-auto p-0 z-[9999]" align="start" sideOffset={5}>
                 <Calendar
                   mode="single"
                   selected={formData.dueDate}

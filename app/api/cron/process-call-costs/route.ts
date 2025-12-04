@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processCallCostFetchJobs } from '@/lib/jobs/fetch-call-cost'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * Cron endpoint to process pending call cost fetch jobs
- * 
+ *
  * This should be called periodically (e.g., every minute) by a cron service
- * 
+ *
  * GET /api/cron/process-call-costs
  */
 export async function GET(request: NextRequest) {

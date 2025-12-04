@@ -1,7 +1,8 @@
 "use client"
 
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
-  Home,
   Users,
   MessageSquare,
   Upload,
@@ -12,7 +13,8 @@ import {
   UserCheck,
   Target,
   FileText,
-  Zap
+  Zap,
+  CheckSquare
 } from "lucide-react"
 
 interface SidebarProps {
@@ -22,10 +24,10 @@ interface SidebarProps {
   onClose?: () => void
 }
 
-export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen = true, onClose }: SidebarProps) {
+export default function Sidebar({ activeTab = "contacts", setActiveTab, isOpen = true, onClose }: SidebarProps) {
   const menuItems = [
-    { id: "dashboard", label: "Dashboard", icon: Home },
     { id: "contacts", label: "Contacts", icon: Users },
+    { id: "tasks", label: "Tasks", icon: CheckSquare },
     { id: "deals", label: "Deals", icon: Target },
     { id: "loan-copilot", label: "Loan Co-Pilot", icon: FileText },
     { id: "sequences", label: "Sequences", icon: Zap },
@@ -38,12 +40,87 @@ export default function Sidebar({ activeTab = "dashboard", setActiveTab, isOpen 
     { id: "settings", label: "Settings", icon: Settings },
   ]
 
+  const router = useRouter()
+
   const handleTabClick = (tabId: string) => {
+    // Special handling for pages with their own routes
+    if (tabId === "contacts") {
+      router.push("/contacts")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "import") {
+      router.push("/import-v2")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "tasks") {
+      router.push("/tasks")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "deals") {
+      router.push("/deals")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "settings") {
+      router.push("/settings")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "billing") {
+      router.push("/billing")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "calls") {
+      router.push("/calls")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    if (tabId === "import") {
+      router.push("/import-v2")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+    // For dashboard sections (messaging, email, etc.), navigate to dashboard with section param
     if (setActiveTab) {
       setActiveTab(tabId)
-    }
-    if (onClose) {
-      onClose()
+      router.push(`/dashboard?section=${tabId}`)
+      if (onClose) {
+        onClose()
+      }
+    } else {
+      // Otherwise, navigate to dashboard with section
+      router.push(`/dashboard?section=${tabId}`)
+      if (onClose) {
+        onClose()
+      }
     }
   }
 

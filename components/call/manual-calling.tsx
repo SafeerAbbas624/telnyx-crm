@@ -8,13 +8,24 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Phone, X, Clipboard, Mic, MicOff, Clock, User, Mail, Home, Tag } from "lucide-react"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useActivities } from "@/lib/context/activities-context"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { format } from "date-fns"
 import { Textarea } from "@/components/ui/textarea"
+import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import type { Contact } from "@/lib/types"
+
+interface TelnyxPhoneNumber {
+  id: string
+  phoneNumber: string
+  friendlyName?: string
+  state?: string
+  city?: string
+  isActive: boolean
+}
 
 export default function ManualCalling() {
   const { contacts } = useContacts()
@@ -31,6 +42,31 @@ export default function ManualCalling() {
   const [matchedContact, setMatchedContact] = useState<Contact | null>(null)
   const [showContactInfo, setShowContactInfo] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Caller ID selection
+  const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
+  const [selectedCallerId, setSelectedCallerId] = useState<string>("")
+
+  // Load available phone numbers on mount
+  useEffect(() => {
+    const loadAvailableNumbers = async () => {
+      try {
+        const response = await fetch('/api/telnyx/phone-numbers')
+        if (response.ok) {
+          const data = await response.json()
+          const numbers = Array.isArray(data) ? data : data.phoneNumbers || []
+          const activeNumbers = numbers.filter((n: TelnyxPhoneNumber) => n.isActive)
+          setAvailableNumbers(activeNumbers)
+          if (activeNumbers.length > 0 && !selectedCallerId) {
+            setSelectedCallerId(activeNumbers[0].phoneNumber)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load phone numbers:', error)
+      }
+    }
+    loadAvailableNumbers()
+  }, [])
 
   // Filter contacts based on search query
   const filteredContacts = contacts.filter((contact) => {
@@ -264,7 +300,29 @@ export default function ManualCalling() {
                 <CardTitle className="text-center">Dialer</CardTitle>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
-                <div className="mb-6">
+                {/* Caller ID Selection */}
+                <div className="mb-4">
+                  <label className="text-sm font-medium text-muted-foreground mb-2 block">Call From:</label>
+                  <Select value={selectedCallerId} onValueChange={setSelectedCallerId}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select caller ID" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableNumbers.map((num) => (
+                        <SelectItem key={num.id} value={num.phoneNumber}>
+                          <div className="flex flex-col">
+                            <span>{formatPhoneNumberForDisplay(num.phoneNumber)}</span>
+                            {num.friendlyName && (
+                              <span className="text-xs text-muted-foreground">{num.friendlyName}</span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="mb-4">
                   <div className="relative">
                     <Input
                       ref={inputRef}

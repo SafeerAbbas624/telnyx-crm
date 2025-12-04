@@ -278,7 +278,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Team members cannot create smart tags
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       return NextResponse.json(
         { error: 'Forbidden - Team members cannot create smart tags' },
         { status: 403 }

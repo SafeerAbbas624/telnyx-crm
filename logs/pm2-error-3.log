@@ -1,0 +1,88 @@
+You have triggered an unhandledRejection, you may have forgotten to catch a Promise rejection:
+Error: ENOENT: no such file or directory, open '/var/www/adlercapitalcrm.com/.next/prerender-manifest.json'
+    at async open (node:internal/fs/promises:641:25)
+    at async Object.readFile (node:internal/fs/promises:1245:14)
+    at async setupFsCheck (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-utils/filesystem.js:188:40)
+    at async initialize (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/lib/router-server.js:62:23)
+    at async NextCustomServer.prepare (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/next.js:242:28)
+2025-11-30T02:47:14: Error updating user heartbeat: PrismaClientKnownRequestError: 
+Invalid `prisma.user.update()` invocation:
+
+
+An operation failed because it depends on one or more records that were required but not found. No record was found for an update.
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7459)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async /var/www/adlercapitalcrm.com/.next/server/app/api/user/heartbeat/route.js:1:956
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28) {
+  code: 'P2025',
+  meta: { modelName: 'User', cause: 'No record was found for an update.' },
+  clientVersion: '6.12.0'
+}
+2025-11-30T02:52:11: Error updating user heartbeat: PrismaClientKnownRequestError: 
+Invalid `prisma.user.update()` invocation:
+
+
+An operation failed because it depends on one or more records that were required but not found. No record was found for an update.
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7459)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async /var/www/adlercapitalcrm.com/.next/server/app/api/user/heartbeat/route.js:1:956
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42)
+    at async cacheEntry.responseCache.get.routeKind (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1574:28) {
+  code: 'P2025',
+  meta: { modelName: 'User', cause: 'No record was found for an update.' },
+  clientVersion: '6.12.0'
+}
+2025-11-30T02:56:21: Error updating Telnyx phone number: PrismaClientValidationError: 
+Invalid `prisma.telnyxPhoneNumber.update()` invocation:
+
+{
+  where: {
+    id: "195235c4-0a49-41a7-9e0e-dbf5e2923fc1"
+  },
+  data: {
+    friendlyName: "Fort Lauderdale Office",
+    ~~~~~~~~~~~~
+    updatedAt: new Date("2025-11-30T02:56:21.250Z"),
+?   id?: String | StringFieldUpdateOperationsInput,
+?   phoneNumber?: String | StringFieldUpdateOperationsInput,
+?   telnyxId?: String | NullableStringFieldUpdateOperationsInput | Null,
+?   state?: String | NullableStringFieldUpdateOperationsInput | Null,
+?   city?: String | NullableStringFieldUpdateOperationsInput | Null,
+?   country?: String | StringFieldUpdateOperationsInput,
+?   isActive?: Boolean | BoolFieldUpdateOperationsInput,
+?   capabilities?: TelnyxPhoneNumberUpdatecapabilitiesInput | String[],
+?   monthlyPrice?: Decimal | NullableDecimalFieldUpdateOperationsInput | Null,
+?   setupPrice?: Decimal | NullableDecimalFieldUpdateOperationsInput | Null,
+?   purchasedAt?: DateTime | DateTimeFieldUpdateOperationsInput,
+?   lastUsedAt?: DateTime | NullableDateTimeFieldUpdateOperationsInput | Null,
+?   totalSmsCount?: Int | IntFieldUpdateOperationsInput,
+?   totalCallCount?: Int | IntFieldUpdateOperationsInput,
+?   totalCost?: Decimal | DecimalFieldUpdateOperationsInput,
+?   createdAt?: DateTime | DateTimeFieldUpdateOperationsInput
+  }
+}
+
+Unknown argument `friendlyName`. Available options are marked with ?.
+    at Dn (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:29:1363)
+    at ri.handleRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:7102)
+    at ri.handleAndLogRequestError (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6784)
+    at ri.request (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:121:6491)
+    at async l (/var/www/adlercapitalcrm.com/node_modules/@prisma/client/runtime/library.js:130:9812)
+    at async d (/var/www/adlercapitalcrm.com/.next/server/app/api/telnyx/phone-numbers/[id]/route.js:1:1081)
+    at async /var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:36957
+    at async eC.execute (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:27552)
+    at async eC.handle (/var/www/adlercapitalcrm.com/node_modules/next/dist/compiled/next-server/app-route.runtime.prod.js:6:38291)
+    at async doRender (/var/www/adlercapitalcrm.com/node_modules/next/dist/server/base-server.js:1352:42) {
+  clientVersion: '6.12.0'
+}

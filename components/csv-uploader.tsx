@@ -88,13 +88,26 @@ export function CsvUploader({ open, onOpenChange }: CsvUploaderProps) {
     if (!type) return undefined
     const lowerType = type.toLowerCase().trim()
 
-    if (lowerType.includes("single family")) return "Single Family"
-    if (lowerType.includes("duplex")) return "Duplex"
-    if (lowerType.includes("triplex")) return "Triplex"
-    if (lowerType.includes("quadplex")) return "Quadplex"
+    // Duplex - "Duplex (2 units, any combination)" -> "Duplex"
+    if (lowerType.includes("duplex") || lowerType.includes("2 unit") || lowerType.includes("(2 units")) return "Duplex"
+    if (lowerType.includes("triplex") || lowerType.includes("3 unit")) return "Triplex"
+    if (lowerType.includes("quadplex") || lowerType.includes("4 unit")) return "Quadplex"
+
+    // Condo - "Condominium (Residential)" -> "Condo"
+    if (lowerType.includes("condo")) return "Condo"
+
+    // Multi-Family 2+ units - "Multi-Family Dwellings (Generic, 2+)" -> "Multi-Family 2+ units"
+    if (lowerType.includes("multi-family dwellings") || lowerType.includes("generic, 2+") ||
+        (lowerType.includes("multi") && lowerType.includes("family") && lowerType.includes("2+")))
+      return "Multi-Family 2+ units"
+
+    // Multi Family 5+
     if (lowerType.includes("multi-family") || lowerType.includes("multi family") || lowerType.includes("5+"))
       return "Multi Family 5+"
-    if (lowerType.includes("condo")) return "Condo"
+
+    // Single-Fam - "Single Family Residential" -> "Single-Fam"
+    if (lowerType.includes("single family")) return "Single-Fam"
+
     if (lowerType.includes("townhouse")) return "Townhouse"
     if (lowerType.includes("land")) return "Land"
     if (lowerType.includes("commercial")) return "Commercial"

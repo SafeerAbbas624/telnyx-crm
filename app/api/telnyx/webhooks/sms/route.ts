@@ -344,9 +344,11 @@ async function handleMessageReceived(data: any) {
     }
 
     // Upsert/merge conversation for this contact using normalized number with last-10 fallback
+    // CRITICAL: Track our_number (the Telnyx line they texted) for multi-number routing
     if (contact && prisma.conversation) {
       const normalized = fromFormatted || fromRaw
       const last10From = last10Digits(fromRaw)
+      const ourNumber = formatPhoneNumberForTelnyx(toRaw) || toRaw // The Telnyx line they texted
 
       // Try to find an existing conversation by exact normalized or last-10 match
       const existing = await prisma.conversation.findFirst({
@@ -362,10 +364,12 @@ async function handleMessageReceived(data: any) {
 
       if (existing) {
         // Update existing conversation, and migrate its phone_number to normalized if needed
+        // Also set our_number if not already set, or update if different
         await prisma.conversation.update({
           where: { id: existing.id },
           data: {
             phone_number: normalized,
+            our_number: ourNumber, // Track which of our lines they texted
             last_message_content: data.text,
             last_message_at: new Date(),
             last_message_direction: 'inbound',
@@ -375,11 +379,12 @@ async function handleMessageReceived(data: any) {
           }
         })
       } else {
-        // Create a new conversation
+        // Create a new conversation with our_number set
         await prisma.conversation.create({
           data: {
             contact_id: contact.id,
             phone_number: normalized,
+            our_number: ourNumber, // Track which of our lines they texted
             channel: 'sms',
             last_message_content: data.text,
             last_message_at: new Date(),

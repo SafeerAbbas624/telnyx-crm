@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card } from "@/components/ui/card"
+import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -26,6 +26,7 @@ import { PowerDialerEngine, type QueueItem, type ActiveCall, type PowerDialerSta
 import { LocalFilterWrapper } from "@/components/calls/local-filter-wrapper"
 import AdvancedFiltersRedesign from "@/components/contacts/advanced-filters-redesign"
 import ContactName from "@/components/contacts/contact-name"
+import { PowerDialerListsManager } from "@/components/calls/power-dialer-lists-manager"
 
 interface TelnyxPhoneNumber {
   id: string
@@ -95,6 +96,10 @@ export default function PowerDialerTab() {
   const [history, setHistory] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isFiltersOpen, setIsFiltersOpen] = useState(false)
+
+  // List management state
+  const [selectedListId, setSelectedListId] = useState<string | null>(null)
+  const [showListsManager, setShowListsManager] = useState(false)
 
   // Pagination for contacts
   const [contactsPage, setContactsPage] = useState(1)
@@ -237,8 +242,9 @@ export default function PowerDialerTab() {
   }
 
   const handleStartDialing = async () => {
-    if (queue.length === 0) {
-      toast({ title: 'Error', description: 'Queue is empty', variant: 'destructive' })
+    // If starting from a list, we don't need queue to be pre-populated
+    if (!selectedListId && queue.length === 0) {
+      toast({ title: 'Error', description: 'Queue is empty or select a list', variant: 'destructive' })
       return
     }
 
@@ -252,16 +258,36 @@ export default function PowerDialerTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contactIds: queue.map(q => q.contactId),
+          contactIds: selectedListId ? undefined : queue.map(q => q.contactId),
           selectedNumbers,
           concurrentLines,
+          listId: selectedListId || undefined,
         })
       })
 
       if (!res.ok) throw new Error('Failed to create session')
 
-      const { session } = await res.json()
+      const { session, queuedCount } = await res.json()
       setSessionId(session.id)
+
+      // If starting from list, update queue with the queued items
+      if (selectedListId && queuedCount > 0) {
+        // Reload queue from session
+        const sessionRes = await fetch(`/api/power-dialer/session?sessionId=${session.id}`)
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json()
+          const newQueue: QueueItem[] = sessionData.queueItems.map((item: any) => ({
+            id: item.id,
+            contactId: item.contactId,
+            contact: item.contact,
+            status: item.status,
+            attemptCount: item.attemptCount,
+            maxAttempts: item.maxAttempts,
+            priority: item.priority,
+          }))
+          setQueue(newQueue)
+        }
+      }
 
       const engine = new PowerDialerEngine({
         sessionId: session.id,
@@ -341,21 +367,36 @@ export default function PowerDialerTab() {
     }
   }
 
-  const handleStop = async () => {
+  const handleStop = async (endForToday: boolean = false) => {
     if (!engineRef.current || !sessionId) return
 
     engineRef.current.stop()
     setIsDialing(false)
     setIsPaused(false)
 
+    const action = endForToday && selectedListId ? 'end_for_today' : 'stop'
+
     await fetch('/api/power-dialer/session', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, action: 'stop' })
+      body: JSON.stringify({
+        sessionId,
+        action,
+        stats: endForToday ? stats : undefined,
+      })
     })
 
-    toast({ title: 'Stopped', description: 'Power dialer stopped' })
+    const message = endForToday
+      ? 'Progress saved. You can resume this list later.'
+      : 'Power dialer stopped'
+
+    toast({ title: 'Stopped', description: message })
     loadHistory()
+
+    if (endForToday) {
+      setSelectedListId(null)
+      setQueue([])
+    }
   }
 
   const formatTime = (seconds: number) => {
@@ -419,6 +460,33 @@ export default function PowerDialerTab() {
         setHasActiveFilters(hasFilters)
       }}
     >
+      {/* Lists Manager Modal */}
+      {showListsManager && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Call Lists</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowListsManager(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <PowerDialerListsManager
+                onSelectList={(listId) => {
+                  setSelectedListId(listId)
+                  setShowListsManager(false)
+                  toast({ title: 'List Selected', description: 'Ready to start dialing from this list' })
+                }}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="flex h-full overflow-hidden">
         <div className="flex flex-1 p-6 gap-6 overflow-hidden">
         {/* Left: Statistics and Configuration */}
@@ -554,15 +622,25 @@ export default function PowerDialerTab() {
 
             {/* Start/Stop Controls */}
             {!isDialing ? (
-              <Button
-                size="sm"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm rounded-md"
-                onClick={handleStartDialing}
-                disabled={queue.length === 0 || selectedNumbers.length === 0}
-              >
-                <Play className="h-4 w-4 mr-2" />
-                Start Dialing
-              </Button>
+              <div className="space-y-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setShowListsManager(!showListsManager)}
+                >
+                  {selectedListId ? '📋 List Selected' : '📋 Select List'}
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-sm rounded-md w-full"
+                  onClick={handleStartDialing}
+                  disabled={(queue.length === 0 && !selectedListId) || selectedNumbers.length === 0}
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Dialing
+                </Button>
+              </div>
             ) : (
               <div className="flex gap-4">
                 <Button
@@ -585,9 +663,18 @@ export default function PowerDialerTab() {
                 </Button>
                 <Button
                   size="lg"
+                  variant="outline"
+                  className="px-8 py-6 text-lg"
+                  onClick={() => handleStop(true)}
+                  title="Save progress and close session"
+                >
+                  💾 End for Today
+                </Button>
+                <Button
+                  size="lg"
                   variant="destructive"
                   className="px-8 py-6 text-lg"
-                  onClick={handleStop}
+                  onClick={() => handleStop(false)}
                 >
                   <Square className="h-6 w-6 mr-2" />
                   Stop

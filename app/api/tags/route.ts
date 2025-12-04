@@ -176,7 +176,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Team members cannot perform bulk operations
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       return NextResponse.json(
         { error: 'Forbidden - Team members cannot perform bulk operations' },
         { status: 403 }

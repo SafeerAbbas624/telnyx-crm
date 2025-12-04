@@ -1,0 +1,2089 @@
+'use client';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  flexRender,
+  ColumnDef,
+  SortingState,
+  ColumnFiltersState,
+  VisibilityState,
+  ColumnSizingState,
+  ColumnOrderState,
+} from '@tanstack/react-table';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import {
+  Plus,
+  Search,
+  Calendar as CalendarIcon,
+  Phone,
+  Mail,
+  MessageSquare,
+  User,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
+  Loader2,
+  CheckCircle2,
+  Circle,
+  Clock,
+  Check,
+  Settings2,
+  GripVertical,
+} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { format } from 'date-fns';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { formatPhoneNumber } from '@/lib/format-phone';
+import { autoFitColumn } from '@/lib/excel-column-utils';
+import { useTaskUI } from '@/lib/context/task-ui-context';
+import { useSmsUI } from '@/lib/context/sms-ui-context';
+import { useEmailUI } from '@/lib/context/email-ui-context';
+import { normalizePropertyType } from '@/lib/property-type-mapper';
+
+interface Task {
+  id: string;
+  taskType?: string;
+  subject: string;
+  description?: string;
+  dueDate?: Date | string;
+  priority: 'low' | 'medium' | 'high';
+  status: 'open' | 'completed';
+  contactId?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  createdAt: Date | string;
+}
+
+interface Contact {
+  id: string;
+  firstName: string;
+  lastName?: string;
+  phone1?: string;
+  email?: string;
+  email1?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  propertyType?: string;
+}
+
+export default function TasksExcelView() {
+  // Global UI contexts
+  const { openTask } = useTaskUI();
+  const { openSms } = useSmsUI();
+  const { openEmail } = useEmailUI();
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [savedTaskTypes, setSavedTaskTypes] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    // Hide address columns by default - user can toggle them on
+    contactAddress: false,
+    contactCity: false,
+    contactState: false,
+    contactZip: false,
+    propertyType: false,
+  });
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
+  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
+  const [globalFilter, setGlobalFilter] = useState('');
+  const [rowSelection, setRowSelection] = useState({});
+  const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+  const [columnDropdownOpen, setColumnDropdownOpen] = useState(false);
+
+  // Saved views state
+  const [savedViews, setSavedViews] = useState<any[]>([]);
+  const [currentView, setCurrentView] = useState<string>('default');
+  const [defaultView, setDefaultView] = useState<string>('default');
+
+  // Inline editing state
+  const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [editValue, setEditValue] = useState<string>('');
+
+  // Create task dialog state
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [newTask, setNewTask] = useState({
+    taskType: '',
+    subject: '',
+    description: '',
+    dueDate: undefined as Date | undefined,
+    priority: 'low' as 'low' | 'medium' | 'high',
+    contactId: '',
+    contactName: '',
+    contactPhone: '',
+    contactEmail: '',
+  });
+  const [openContactSearch, setOpenContactSearch] = useState(false);
+  const [openCalendar, setOpenCalendar] = useState(false);
+
+  // Follow-up task dialog state
+  const [showFollowUpDialog, setShowFollowUpDialog] = useState(false);
+  const [completedTask, setCompletedTask] = useState<Task | null>(null);
+  const [openFollowUpCalendar, setOpenFollowUpCalendar] = useState(false);
+  const [followUpTask, setFollowUpTask] = useState({
+    subject: '',
+    dueDate: undefined as Date | undefined,
+    priority: 'medium' as 'low' | 'medium' | 'high',
+  });
+
+  // Edit task dialog state
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editTaskForm, setEditTaskForm] = useState({
+    taskType: '',
+    subject: '',
+    description: '',
+    dueDate: undefined as Date | undefined,
+    priority: 'low' as 'low' | 'medium' | 'high',
+    contactId: '',
+    contactName: '',
+    contactPhone: '',
+    contactEmail: '',
+  });
+  const [openEditCalendar, setOpenEditCalendar] = useState(false);
+  const [openEditContactSearch, setOpenEditContactSearch] = useState(false);
+
+  // Filter state
+  const [dueDateFilter, setDueDateFilter] = useState<'all' | 'overdue' | 'today' | 'week' | 'month'>('all');
+  const [taskTypeFilter, setTaskTypeFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'completed'>('open'); // Default to 'open' tasks
+  const [priorityFilter, setPriorityFilter] = useState<string[]>(['low', 'medium', 'high']); // Multi-select
+
+  useEffect(() => {
+    loadData();
+    loadSavedViews();
+  }, []);
+
+  // Load saved views from localStorage
+  const loadSavedViews = () => {
+    try {
+      const saved = localStorage.getItem('tasks_saved_views');
+      const savedDefault = localStorage.getItem('tasks_default_view');
+      if (saved) {
+        const views = JSON.parse(saved);
+        setSavedViews(views);
+
+        // Load default view if set
+        if (savedDefault && savedDefault !== 'default') {
+          const defaultViewData = views.find((v: any) => v.name === savedDefault);
+          if (defaultViewData) {
+            setColumnVisibility(defaultViewData.columnVisibility || {});
+            setColumnSizing(defaultViewData.columnSizing || {});
+            setColumnFilters(defaultViewData.columnFilters || []);
+            setSorting(defaultViewData.sorting || []);
+            setColumnOrder(defaultViewData.columnOrder || []);
+            setCurrentView(savedDefault);
+          }
+        }
+      }
+      if (savedDefault) {
+        setDefaultView(savedDefault);
+      }
+    } catch (error) {
+      console.error('Error loading saved views:', error);
+    }
+  };
+
+  // Save current view
+  const saveView = (viewName: string) => {
+    const view = {
+      name: viewName,
+      columnVisibility,
+      columnSizing,
+      columnFilters,
+      sorting,
+      columnOrder,
+    };
+    const updated = [...savedViews.filter(v => v.name !== viewName), view];
+    setSavedViews(updated);
+    localStorage.setItem('tasks_saved_views', JSON.stringify(updated));
+    setCurrentView(viewName);
+    toast.success(`View "${viewName}" saved`);
+  };
+
+  // Load a saved view
+  const loadView = (viewName: string) => {
+    const view = savedViews.find(v => v.name === viewName);
+    if (view) {
+      setColumnVisibility(view.columnVisibility || {});
+      setColumnSizing(view.columnSizing || {});
+      setColumnFilters(view.columnFilters || []);
+      setSorting(view.sorting || []);
+      setColumnOrder(view.columnOrder || []);
+      setCurrentView(viewName);
+      toast.success(`View "${viewName}" loaded`);
+    }
+  };
+
+  // Set default view
+  const setAsDefaultView = (viewName: string) => {
+    setDefaultView(viewName);
+    localStorage.setItem('tasks_default_view', viewName);
+    toast.success(`"${viewName}" set as default view`);
+  };
+
+  // Delete a saved view
+  const deleteView = (viewName: string) => {
+    const updated = savedViews.filter(v => v.name !== viewName);
+    setSavedViews(updated);
+    localStorage.setItem('tasks_saved_views', JSON.stringify(updated));
+    if (currentView === viewName) {
+      setCurrentView('default');
+    }
+    if (defaultView === viewName) {
+      setDefaultView('default');
+      localStorage.setItem('tasks_default_view', 'default');
+    }
+    toast.success(`View "${viewName}" deleted`);
+  };
+
+  // Inline editing functions
+  const startEditing = (rowId: string, columnId: string, currentValue: any) => {
+    console.log('[INLINE EDIT] Starting edit:', { rowId, columnId, currentValue });
+    setEditingCell({ rowId, columnId });
+    setEditValue(currentValue?.toString() || '');
+  };
+
+  const cancelEditing = () => {
+    console.log('[INLINE EDIT] Canceling edit');
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  // State for inline date picker
+  const [editingDateCell, setEditingDateCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [editingDateValue, setEditingDateValue] = useState<Date | undefined>(undefined);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+
+  // State for inline task type picker
+  const [editingTypeCell, setEditingTypeCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
+
+  // State for inline priority picker
+  const [editingPriorityCell, setEditingPriorityCell] = useState<{ rowId: string; columnId: string } | null>(null);
+  const [priorityPickerOpen, setPriorityPickerOpen] = useState(false);
+
+  const saveEdit = async (rowId: string, columnId: string) => {
+    try {
+      const task = tasks.find(t => t.id === rowId);
+      if (!task) return;
+
+      // Map column ID to API field
+      const fieldMap: Record<string, string> = {
+        taskType: 'taskType',
+        subject: 'subject',
+        description: 'description',
+        priority: 'priority',
+        status: 'status',
+      };
+
+      const apiField = fieldMap[columnId];
+      if (!apiField) {
+        toast.error('Cannot edit this field');
+        return;
+      }
+
+      console.log('[TASK EDIT] Saving:', { rowId, columnId, apiField, editValue });
+
+      // Update task via API
+      const response = await fetch(`/api/tasks/${rowId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [apiField]: editValue }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('[TASK EDIT] Success:', result);
+
+        // Update local state with the returned task data
+        if (result.task) {
+          setTasks(prevTasks =>
+            prevTasks.map(t => t.id === rowId ? result.task : t)
+          );
+        } else {
+          // Fallback: update just the changed field
+          setTasks(prevTasks =>
+            prevTasks.map(t =>
+              t.id === rowId ? { ...t, [columnId]: editValue } : t
+            )
+          );
+        }
+        toast.success('Task updated');
+        cancelEditing();
+      } else {
+        const error = await response.json();
+        console.error('[TASK EDIT] Error:', error);
+        toast.error(error.error || 'Failed to update task');
+      }
+    } catch (error) {
+      console.error('[TASK EDIT] Exception:', error);
+      toast.error('Failed to update task');
+    }
+  };
+
+  const loadData = async (forceRefresh = false) => {
+    try {
+      setIsLoading(true);
+
+      // Check cache for contacts (they don't change often)
+      const cachedContacts = sessionStorage.getItem('contacts_cache');
+      const cacheTimestamp = sessionStorage.getItem('contacts_cache_timestamp');
+      const now = Date.now();
+      const useCache = !forceRefresh && cachedContacts && cacheTimestamp && (now - parseInt(cacheTimestamp)) < 30000;
+
+      const [tasksRes, contactsRes, taskTypesRes] = await Promise.all([
+        fetch('/api/tasks', { cache: 'no-store' }), // Always fresh tasks
+        useCache ? null : fetch('/api/contacts?limit=1000', { cache: 'force-cache' }),
+        fetch('/api/settings/task-types', { cache: 'force-cache' }),
+      ]);
+
+      if (tasksRes.ok) {
+        const tasksData = await tasksRes.json();
+        console.log('Tasks loaded:', tasksData.tasks?.length || 0);
+        setTasks(tasksData.tasks || []);
+      } else {
+        console.error('Failed to load tasks:', tasksRes.status);
+      }
+
+      if (useCache && cachedContacts) {
+        // Use cached contacts
+        const contactsData = JSON.parse(cachedContacts);
+        console.log('Contacts loaded from cache:', contactsData.length || 0);
+        setContacts(contactsData);
+      } else if (contactsRes && contactsRes.ok) {
+        const contactsData = await contactsRes.json();
+        const contactsList = contactsData.contacts || [];
+        console.log('Contacts loaded:', contactsList.length || 0);
+        setContacts(contactsList);
+        // Cache contacts
+        sessionStorage.setItem('contacts_cache', JSON.stringify(contactsList));
+        sessionStorage.setItem('contacts_cache_timestamp', now.toString());
+      } else if (!useCache) {
+        console.error('Failed to load contacts:', contactsRes?.status);
+      }
+
+      if (taskTypesRes.ok) {
+        const taskTypesData = await taskTypesRes.json();
+        console.log('Task types loaded:', taskTypesData.taskTypes?.length || 0);
+        setSavedTaskTypes(taskTypesData.taskTypes || []);
+      } else {
+        console.error('Failed to load task types:', taskTypesRes.status);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast.error('Failed to load data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const createTask = async () => {
+    if (!newTask.subject.trim()) {
+      toast.error('Please enter a task subject');
+      return;
+    }
+
+    try {
+      console.log('Creating task with data:', newTask);
+
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTask),
+      });
+
+      console.log('Response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Task created:', data);
+        toast.success('Task created successfully');
+        setIsCreateDialogOpen(false);
+        setNewTask({
+          taskType: '',
+          subject: '',
+          description: '',
+          dueDate: undefined,
+          priority: 'low',
+          contactId: '',
+          contactName: '',
+          contactPhone: '',
+          contactEmail: '',
+        });
+        loadData();
+      } else {
+        const errorData = await response.json();
+        console.error('Task creation error:', errorData);
+        toast.error(errorData.error || 'Failed to create task');
+      }
+    } catch (error) {
+      console.error('Error creating task:', error);
+      toast.error('Failed to create task: ' + (error as Error).message);
+    }
+  };
+
+  const toggleTaskStatus = async (taskId: string, currentStatus: string) => {
+    try {
+      const newStatus: 'open' | 'completed' = currentStatus === 'open' ? 'completed' : 'open';
+
+      // Find the task being completed
+      const task = filteredTasks.find(t => t.id === taskId);
+
+      // INSTANT UPDATE - Update UI immediately without waiting for API
+      setTasks(prevTasks =>
+        prevTasks.map(t =>
+          t.id === taskId ? { ...t, status: newStatus } : t
+        )
+      );
+
+      // Show instant feedback
+      toast.success(`Task marked as ${newStatus}`, {
+        duration: 2000,
+      });
+
+      // Update in background
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        // Revert on error
+        const revertStatus: 'open' | 'completed' = currentStatus as 'open' | 'completed';
+        setTasks(prevTasks =>
+          prevTasks.map(t =>
+            t.id === taskId ? { ...t, status: revertStatus } : t
+          )
+        );
+        toast.error('Failed to update task');
+        return;
+      }
+
+      // If completing a task, show follow-up dialog (like Pipedrive)
+      if (newStatus === 'completed' && task) {
+        setCompletedTask(task);
+        setFollowUpTask({
+          subject: `Follow up: ${task.subject}`,
+          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+          priority: task.priority || 'medium',
+        });
+        setShowFollowUpDialog(true);
+      }
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast.error('Failed to update task');
+    }
+  };
+
+  // Create follow-up task from dialog
+  const createFollowUpTask = async () => {
+    if (!completedTask) return;
+
+    try {
+      const response = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: followUpTask.subject,
+          description: `Follow-up task for: ${completedTask.subject}`,
+          contactId: completedTask.contactId,
+          contactName: completedTask.contactName,
+          contactPhone: completedTask.contactPhone,
+          contactEmail: completedTask.contactEmail,
+          dueDate: followUpTask.dueDate?.toISOString(),
+          priority: followUpTask.priority,
+          status: 'open',
+          taskType: completedTask.taskType || 'Follow Up',
+        }),
+      });
+
+      if (response.ok) {
+        const newFollowUpTask = await response.json();
+
+        // Add new follow-up task to the list instantly
+        setTasks(prevTasks => [...prevTasks, newFollowUpTask]);
+
+        toast.success('Follow-up task created! 📅', {
+          duration: 3000,
+        });
+
+        setShowFollowUpDialog(false);
+        setCompletedTask(null);
+      } else {
+        toast.error('Failed to create follow-up task');
+      }
+    } catch (error) {
+      console.error('Error creating follow-up task:', error);
+      toast.error('Failed to create follow-up task');
+    }
+  };
+
+  // Open edit dialog for a task
+  const openEditDialog = (task: Task) => {
+    setEditingTask(task);
+    setEditTaskForm({
+      taskType: task.taskType || '',
+      subject: task.subject,
+      description: task.description || '',
+      dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+      priority: task.priority,
+      contactId: task.contactId || '',
+      contactName: task.contactName || '',
+      contactPhone: task.contactPhone || '',
+      contactEmail: task.contactEmail || '',
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  // Save edited task
+  const saveEditedTask = async () => {
+    if (!editingTask) return;
+
+    try {
+      const response = await fetch(`/api/tasks/${editingTask.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskType: editTaskForm.taskType,
+          subject: editTaskForm.subject,
+          description: editTaskForm.description,
+          dueDate: editTaskForm.dueDate?.toISOString(),
+          priority: editTaskForm.priority,
+          contactId: editTaskForm.contactId || null,
+          contactName: editTaskForm.contactName || null,
+          contactPhone: editTaskForm.contactPhone || null,
+          contactEmail: editTaskForm.contactEmail || null,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // Update task in list
+        if (result.task) {
+          setTasks(prevTasks =>
+            prevTasks.map(t => t.id === editingTask.id ? result.task : t)
+          );
+        } else {
+          setTasks(prevTasks =>
+            prevTasks.map(t => t.id === editingTask.id ? {
+              ...t,
+              taskType: editTaskForm.taskType,
+              subject: editTaskForm.subject,
+              description: editTaskForm.description,
+              dueDate: editTaskForm.dueDate?.toISOString(),
+              priority: editTaskForm.priority,
+              contactId: editTaskForm.contactId,
+              contactName: editTaskForm.contactName,
+              contactPhone: editTaskForm.contactPhone,
+              contactEmail: editTaskForm.contactEmail,
+            } : t)
+          );
+        }
+        toast.success('Task updated successfully');
+        setIsEditDialogOpen(false);
+        setEditingTask(null);
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to update task');
+      }
+    } catch (error) {
+      console.error('Error updating task:', error);
+      toast.error('Failed to update task');
+    }
+  };
+
+  // Column display names mapping for Toggle Columns dropdown
+  const columnDisplayNames: Record<string, string> = {
+    select: 'Select',
+    status: 'Status',
+    taskType: 'Task Type',
+    subject: 'Subject',
+    description: 'Description',
+    contactName: 'Contact Name',
+    contactPhone: 'Phone',
+    contactEmail: 'Email',
+    dueDate: 'Due Date',
+    priority: 'Priority',
+    contactAddress: 'Address',
+    contactCity: 'City',
+    contactState: 'State',
+    contactZip: 'ZIP',
+    propertyType: 'Property Type',
+    actions: 'Actions',
+  };
+
+  // Define columns
+  const columns = useMemo<ColumnDef<Task>[]>(
+    () => [
+      {
+        id: 'select',
+        header: ({ table }) => (
+          <Checkbox
+            checked={table.getIsAllPageRowsSelected()}
+            onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+            aria-label="Select all"
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(value) => row.toggleSelected(!!value)}
+            aria-label="Select row"
+          />
+        ),
+        enableSorting: false,
+        enableHiding: false,
+        size: 40,
+      },
+      {
+        id: 'status',
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => {
+          const status = row.original.status;
+          return (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => toggleTaskStatus(row.original.id, status)}
+            >
+              {status === 'completed' ? (
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
+              ) : (
+                <Circle className="h-5 w-5 text-muted-foreground" />
+              )}
+            </Button>
+          );
+        },
+        size: 60,
+      },
+      {
+        accessorKey: 'taskType',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2"
+            >
+              Type
+              {column.getIsSorted() === 'asc' ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === 'desc' ? (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronsUpDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          );
+        },
+        cell: ({ row }) => {
+          const isEditing = editingTypeCell?.rowId === row.original.id && editingTypeCell?.columnId === 'taskType';
+          if (isEditing) {
+            return (
+              <Select
+                open={typePickerOpen}
+                onOpenChange={setTypePickerOpen}
+                value={row.original.taskType || 'General'}
+                onValueChange={async (value) => {
+                  try {
+                    console.log('[TASK TYPE] Updating task:', row.original.id, 'to:', value);
+                    const response = await fetch(`/api/tasks/${row.original.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ taskType: value }),
+                    });
+
+                    if (response.ok) {
+                      const result = await response.json();
+                      console.log('[TASK TYPE] Success:', result);
+
+                      // Update with returned task data if available
+                      if (result.task) {
+                        setTasks(prevTasks =>
+                          prevTasks.map(t =>
+                            t.id === row.original.id ? result.task : t
+                          )
+                        );
+                      } else {
+                        // Fallback: update just the task type
+                        setTasks(prevTasks =>
+                          prevTasks.map(t =>
+                            t.id === row.original.id ? { ...t, taskType: value } : t
+                          )
+                        );
+                      }
+                      toast.success('Task type updated');
+                      setEditingTypeCell(null);
+                      setTypePickerOpen(false);
+                    } else {
+                      const error = await response.json();
+                      console.error('[TASK TYPE] Error:', error);
+                      toast.error(error.error || 'Failed to update task type');
+                    }
+                  } catch (error) {
+                    console.error('[TASK TYPE] Exception:', error);
+                    toast.error('Failed to update task type');
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="General">General</SelectItem>
+                  {savedTaskTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            );
+          }
+          return (
+            <Badge
+              variant="outline"
+              className="font-normal cursor-pointer hover:bg-accent"
+              onClick={() => {
+                console.log('[TASK TYPE] Click handler fired for task:', row.original.id);
+                setEditingTypeCell({ rowId: row.original.id, columnId: 'taskType' });
+                setTypePickerOpen(true);
+              }}
+            >
+              {row.original.taskType || 'General'}
+            </Badge>
+          );
+        },
+        size: 150,
+      },
+      {
+        accessorKey: 'subject',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2"
+            >
+              Subject
+              {column.getIsSorted() === 'asc' ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === 'desc' ? (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronsUpDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          );
+        },
+        cell: ({ row }) => {
+          return (
+            <div
+              className="font-medium cursor-pointer hover:bg-accent hover:text-primary px-2 py-1 rounded text-blue-600 underline-offset-2 hover:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditDialog(row.original);
+              }}
+              title="Click to edit task"
+            >
+              {row.original.subject}
+            </div>
+          );
+        },
+        size: 300,
+      },
+      {
+        accessorKey: 'description',
+        header: 'Description',
+        cell: ({ row }) => {
+          const isEditing = editingCell?.rowId === row.original.id && editingCell?.columnId === 'description';
+          if (isEditing) {
+            return (
+              <div className="absolute z-50 bg-background border rounded-md shadow-lg p-2 min-w-[300px] max-w-[500px]" style={{ left: 0, top: 0 }}>
+                <Textarea
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => saveEdit(row.original.id, 'description')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      cancelEditing();
+                    }
+                    // Cmd+Enter or Ctrl+Enter to add new line with bullet
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      const cursorPos = e.currentTarget.selectionStart;
+                      const textBefore = editValue.substring(0, cursorPos);
+                      const textAfter = editValue.substring(cursorPos);
+                      setEditValue(textBefore + '\n- ' + textAfter);
+                      // Set cursor position after the bullet
+                      setTimeout(() => {
+                        e.currentTarget.selectionStart = cursorPos + 3;
+                        e.currentTarget.selectionEnd = cursorPos + 3;
+                      }, 0);
+                    }
+                    // Regular Enter adds new line with bullet
+                    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+                      e.preventDefault();
+                      const cursorPos = e.currentTarget.selectionStart;
+                      const textBefore = editValue.substring(0, cursorPos);
+                      const textAfter = editValue.substring(cursorPos);
+                      setEditValue(textBefore + '\n- ' + textAfter);
+                    }
+                  }}
+                  autoFocus
+                  className="min-h-[120px] w-full resize-y"
+                  placeholder="Enter description... (Enter adds bullet points)"
+                />
+                <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
+                  <span>Enter = new bullet • Esc = cancel • Click outside = save</span>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div
+              className="text-sm text-muted-foreground cursor-pointer hover:bg-accent px-2 py-1 rounded truncate"
+              onClick={() => startEditing(row.original.id, 'description', row.original.description)}
+              title={row.original.description ? `${row.original.description}\n\nClick to edit` : 'Click to add description'}
+            >
+              {row.original.description || '-'}
+            </div>
+          );
+        },
+        size: 250,
+      },
+      {
+        accessorKey: 'contactName',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2"
+            >
+              Contact
+              {column.getIsSorted() === 'asc' ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === 'desc' ? (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronsUpDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          );
+        },
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <span>{row.original.contactName || '-'}</span>
+          </div>
+        ),
+        size: 150,
+        minSize: 100,
+        maxSize: 300,
+      },
+      {
+        accessorKey: 'contactPhone',
+        header: 'Phone',
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            {row.original.contactPhone ? (
+              <>
+                <Phone className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm">{formatPhoneNumber(row.original.contactPhone)}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">-</span>
+            )}
+          </div>
+        ),
+        size: 180,
+      },
+      {
+        accessorKey: 'contactEmail',
+        header: 'Email',
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            {row.original.contactEmail ? (
+              <>
+                <Mail className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm truncate">{row.original.contactEmail}</span>
+              </>
+            ) : (
+              <span className="text-muted-foreground">-</span>
+            )}
+          </div>
+        ),
+        size: 200,
+      },
+      {
+        accessorKey: 'dueDate',
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+              className="h-8 px-2"
+            >
+              Due Date
+              {column.getIsSorted() === 'asc' ? (
+                <ChevronUp className="ml-2 h-4 w-4" />
+              ) : column.getIsSorted() === 'desc' ? (
+                <ChevronDown className="ml-2 h-4 w-4" />
+              ) : (
+                <ChevronsUpDown className="ml-2 h-4 w-4" />
+              )}
+            </Button>
+          );
+        },
+        cell: ({ row }) => {
+          const dueDate = row.original.dueDate;
+          const isEditingDate = editingDateCell?.rowId === row.original.id && editingDateCell?.columnId === 'dueDate';
+
+          const date = dueDate ? new Date(dueDate) : null;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const isOverdue = date && date < today && row.original.status === 'open';
+
+          return (
+            <Popover
+              open={isEditingDate && datePickerOpen}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setEditingDateCell(null);
+                  setDatePickerOpen(false);
+                }
+              }}
+            >
+              <PopoverTrigger asChild>
+                <div
+                  className={cn(
+                    'flex items-center gap-2 cursor-pointer hover:bg-accent px-2 py-1 rounded',
+                    isOverdue && 'text-red-500'
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log('[DUE DATE] Click handler fired for task:', row.original.id);
+                    setEditingDateCell({ rowId: row.original.id, columnId: 'dueDate' });
+                    setEditingDateValue(date || undefined);
+                    setDatePickerOpen(true);
+                  }}
+                  title="Click to change due date"
+                >
+                  <Clock className="h-4 w-4" />
+                  <span className="text-sm">{date ? format(date, 'MMM dd, yyyy') : '-'}</span>
+                </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 z-[10000]" align="start" sideOffset={5}>
+                <Calendar
+                  mode="single"
+                  selected={editingDateValue}
+                  onSelect={async (newDate) => {
+                    if (newDate) {
+                      try {
+                        console.log('[DUE DATE] Updating task:', row.original.id, 'to:', newDate.toISOString());
+                        const response = await fetch(`/api/tasks/${row.original.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ dueDate: newDate.toISOString() }),
+                        });
+
+                        if (response.ok) {
+                          const result = await response.json();
+                          console.log('[DUE DATE] Success:', result);
+
+                          // Update with returned task data if available
+                          if (result.task) {
+                            setTasks(prevTasks =>
+                              prevTasks.map(t =>
+                                t.id === row.original.id ? result.task : t
+                              )
+                            );
+                          } else {
+                            // Fallback: update just the due date
+                            setTasks(prevTasks =>
+                              prevTasks.map(t =>
+                                t.id === row.original.id ? { ...t, dueDate: newDate.toISOString() } : t
+                              )
+                            );
+                          }
+                          toast.success('Due date updated');
+                        } else {
+                          const error = await response.json();
+                          console.error('[DUE DATE] Error:', error);
+                          toast.error(error.error || 'Failed to update due date');
+                        }
+                      } catch (error) {
+                        console.error('[DUE DATE] Exception:', error);
+                        toast.error('Failed to update due date');
+                      }
+                    }
+                    setEditingDateCell(null);
+                    setDatePickerOpen(false);
+                  }}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          );
+        },
+        size: 150,
+      },
+      {
+        accessorKey: 'priority',
+        header: 'Priority',
+        cell: ({ row }) => {
+          const priority = row.original.priority;
+          const priorityConfig: Record<string, { label: string; className: string }> = {
+            high: { label: '🔴 High', className: 'bg-red-100 text-red-800 border-red-300' },
+            medium: { label: '🟡 Medium', className: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+            low: { label: '⚪ Low', className: 'bg-gray-100 text-gray-800 border-gray-300' },
+          };
+          const config = priorityConfig[priority] || priorityConfig.low;
+          const isEditing = editingPriorityCell?.rowId === row.original.id && editingPriorityCell?.columnId === 'priority';
+
+          if (isEditing) {
+            return (
+              <Select
+                open={priorityPickerOpen}
+                onOpenChange={setPriorityPickerOpen}
+                value={priority || 'low'}
+                onValueChange={async (value) => {
+                  try {
+                    console.log('[PRIORITY] Updating task:', row.original.id, 'to:', value);
+                    const response = await fetch(`/api/tasks/${row.original.id}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ priority: value }),
+                    });
+
+                    if (response.ok) {
+                      const result = await response.json();
+                      console.log('[PRIORITY] Success:', result);
+
+                      // Update with returned task data if available
+                      if (result.task) {
+                        setTasks(prevTasks =>
+                          prevTasks.map(t =>
+                            t.id === row.original.id ? result.task : t
+                          )
+                        );
+                      } else {
+                        // Fallback: update just the priority
+                        setTasks(prevTasks =>
+                          prevTasks.map(t =>
+                            t.id === row.original.id ? { ...t, priority: value } : t
+                          )
+                        );
+                      }
+                      toast.success('Priority updated');
+                      setEditingPriorityCell(null);
+                      setPriorityPickerOpen(false);
+                    } else {
+                      const error = await response.json();
+                      console.error('[PRIORITY] Error:', error);
+                      toast.error(error.error || 'Failed to update priority');
+                    }
+                  } catch (error) {
+                    console.error('[PRIORITY] Exception:', error);
+                    toast.error('Failed to update priority');
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">⚪ Low</SelectItem>
+                  <SelectItem value="medium">🟡 Medium</SelectItem>
+                  <SelectItem value="high">🔴 High</SelectItem>
+                </SelectContent>
+              </Select>
+            );
+          }
+
+          return (
+            <Badge
+              variant="outline"
+              className={cn(config.className, 'cursor-pointer hover:opacity-80')}
+              onClick={() => {
+                console.log('[PRIORITY] Click handler fired for task:', row.original.id);
+                setEditingPriorityCell({ rowId: row.original.id, columnId: 'priority' });
+                setPriorityPickerOpen(true);
+              }}
+              title="Click to change priority"
+            >
+              {config.label}
+            </Badge>
+          );
+        },
+        size: 120,
+      },
+      {
+        accessorKey: 'contactAddress',
+        header: 'Address',
+        cell: ({ row }) => {
+          const contact = contacts.find((c) => c.id === row.original.contactId);
+          return (
+            <div className="text-sm">
+              {contact?.address || <span className="text-muted-foreground">-</span>}
+            </div>
+          );
+        },
+        size: 250,
+      },
+      {
+        accessorKey: 'contactCity',
+        header: 'City',
+        cell: ({ row }) => {
+          const contact = contacts.find((c) => c.id === row.original.contactId);
+          return (
+            <div className="text-sm">
+              {contact?.city || <span className="text-muted-foreground">-</span>}
+            </div>
+          );
+        },
+        size: 150,
+      },
+      {
+        accessorKey: 'contactState',
+        header: 'State',
+        cell: ({ row }) => {
+          const contact = contacts.find((c) => c.id === row.original.contactId);
+          return (
+            <div className="text-sm">
+              {contact?.state || <span className="text-muted-foreground">-</span>}
+            </div>
+          );
+        },
+        size: 80,
+      },
+      {
+        accessorKey: 'contactZip',
+        header: 'ZIP',
+        cell: ({ row }) => {
+          const contact = contacts.find((c) => c.id === row.original.contactId);
+          return (
+            <div className="text-sm">
+              {contact?.zip || <span className="text-muted-foreground">-</span>}
+            </div>
+          );
+        },
+        size: 100,
+      },
+      {
+        accessorKey: 'propertyType',
+        header: 'Property Type',
+        cell: ({ row }) => {
+          const contact = contacts.find((c) => c.id === row.original.contactId);
+          return contact?.propertyType ? (
+            <Badge variant="outline">{normalizePropertyType(contact.propertyType)}</Badge>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          );
+        },
+        size: 150,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+          const contact = contacts.find((c) => c.id === row.original.contactId);
+          // Use task's contact info as fallback if contact lookup fails
+          const phone = contact?.phone1 || row.original.contactPhone;
+          const email = contact?.email1 || contact?.email || row.original.contactEmail;
+          const contactName = row.original.contactName || `${contact?.firstName || ''} ${contact?.lastName || ''}`.trim();
+          const contactId = contact?.id || row.original.contactId;
+
+          return (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (phone) {
+                    // Use WebRTC call via context would require additional setup
+                    window.location.href = `tel:${phone}`;
+                  } else {
+                    toast.error('No phone number available');
+                  }
+                }}
+                title="Call"
+                disabled={!phone}
+              >
+                <Phone className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (phone) {
+                    openSms({
+                      phoneNumber: phone,
+                      contactName: contactName,
+                      contactId: contactId,
+                    });
+                  } else {
+                    toast.error('No phone number available');
+                  }
+                }}
+                title="Text"
+                disabled={!phone}
+              >
+                <MessageSquare className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (email) {
+                    openEmail({
+                      to: email,
+                      contactName: contactName,
+                      contactId: contactId,
+                    });
+                  } else {
+                    toast.error('No email available');
+                  }
+                }}
+                title="Email"
+                disabled={!email}
+              >
+                <Mail className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openTask({
+                    contact: contactId ? {
+                      id: contactId,
+                      firstName: contact?.firstName || contactName.split(' ')[0] || '',
+                      lastName: contact?.lastName || contactName.split(' ').slice(1).join(' ') || '',
+                      email1: email,
+                      phone1: phone,
+                    } : undefined,
+                    contactId: contactId,
+                  });
+                }}
+                title="Create Task"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        },
+        enableSorting: false,
+        size: 180,
+      },
+    ],
+    [contacts, tasks]
+  );
+
+  // Filter tasks based on filters
+  const filteredTasks = useMemo(() => {
+    let filtered = tasks;
+
+    // Apply task type filter
+    if (taskTypeFilter !== 'all') {
+      filtered = filtered.filter((task) => task.taskType === taskTypeFilter);
+    }
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((task) => task.status === statusFilter);
+    }
+
+    // Apply due date filter
+    if (dueDateFilter !== 'all') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      filtered = filtered.filter((task) => {
+        if (!task.dueDate) return false;
+        const dueDate = new Date(task.dueDate);
+        dueDate.setHours(0, 0, 0, 0);
+
+        switch (dueDateFilter) {
+          case 'overdue':
+            return dueDate < today && task.status === 'open';
+          case 'today':
+            return dueDate.getTime() === today.getTime();
+          case 'week':
+            const weekFromNow = new Date(today);
+            weekFromNow.setDate(weekFromNow.getDate() + 7);
+            return dueDate >= today && dueDate <= weekFromNow;
+          case 'month':
+            const monthFromNow = new Date(today);
+            monthFromNow.setMonth(monthFromNow.getMonth() + 1);
+            return dueDate >= today && dueDate <= monthFromNow;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Apply priority filter
+    if (priorityFilter.length > 0 && priorityFilter.length < 3) {
+      filtered = filtered.filter((task) => priorityFilter.includes(task.priority));
+    }
+
+    return filtered;
+  }, [tasks, taskTypeFilter, dueDateFilter, statusFilter, priorityFilter]);
+
+  const table = useReactTable({
+    data: filteredTasks,
+    columns,
+    state: {
+      sorting,
+      columnFilters,
+      columnVisibility,
+      rowSelection,
+      globalFilter,
+      columnSizing,
+      columnOrder,
+    },
+    enableRowSelection: true,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange', // Real-time resize feedback as you drag
+    columnResizeDirection: 'ltr', // Only resize the column being dragged, not others
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
+    onRowSelectionChange: setRowSelection,
+    onGlobalFilterChange: setGlobalFilter,
+    onColumnSizingChange: setColumnSizing,
+    onColumnOrderChange: setColumnOrder,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: {
+        pageSize: 50,
+      },
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Tasks</h1>
+          <p className="text-muted-foreground">Manage all your tasks in one place</p>
+        </div>
+        <Button onClick={() => openTask()}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Task
+        </Button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search tasks..."
+            value={globalFilter ?? ''}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            className="w-64"
+          />
+        </div>
+        <Select value={taskTypeFilter} onValueChange={(value: string) => setTaskTypeFilter(value)}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {Array.from(new Set(tasks.map(t => t.taskType).filter(Boolean))).sort().map((type) => (
+              <SelectItem key={type} value={type!}>
+                {type}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={statusFilter} onValueChange={(value: any) => setStatusFilter(value)}>
+          <SelectTrigger className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={dueDateFilter} onValueChange={(value: any) => setDueDateFilter(value)}>
+          <SelectTrigger className="w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Dates</SelectItem>
+            <SelectItem value="overdue">Overdue</SelectItem>
+            <SelectItem value="today">Today</SelectItem>
+            <SelectItem value="week">This Week</SelectItem>
+            <SelectItem value="month">This Month</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Priority Filter - Multi-select with checkboxes */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              Priority
+              {priorityFilter.length < 3 && (
+                <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                  {priorityFilter.length}
+                </Badge>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuLabel>Filter by Priority</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={priorityFilter.includes('high')}
+              onCheckedChange={(checked) => {
+                setPriorityFilter(
+                  checked
+                    ? [...priorityFilter, 'high']
+                    : priorityFilter.filter((p) => p !== 'high')
+                );
+              }}
+            >
+              <span className="flex items-center gap-2">
+                🔴 High
+              </span>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={priorityFilter.includes('medium')}
+              onCheckedChange={(checked) => {
+                setPriorityFilter(
+                  checked
+                    ? [...priorityFilter, 'medium']
+                    : priorityFilter.filter((p) => p !== 'medium')
+                );
+              }}
+            >
+              <span className="flex items-center gap-2">
+                🟡 Medium
+              </span>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={priorityFilter.includes('low')}
+              onCheckedChange={(checked) => {
+                setPriorityFilter(
+                  checked
+                    ? [...priorityFilter, 'low']
+                    : priorityFilter.filter((p) => p !== 'low')
+                );
+              }}
+            >
+              <span className="flex items-center gap-2">
+                ⚪ Low
+              </span>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => setPriorityFilter(['low', 'medium', 'high'])}
+            >
+              Reset
+            </Button>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Column Visibility */}
+        <DropdownMenu open={columnDropdownOpen} onOpenChange={setColumnDropdownOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Settings2 className="h-4 w-4 mr-2" />
+              Columns
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 max-h-96 overflow-y-auto">
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <DropdownMenuLabel className="p-0">Toggle Columns</DropdownMenuLabel>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => setColumnDropdownOpen(false)}
+              >
+                Done
+              </Button>
+            </div>
+            <DropdownMenuSeparator />
+            {table
+              .getAllColumns()
+              .filter((column) => column.getCanHide())
+              .map((column) => {
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {columnDisplayNames[column.id] || column.id}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Save Views */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Settings2 className="h-4 w-4 mr-2" />
+              Views {currentView !== 'default' && `(${currentView})`}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Saved Views</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={currentView === 'default'}
+              onCheckedChange={() => {
+                setCurrentView('default');
+                setColumnVisibility({
+                  contactAddress: false,
+                  contactCity: false,
+                  contactState: false,
+                  contactZip: false,
+                  propertyType: false,
+                });
+              }}
+            >
+              Default View {defaultView === 'default' && '⭐'}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <div className="p-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  const viewName = prompt('Enter view name:');
+                  if (viewName) saveView(viewName);
+                }}
+              >
+                Save Current View
+              </Button>
+            </div>
+            {savedViews.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-xs text-muted-foreground">My Views</DropdownMenuLabel>
+                {savedViews.map((view) => (
+                  <div key={view.name} className="space-y-1">
+                    <div className="flex items-center justify-between px-2 py-1 hover:bg-muted rounded">
+                      <button
+                        className={`flex-1 text-left text-sm px-2 py-1 rounded ${
+                          currentView === view.name
+                            ? 'bg-primary text-primary-foreground font-medium'
+                            : 'hover:bg-muted'
+                        }`}
+                        onClick={() => loadView(view.name)}
+                      >
+                        {view.name} {defaultView === view.name && '⭐'}
+                      </button>
+                      <button
+                        className="text-destructive hover:text-destructive/80 px-2"
+                        onClick={() => deleteView(view.name)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {defaultView !== view.name && (
+                      <button
+                        className="w-full text-xs text-left px-4 py-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
+                        onClick={() => setAsDefaultView(view.name)}
+                      >
+                        Set as Default
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <div className="ml-auto text-sm text-muted-foreground">
+          {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-md border overflow-auto max-h-[calc(100vh-350px)] min-h-[400px]" style={{ overflowX: 'auto', overflowY: 'auto' }}>
+        <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+          <thead className="bg-muted/50 sticky top-0 z-10">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className={`border-r border-b px-1.5 py-1 text-left text-xs font-medium relative group ${
+                      draggedColumn === header.id ? 'opacity-50 bg-primary/20' : ''
+                    }`}
+                    style={{
+                      width: header.getSize(),
+                      minWidth: header.column.columnDef.minSize,
+                      maxWidth: header.column.columnDef.maxSize,
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const draggedId = e.dataTransfer.getData('text/plain');
+                      if (draggedId === header.id) return;
+
+                      const currentOrder = columnOrder.length > 0
+                        ? columnOrder
+                        : table.getAllLeafColumns().map(c => c.id);
+
+                      const draggedIndex = currentOrder.indexOf(draggedId);
+                      const targetIndex = currentOrder.indexOf(header.id);
+
+                      if (draggedIndex === -1 || targetIndex === -1) return;
+
+                      const newOrder = [...currentOrder];
+                      newOrder.splice(draggedIndex, 1);
+                      newOrder.splice(targetIndex, 0, draggedId);
+
+                      setColumnOrder(newOrder);
+                      setDraggedColumn(null);
+                    }}
+                  >
+                    {header.isPlaceholder ? null : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          {header.id !== 'select' && (
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedColumn(header.id);
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/plain', header.id);
+                                e.stopPropagation();
+                              }}
+                              onDragEnd={() => {
+                                setDraggedColumn(null);
+                              }}
+                              className="cursor-grab active:cursor-grabbing p-0.5 hover:bg-gray-100 rounded"
+                              title="Drag to reorder column"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <GripVertical className="h-3.5 w-3.5 text-muted-foreground opacity-60 group-hover:opacity-100" />
+                            </div>
+                          )}
+                          <div
+                            className={`flex items-center gap-2 ${
+                              header.column.getCanSort() ? 'cursor-pointer select-none' : ''
+                            }`}
+                            onClick={header.column.getToggleSortingHandler()}
+                          >
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            {header.column.getCanSort() && (
+                              <span className="text-muted-foreground">
+                                {{
+                                  asc: <ChevronUp className="h-4 w-4" />,
+                                  desc: <ChevronDown className="h-4 w-4" />,
+                                }[header.column.getIsSorted() as string] ?? (
+                                  <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                      </div>
+                    )}
+                    {/* Resize Handle - Excel-like column resizer */}
+                    {header.column.getCanResize() && (
+                      <div
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                        onDoubleClick={() => {
+                          // Auto-fit column width on double-click (like Excel)
+                          const optimalWidth = autoFitColumn(header.column, filteredTasks, 80, 600);
+                          setColumnSizing((prev) => ({
+                            ...prev,
+                            [header.column.id]: optimalWidth,
+                          }));
+                        }}
+                        className={`absolute right-0 top-0 h-full cursor-col-resize select-none touch-none group/resize z-10 ${
+                          header.column.getIsResizing() ? 'bg-blue-500' : 'bg-transparent hover:bg-blue-400'
+                        }`}
+                        style={{
+                          // Make the clickable area wider for easier grabbing
+                          width: header.column.getIsResizing() ? '3px' : '8px',
+                          marginRight: header.column.getIsResizing() ? '0' : '-4px',
+                        }}
+                        title="Drag to resize, double-click to auto-fit"
+                      >
+                        {/* Visual indicator on hover */}
+                        <div className="absolute inset-0 bg-blue-500 opacity-0 group-hover/resize:opacity-50 transition-opacity" />
+                      </div>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`hover:bg-muted/50 ${
+                    row.getIsSelected() ? 'bg-muted' : ''
+                  }`}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className="border-r border-b px-1.5 py-1 text-xs"
+                      style={{
+                        width: cell.column.getSize(),
+                        minWidth: cell.column.columnDef.minSize,
+                        maxWidth: cell.column.columnDef.maxSize,
+                      }}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={columns.length} className="h-24 text-center">
+                  No tasks found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          {table.getFilteredSelectedRowModel().rows.length} of{' '}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            Previous
+          </Button>
+          <div className="text-sm">
+            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+
+      {/* Follow-up Task Dialog (Like Pipedrive) */}
+      <Dialog open={showFollowUpDialog} onOpenChange={setShowFollowUpDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Follow-up Task</DialogTitle>
+            <DialogDescription>
+              Task completed! Create a follow-up task to continue the conversation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="followup-subject">Task Subject *</Label>
+              <Input
+                id="followup-subject"
+                placeholder="e.g., Follow up on proposal"
+                value={followUpTask.subject}
+                onChange={(e) => setFollowUpTask({ ...followUpTask, subject: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Due Date</Label>
+              <Popover modal={true} open={openFollowUpCalendar} onOpenChange={setOpenFollowUpCalendar}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={cn(
+                      'w-full justify-start text-left font-normal',
+                      !followUpTask.dueDate && 'text-muted-foreground'
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {followUpTask.dueDate ? format(followUpTask.dueDate, 'PPP') : 'Pick a date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 z-[10000]" align="start" sideOffset={5} side="bottom">
+                  <Calendar
+                    mode="single"
+                    selected={followUpTask.dueDate}
+                    onSelect={(date) => {
+                      setFollowUpTask({ ...followUpTask, dueDate: date });
+                      setOpenFollowUpCalendar(false);
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <Select
+                value={followUpTask.priority}
+                onValueChange={(value: 'low' | 'medium' | 'high') =>
+                  setFollowUpTask({ ...followUpTask, priority: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {completedTask && (
+              <div className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
+                <p className="font-medium">Contact: {completedTask.contactName}</p>
+                {completedTask.contactPhone && <p>📞 {formatPhoneNumber(completedTask.contactPhone)}</p>}
+                {completedTask.contactEmail && <p>📧 {completedTask.contactEmail}</p>}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowFollowUpDialog(false);
+                setCompletedTask(null);
+              }}
+            >
+              Skip
+            </Button>
+            <Button
+              onClick={createFollowUpTask}
+              disabled={!followUpTask.subject.trim()}
+            >
+              Create Follow-up
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Task Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+            <DialogDescription>
+              Update the task details below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-2">
+              <Label htmlFor="edit-task-type">Task Type</Label>
+              <Select
+                value={editTaskForm.taskType || 'General'}
+                onValueChange={(value) => setEditTaskForm({ ...editTaskForm, taskType: value })}
+              >
+                <SelectTrigger id="edit-task-type">
+                  <SelectValue placeholder="Select task type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="General">General</SelectItem>
+                  {savedTaskTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-subject">Subject *</Label>
+              <Input
+                id="edit-subject"
+                placeholder="Task subject"
+                value={editTaskForm.subject}
+                onChange={(e) => setEditTaskForm({ ...editTaskForm, subject: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                placeholder="Task description"
+                value={editTaskForm.description}
+                onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Due Date</Label>
+              <Popover modal={true} open={openEditCalendar} onOpenChange={setOpenEditCalendar}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={cn(
+                      'w-full justify-start text-left font-normal',
+                      !editTaskForm.dueDate && 'text-muted-foreground'
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {editTaskForm.dueDate ? format(editTaskForm.dueDate, 'PPP') : 'Pick a date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0 z-[10000]" align="start" sideOffset={5} side="bottom">
+                  <Calendar
+                    mode="single"
+                    selected={editTaskForm.dueDate}
+                    onSelect={(date) => {
+                      setEditTaskForm({ ...editTaskForm, dueDate: date });
+                      setOpenEditCalendar(false);
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <Select
+                value={editTaskForm.priority}
+                onValueChange={(value: 'low' | 'medium' | 'high') =>
+                  setEditTaskForm({ ...editTaskForm, priority: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">⚪ Low</SelectItem>
+                  <SelectItem value="medium">🟡 Medium</SelectItem>
+                  <SelectItem value="high">🔴 High</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {editingTask && (editingTask.contactName || editingTask.contactPhone || editingTask.contactEmail) && (
+              <div className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
+                <p className="font-medium mb-1">Associated Contact:</p>
+                {editingTask.contactName && <p>👤 {editingTask.contactName}</p>}
+                {editingTask.contactPhone && <p>📞 {formatPhoneNumber(editingTask.contactPhone)}</p>}
+                {editingTask.contactEmail && <p>📧 {editingTask.contactEmail}</p>}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsEditDialogOpen(false);
+                setEditingTask(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveEditedTask}
+              disabled={!editTaskForm.subject.trim()}
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+
+
+

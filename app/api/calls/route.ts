@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -16,21 +18,20 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const contactId = searchParams.get('contactId')
+    const search = searchParams.get('search')
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
+    // If no contactId, return all calls (for call history page)
     if (!contactId) {
-      return NextResponse.json(
-        { error: 'contactId is required' },
-        { status: 400 }
-      )
+      return getAllCalls(session.user, search, limit, offset)
     }
 
     // Build the query based on user role
     let whereClause: any = { id: contactId }
 
     // If user is a team member, only allow access to assigned contacts
-    if (session.user.role === 'TEAM_MEMBER') {
+    if (session.user.role === 'TEAM_USER') {
       whereClause = {
         id: contactId,
         assignedUsers: {
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const phoneNumbers = [contact.phone1, contact.phone2, contact.phone3].filter(Boolean)
+    const phoneNumbers = [contact.phone1, contact.phone2, contact.phone3].filter((p): p is string => Boolean(p))
 
     // Get calls for this contact from TelnyxCall table
     const calls = await prisma.telnyxCall.findMany({
@@ -119,6 +120,80 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(transformedCalls)
   } catch (error) {
     console.error('Error fetching calls:', error)
+    return NextResponse.json(
+      { error: 'Failed to fetch calls' },
+      { status: 500 }
+    )
+  }
+}
+
+// Get all calls for call history page
+async function getAllCalls(user: any, search: string | null, limit: number, offset: number) {
+  try {
+    // Build where clause for search
+    const whereClause: any = {}
+
+    if (search) {
+      whereClause.OR = [
+        { fromNumber: { contains: search } },
+        { toNumber: { contains: search } },
+      ]
+    }
+
+    // Get calls
+    const calls = await prisma.telnyxCall.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+    })
+
+    // Get total count for pagination
+    const total = await prisma.telnyxCall.count({ where: whereClause })
+
+    // Get contact info for calls that have contactId
+    const contactIds = calls.map(c => c.contactId).filter(Boolean) as string[]
+    const contacts = contactIds.length > 0
+      ? await prisma.contact.findMany({
+          where: { id: { in: contactIds } },
+          select: { id: true, firstName: true, lastName: true, phone1: true }
+        })
+      : []
+    const contactMap = new Map(contacts.map(c => [c.id, c]))
+
+    // Transform calls
+    const transformedCalls = calls.map(call => {
+      const contact = call.contactId ? contactMap.get(call.contactId) : null
+      return {
+        id: call.id,
+        direction: call.direction,
+        status: call.status,
+        duration: call.duration || 0,
+        timestamp: call.createdAt,
+        createdAt: call.createdAt,
+        startTime: call.answeredAt || call.createdAt,
+        notes: call.hangupCause ? `Call ended: ${call.hangupCause}` : null,
+        fromNumber: call.fromNumber,
+        toNumber: call.toNumber,
+        recordingUrl: call.recordingUrl,
+        contactId: call.contactId,
+        contact: contact ? {
+          id: contact.id,
+          firstName: contact.firstName,
+          lastName: contact.lastName,
+          phone1: contact.phone1,
+        } : null,
+      }
+    })
+
+    return NextResponse.json({
+      calls: transformedCalls,
+      total,
+      limit,
+      offset,
+    })
+  } catch (error) {
+    console.error('Error fetching all calls:', error)
     return NextResponse.json(
       { error: 'Failed to fetch calls' },
       { status: 500 }

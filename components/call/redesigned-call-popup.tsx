@@ -5,11 +5,30 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useCallUI } from "@/lib/context/call-ui-context"
+import { useSmsUI } from "@/lib/context/sms-ui-context"
+import { useEmailUI } from "@/lib/context/email-ui-context"
 import { useToast } from "@/hooks/use-toast"
-import { Phone, X, Maximize2, Minimize2, Building, MapPin, Mail, Calendar } from "lucide-react"
+import { Phone, X, Minimize2, Building, MapPin, Mail, Calendar, MessageSquare, Check, RefreshCw, PhoneCall, Send, Plus, FileText, Loader2 } from "lucide-react"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { format } from "date-fns"
+
+// Template types
+interface SmsTemplate {
+  id: string
+  name: string
+  content: string
+  variables: string[]
+}
+
+interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  content: string
+  category: string
+}
 
 function formatDuration(s: number) {
   const m = Math.floor(s / 60)
@@ -18,7 +37,9 @@ function formatDuration(s: number) {
 }
 
 export default function RedesignedCallPopup() {
-  const { call, setNotes, minimize, maximize, close } = useCallUI()
+  const { call, setNotes, minimize, maximize, close, openCall } = useCallUI()
+  const { openSms } = useSmsUI()
+  const { openEmail } = useEmailUI()
   const { toast } = useToast()
   const [elapsed, setElapsed] = useState(0)
   const [hasEnded, setHasEnded] = useState(false)
@@ -30,11 +51,77 @@ export default function RedesignedCallPopup() {
   const [taskTitle, setTaskTitle] = useState("")
   const [taskDueDate, setTaskDueDate] = useState("")
   const [localNotes, setLocalNotes] = useState("")
+  const [showEmailModal, setShowEmailModal] = useState(false)
 
-  // Timer (Issue #3 fix: Stop timer when call ends)
+  // SMS/Email state
+  const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([])
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [smsMessage, setSmsMessage] = useState("")
+  const [emailSubject, setEmailSubject] = useState("")
+  const [emailBody, setEmailBody] = useState("")
+  const [sendingSms, setSendingSms] = useState(false)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [showNewSmsTemplate, setShowNewSmsTemplate] = useState(false)
+  const [showNewEmailTemplate, setShowNewEmailTemplate] = useState(false)
+  const [newTemplateName, setNewTemplateName] = useState("")
+
+  // Reset all state when a new call starts (Issue: popup not refreshing on new call)
+  useEffect(() => {
+    if (call?.callId) {
+      // Reset all local state for new call
+      setElapsed(0)
+      setHasEnded(false)
+      setActivitySaved(false)
+      setActiveTab("details")
+      setContactDetails(null)
+      setActivities([])
+      setTasks([])
+      setTaskTitle("")
+      setTaskDueDate("")
+      setLocalNotes("")
+      setShowEmailModal(false)
+      setSmsMessage("")
+      setEmailSubject("")
+      setEmailBody("")
+      setShowNewSmsTemplate(false)
+      setShowNewEmailTemplate(false)
+      setNewTemplateName("")
+    }
+  }, [call?.callId])
+
+  // Load templates
+  useEffect(() => {
+    const loadTemplates = async () => {
+      try {
+        const [smsRes, emailRes] = await Promise.all([
+          fetch('/api/templates'),
+          fetch('/api/email/templates?active=true')
+        ])
+        if (smsRes.ok) {
+          const data = await smsRes.json()
+          setSmsTemplates(Array.isArray(data) ? data : data.templates || [])
+        }
+        if (emailRes.ok) {
+          const data = await emailRes.json()
+          setEmailTemplates(data.templates || [])
+        }
+      } catch (error) {
+        console.error('Error loading templates:', error)
+      }
+    }
+    loadTemplates()
+  }, [])
+
+  // Timer (Issue #3 fix: Stop timer when call ends, use callId to prevent conflicts)
   useEffect(() => {
     if (!call || hasEnded) return
+
+    // Reset elapsed time when call changes (new call)
+    setElapsed(0)
+
+    const startTime = Date.now()
     setElapsed(Math.floor((Date.now() - call.startedAt) / 1000))
+
     const t = setInterval(() => {
       if (hasEnded) {
         clearInterval(t)
@@ -42,8 +129,9 @@ export default function RedesignedCallPopup() {
       }
       setElapsed(Math.floor((Date.now() - call.startedAt) / 1000))
     }, 1000)
+
     return () => clearInterval(t)
-  }, [call?.startedAt, hasEnded])
+  }, [call?.callId, hasEnded])
 
   // Load contact details
   useEffect(() => {
@@ -96,21 +184,109 @@ export default function RedesignedCallPopup() {
     loadTasks()
   }, [call?.contact?.id])
 
-  // Detect call end for WebRTC
+  // Ensure remote audio is playing for inbound calls
   useEffect(() => {
-    if (!call || call.mode !== 'webrtc') return
-    const checkInterval = setInterval(async () => {
+    if (!call || call.mode !== 'webrtc' || call.direction !== 'inbound') return
+
+    const ensureAudio = async () => {
       try {
         const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-        const callState = rtcClient.getCallState()
-        if (!callState || callState.state === 'hangup' || callState.state === 'destroy') {
-          setHasEnded(true)
-          clearInterval(checkInterval)
+        // Wait a moment for the call to be fully established
+        setTimeout(() => {
+          console.log('[CallPopup] Ensuring remote audio is playing for inbound call...')
+          rtcClient.ensureRemoteAudioPlaying()
+        }, 1000)
+      } catch (err) {
+        console.error('[CallPopup] Error ensuring audio:', err)
+      }
+    }
+
+    ensureAudio()
+  }, [call?.callId, call?.mode, call?.direction])
+
+  // Detect call end for WebRTC - both via polling and events
+  useEffect(() => {
+    if (!call || call.mode !== 'webrtc') return
+
+    let mounted = true
+    const activeCallId = call.webrtcSessionId
+
+    // Set up event listener for call updates
+    const setupEventListener = async () => {
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+
+        const handleCallUpdate = async (data: { state: string; direction?: string; callId?: string }) => {
+          if (!mounted || hasEnded) return
+          const state = data.state?.toLowerCase()
+          const eventCallId = data.callId
+
+          console.log('[CallPopup] callUpdate received:', state, 'callId:', eventCallId, 'activeCallId:', activeCallId)
+
+          // STRICT matching: Only process events that DEFINITELY match our call
+          // If both IDs are present, they must match
+          // If we have an activeCallId but event has no ID, IGNORE IT (it's from another call)
+          const isDefinitelyOurCall = eventCallId && activeCallId && eventCallId === activeCallId
+
+          // Detect hangup/destroy/failed states - but ONLY for our specific call
+          if (isDefinitelyOurCall && (state === 'hangup' || state === 'destroy' || state === 'failed' ||
+              state === 'bye' || state === 'cancel' || state === 'rejected')) {
+            // Double-check with hasActiveCall() before ending
+            const hasActive = rtcClient.hasActiveCall()
+            console.log('[CallPopup] End event for our call, hasActive:', hasActive)
+            if (!hasActive) {
+              console.log('[CallPopup] Call ended via event:', state)
+              setHasEnded(true)
+            }
+          }
         }
-      } catch {}
-    }, 1000)
-    return () => clearInterval(checkInterval)
-  }, [call?.mode, call?.webrtcSessionId])
+
+        rtcClient.on('callUpdate', handleCallUpdate)
+
+        return () => {
+          rtcClient.off('callUpdate', handleCallUpdate)
+        }
+      } catch (err) {
+        console.error('[CallPopup] Error setting up event listener:', err)
+      }
+    }
+
+    const cleanupPromise = setupEventListener()
+
+    // Also poll as fallback (in case events are missed)
+    // But be very conservative - only end if we're SURE the call is done
+    const checkInterval = setInterval(async () => {
+      if (!mounted || hasEnded) return
+      try {
+        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+
+        // Use hasActiveCall() which checks both currentCall and inboundCall
+        const hasActive = rtcClient.hasActiveCall()
+        const callState = rtcClient.getCallState()
+
+        console.log('[CallPopup] Poll check - hasActive:', hasActive, 'state:', callState?.state)
+
+        // Only end if there's definitely no active call AND we've waited long enough
+        if (!hasActive && callState?.state && ['hangup', 'destroy', 'failed', 'bye', 'done'].includes(callState.state)) {
+          // Only end if we've been in the call for at least 5 seconds
+          const callDuration = Date.now() - (call?.startedAt || Date.now())
+          if (callDuration > 5000) {  // Wait at least 5 seconds before allowing poll-based end
+            console.log('[CallPopup] Call ended via poll:', callState?.state, 'after', callDuration, 'ms')
+            setHasEnded(true)
+            clearInterval(checkInterval)
+          }
+        }
+      } catch (err) {
+        console.log('[CallPopup] Poll check error:', err)
+      }
+    }, 2000)  // Poll every 2 seconds (less aggressive)
+
+    return () => {
+      mounted = false
+      clearInterval(checkInterval)
+      cleanupPromise.then(cleanup => cleanup?.())
+    }
+  }, [call?.mode, call?.webrtcSessionId, call?.startedAt])
 
   // Auto-save notes when call ends
   useEffect(() => {
@@ -213,6 +389,60 @@ export default function RedesignedCallPopup() {
     }
   }
 
+  const handleCompleteTask = async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      })
+      if (res.ok) {
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: "completed" } : t))
+        toast({ title: "Success", description: "Task completed" })
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to complete task", variant: "destructive" })
+    }
+  }
+
+  const handleRescheduleTask = async (taskId: string, newDate: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: newDate }),
+      })
+      if (res.ok) {
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, dueDate: newDate } : t))
+        toast({ title: "Success", description: "Task rescheduled" })
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to reschedule task", variant: "destructive" })
+    }
+  }
+
+  const handleCallBack = async () => {
+    if (!phoneNumber) return
+    try {
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      await rtcClient.ensureRegistered()
+      const fromNumber = call?.fromNumber || ''
+      const { sessionId } = await rtcClient.startCall({
+        fromNumber,
+        toNumber: phoneNumber,
+      })
+      openCall({
+        toNumber: phoneNumber,
+        fromNumber,
+        mode: 'webrtc',
+        webrtcSessionId: sessionId,
+        contact: call?.contact,
+      })
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to call back", variant: "destructive" })
+    }
+  }
+
   if (!call) return null
 
   const isActive = !hasEnded
@@ -249,59 +479,103 @@ export default function RedesignedCallPopup() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[400px]">
-      <div className={`${borderColor} border-4 rounded-lg bg-white shadow-2xl`}>
-        {/* Header */}
-        <div className={`${bgColor} p-4 rounded-t-md`}>
-          <div className="flex items-center justify-between mb-2">
-            <div className={`${statusBadgeColor} text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
-              <Phone className="h-3 w-3" />
-              {statusText}
-            </div>
+    <div className="fixed bottom-4 right-4 z-50 w-[380px]">
+      <div className={`${borderColor} border-2 rounded-lg bg-white shadow-2xl overflow-hidden`}>
+        {/* Compact Header */}
+        <div className={`${bgColor} px-3 py-2`}>
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="text-sm font-mono">{formatDuration(elapsed)}</div>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={minimize}>
-                <Minimize2 className="h-4 w-4" />
+              <div className={`${statusBadgeColor} text-white px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1`}>
+                <Phone className="h-3 w-3" />
+                {isActive ? formatDuration(elapsed) : "Ended"}
+              </div>
+              <div>
+                <div className="font-semibold text-sm">{contactName}</div>
+                <div className="text-xs text-gray-600">{formatPhoneNumberForDisplay(phoneNumber)}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-white/50" onClick={minimize}>
+                <Minimize2 className="h-3 w-3" />
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={close}>
-                <X className="h-4 w-4" />
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-white/50" onClick={close}>
+                <X className="h-3 w-3" />
               </Button>
             </div>
           </div>
-          <div>
-            <div className="font-semibold text-lg">{contactName}</div>
-            <div className="text-sm text-gray-700">{formatPhoneNumberForDisplay(phoneNumber)}</div>
+        </div>
+
+        {/* Action Bar - Compact Icons */}
+        <div className="px-3 py-2 border-b flex items-center justify-between bg-gray-50">
+          <div className="flex items-center gap-1">
+            {/* SMS Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 hover:bg-green-100"
+              onClick={() => {
+                openSms({ contact: call?.contact || undefined, phoneNumber })
+              }}
+              title="Send SMS"
+            >
+              <MessageSquare className="h-4 w-4 text-green-600" />
+            </Button>
+            {/* Email Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 hover:bg-purple-100"
+              onClick={() => {
+                if (call?.contact?.email1) {
+                  openEmail({ email: call.contact.email1, contact: call.contact })
+                } else {
+                  toast({ title: "No Email", description: "Contact has no email address", variant: "destructive" })
+                }
+              }}
+              title="Send Email"
+            >
+              <Mail className="h-4 w-4 text-purple-600" />
+            </Button>
+            {/* Call Back Button */}
+            {hasEnded && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 hover:bg-blue-100"
+                onClick={handleCallBack}
+                title="Call Back"
+              >
+                <PhoneCall className="h-4 w-4 text-blue-600" />
+              </Button>
+            )}
           </div>
-          {!hasEnded && (
-            <div className="text-xs text-gray-600 mt-2">
-              {hasEnded ? "Add notes or close when ready" : ""}
-            </div>
+
+          {/* Hang Up Button */}
+          {isActive && (
+            <Button
+              size="sm"
+              className="h-8 bg-red-600 hover:bg-red-700 text-white text-xs px-3"
+              onClick={handleHangup}
+            >
+              <Phone className="h-3 w-3 mr-1 rotate-135" />
+              Hang Up
+            </Button>
           )}
         </div>
 
-        {/* Hang Up Button */}
-        {isActive && (
-          <div className="p-4">
-            <Button 
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3"
-              onClick={handleHangup}
-            >
-              <Phone className="h-4 w-4 mr-2 rotate-135" />
-              Hang Up
-            </Button>
-          </div>
-        )}
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="px-4">
-          <TabsList className="grid grid-cols-4 w-full">
-            <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks</TabsTrigger>
+        {/* Tabs - Fixed Height */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="px-3 pb-3">
+          <TabsList className="grid grid-cols-6 w-full h-8">
+            <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+            <TabsTrigger value="sms" className="text-xs">SMS</TabsTrigger>
+            <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
+            <TabsTrigger value="activity" className="text-xs">Activity</TabsTrigger>
+            <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
+            <TabsTrigger value="tasks" className="text-xs">Tasks</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="details" className="max-h-[400px] overflow-y-auto py-4">
+          {/* Fixed height content area */}
+          <TabsContent value="details" className="h-[280px] overflow-y-auto py-3">
             <div className="space-y-4">
               <div>
                 <h3 className="font-semibold text-sm mb-2">Contact Information</h3>
@@ -353,25 +627,286 @@ export default function RedesignedCallPopup() {
             </div>
           </TabsContent>
 
-          <TabsContent value="activity" className="max-h-[400px] overflow-y-auto py-4">
-            <div className="space-y-3">
+          {/* SMS Tab */}
+          <TabsContent value="sms" className="h-[280px] overflow-y-auto py-3">
+            <div className="space-y-3 h-full flex flex-col">
+              {/* Template Selector */}
+              <div className="flex gap-2 items-center">
+                <Select onValueChange={(id) => {
+                  const t = smsTemplates.find(t => t.id === id)
+                  if (t) {
+                    // Replace variables with contact data
+                    let msg = t.content
+                    if (contactDetails) {
+                      msg = msg.replace(/\{firstName\}/g, contactDetails.firstName || '')
+                        .replace(/\{lastName\}/g, contactDetails.lastName || '')
+                        .replace(/\{llcName\}/g, contactDetails.llcName || '')
+                        .replace(/\{propertyAddress\}/g, contactDetails.propertyAddress || '')
+                    }
+                    setSmsMessage(msg)
+                  }
+                }}>
+                  <SelectTrigger className="h-8 text-xs flex-1">
+                    <SelectValue placeholder="Select template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {smsTemplates.map(t => (
+                      <SelectItem key={t.id} value={t.id} className="text-xs">
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setShowNewSmsTemplate(!showNewSmsTemplate)}
+                  title="Save as new template"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* New Template Form */}
+              {showNewSmsTemplate && (
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Template name..."
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    className="flex-1 h-8 text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={!newTemplateName.trim() || !smsMessage.trim()}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/templates', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: newTemplateName, content: smsMessage })
+                        })
+                        if (res.ok) {
+                          const newT = await res.json()
+                          setSmsTemplates(prev => [...prev, newT])
+                          toast({ title: 'Template saved!' })
+                          setShowNewSmsTemplate(false)
+                          setNewTemplateName('')
+                        }
+                      } catch { toast({ title: 'Error saving template', variant: 'destructive' }) }
+                    }}
+                  >
+                    <FileText className="h-3 w-3 mr-1" />
+                    Save
+                  </Button>
+                </div>
+              )}
+
+              {/* Message Input */}
+              <Textarea
+                placeholder="Type your message..."
+                value={smsMessage}
+                onChange={(e) => setSmsMessage(e.target.value)}
+                className="flex-1 min-h-[120px] text-sm resize-none"
+              />
+
+              {/* Send Button */}
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700 text-white text-xs h-9"
+                disabled={!smsMessage.trim() || sendingSms || !phoneNumber}
+                onClick={async () => {
+                  if (!phoneNumber) return
+                  setSendingSms(true)
+                  try {
+                    const res = await fetch('/api/sms/send', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        to: phoneNumber.replace(/\D/g, ''),
+                        message: smsMessage,
+                        contactId: call?.contact?.id
+                      })
+                    })
+                    if (res.ok) {
+                      toast({ title: 'SMS sent!' })
+                      setSmsMessage('')
+                    } else {
+                      const err = await res.json()
+                      toast({ title: 'Failed to send', description: err.error, variant: 'destructive' })
+                    }
+                  } catch {
+                    toast({ title: 'Error sending SMS', variant: 'destructive' })
+                  } finally {
+                    setSendingSms(false)
+                  }
+                }}
+              >
+                {sendingSms ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                Send SMS
+              </Button>
+            </div>
+          </TabsContent>
+
+          {/* Email Tab */}
+          <TabsContent value="email" className="h-[280px] overflow-y-auto py-3">
+            <div className="space-y-2 h-full flex flex-col">
+              {/* Template Selector */}
+              <div className="flex gap-2 items-center">
+                <Select onValueChange={(id) => {
+                  const t = emailTemplates.find(t => t.id === id)
+                  if (t) {
+                    let subj = t.subject
+                    let body = t.content
+                    if (contactDetails) {
+                      const replacements = [
+                        [/\{firstName\}/g, contactDetails.firstName || ''],
+                        [/\{lastName\}/g, contactDetails.lastName || ''],
+                        [/\{llcName\}/g, contactDetails.llcName || ''],
+                        [/\{propertyAddress\}/g, contactDetails.propertyAddress || '']
+                      ] as const
+                      for (const [regex, val] of replacements) {
+                        subj = subj.replace(regex, val)
+                        body = body.replace(regex, val)
+                      }
+                    }
+                    setEmailSubject(subj)
+                    setEmailBody(body)
+                  }
+                }}>
+                  <SelectTrigger className="h-8 text-xs flex-1">
+                    <SelectValue placeholder="Select template..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emailTemplates.map(t => (
+                      <SelectItem key={t.id} value={t.id} className="text-xs">
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setShowNewEmailTemplate(!showNewEmailTemplate)}
+                  title="Save as new template"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {/* New Template Form */}
+              {showNewEmailTemplate && (
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Template name..."
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    className="flex-1 h-8 text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={!newTemplateName.trim() || !emailSubject.trim() || !emailBody.trim()}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/email/templates', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: newTemplateName, subject: emailSubject, content: emailBody, category: 'custom' })
+                        })
+                        if (res.ok) {
+                          const data = await res.json()
+                          setEmailTemplates(prev => [...prev, data.template])
+                          toast({ title: 'Template saved!' })
+                          setShowNewEmailTemplate(false)
+                          setNewTemplateName('')
+                        }
+                      } catch { toast({ title: 'Error saving template', variant: 'destructive' }) }
+                    }}
+                  >
+                    <FileText className="h-3 w-3 mr-1" />
+                    Save
+                  </Button>
+                </div>
+              )}
+
+              {/* Subject */}
+              <Input
+                placeholder="Subject..."
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                className="h-8 text-xs"
+              />
+
+              {/* Body */}
+              <Textarea
+                placeholder="Email body..."
+                value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
+                className="flex-1 min-h-[80px] text-sm resize-none"
+              />
+
+              {/* Send Button */}
+              <Button
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs h-9"
+                disabled={!emailSubject.trim() || !emailBody.trim() || sendingEmail || !contactDetails?.email1}
+                onClick={async () => {
+                  if (!contactDetails?.email1) {
+                    toast({ title: 'No email address', description: 'Contact has no email', variant: 'destructive' })
+                    return
+                  }
+                  setSendingEmail(true)
+                  try {
+                    const res = await fetch('/api/email/send', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        to: contactDetails.email1,
+                        subject: emailSubject,
+                        body: emailBody,
+                        contactId: call?.contact?.id
+                      })
+                    })
+                    if (res.ok) {
+                      toast({ title: 'Email sent!' })
+                      setEmailSubject('')
+                      setEmailBody('')
+                    } else {
+                      const err = await res.json()
+                      toast({ title: 'Failed to send', description: err.error, variant: 'destructive' })
+                    }
+                  } catch {
+                    toast({ title: 'Error sending email', variant: 'destructive' })
+                  } finally {
+                    setSendingEmail(false)
+                  }
+                }}
+              >
+                {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                Send Email
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="activity" className="h-[280px] overflow-y-auto py-3">
+            <div className="space-y-2">
               {activities.length === 0 ? (
-                <div className="text-center text-gray-500 text-sm py-8">No activities yet</div>
+                <div className="text-center text-gray-500 text-xs py-8">No activities yet</div>
               ) : (
                 activities.map((activity) => (
-                  <div key={activity.id} className="border-l-2 border-blue-500 pl-3 py-2">
-                    <div className="flex items-center gap-2 mb-1">
-                      {activity.type === 'call' && <Phone className="h-4 w-4 text-blue-500" />}
-                      {activity.type === 'email' && <Mail className="h-4 w-4 text-purple-500" />}
-                      {activity.type === 'sms' && <span className="text-green-500 text-xs">💬</span>}
-                      <span className="font-medium text-sm">{activity.title}</span>
-                      <span className="text-xs text-gray-500">{format(new Date(activity.createdAt), 'MM/dd/yyyy')}</span>
+                  <div key={activity.id} className="border-l-2 border-blue-500 pl-2 py-1">
+                    <div className="flex items-center gap-1 mb-0.5">
+                      {activity.type === 'call' && <Phone className="h-3 w-3 text-blue-500" />}
+                      {activity.type === 'email' && <Mail className="h-3 w-3 text-purple-500" />}
+                      {activity.type === 'sms' && <MessageSquare className="h-3 w-3 text-green-500" />}
+                      <span className="font-medium text-xs">{activity.title}</span>
+                      <span className="text-[10px] text-gray-500">{format(new Date(activity.createdAt), 'MM/dd')}</span>
                     </div>
                     {activity.description && (
-                      <div className="text-xs text-gray-600">{activity.description}</div>
-                    )}
-                    {activity.durationMinutes && (
-                      <div className="text-xs text-gray-500">Duration: {activity.durationMinutes} min</div>
+                      <div className="text-[10px] text-gray-600 truncate">{activity.description}</div>
                     )}
                   </div>
                 ))
@@ -379,74 +914,112 @@ export default function RedesignedCallPopup() {
             </div>
           </TabsContent>
 
-          <TabsContent value="notes" className="py-4">
-            <div className="space-y-3">
-              <h3 className="font-semibold text-sm">Call Notes</h3>
+          <TabsContent value="notes" className="h-[280px] overflow-y-auto py-3">
+            <div className="space-y-2 h-full flex flex-col">
+              <div className="text-[10px] text-gray-500">
+                Enter to save • Shift+Enter for new line
+              </div>
               <Textarea
                 placeholder="Write your notes here..."
                 value={localNotes}
                 onChange={(e) => setLocalNotes(e.target.value)}
-                className="min-h-[150px]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (localNotes.trim()) {
+                      handleSaveNotes()
+                    }
+                  }
+                }}
+                className="flex-1 min-h-[180px] text-sm resize-none"
               />
-              <Button 
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+              <Button
+                size="sm"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs"
                 onClick={handleSaveNotes}
                 disabled={!localNotes.trim()}
               >
                 Save Notes
               </Button>
               {activitySaved && (
-                <div className="text-xs text-green-600 text-center">
-                  Notes were auto-saved when you hung up. You can add more notes here.
+                <div className="text-[10px] text-green-600 text-center">
+                  Notes auto-saved on hangup
                 </div>
               )}
             </div>
           </TabsContent>
 
-          <TabsContent value="tasks" className="max-h-[400px] overflow-y-auto py-4">
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold text-sm mb-3">Create Follow-up Task</h3>
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-xs font-medium text-gray-700">Task Title</label>
-                    <Input
-                      placeholder="e.g., Send property listings"
-                      value={taskTitle}
-                      onChange={(e) => setTaskTitle(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-700">Due Date</label>
-                    <Input
-                      type="date"
-                      value={taskDueDate}
-                      onChange={(e) => setTaskDueDate(e.target.value)}
-                    />
-                  </div>
-                  <Button 
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                    onClick={handleCreateTask}
-                    disabled={!taskTitle.trim()}
-                  >
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Create Task
-                  </Button>
+          <TabsContent value="tasks" className="h-[280px] overflow-y-auto py-3">
+            <div className="space-y-3">
+              {/* Quick Create Task */}
+              <div className="space-y-1.5">
+                <div className="flex gap-1.5">
+                  <Input
+                    placeholder="Task title..."
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                    className="flex-1 h-8 text-xs"
+                  />
+                  <Input
+                    type="date"
+                    value={taskDueDate}
+                    onChange={(e) => setTaskDueDate(e.target.value)}
+                    className="w-32 h-8 text-xs"
+                  />
                 </div>
+                <Button
+                  size="sm"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs h-7"
+                  onClick={handleCreateTask}
+                  disabled={!taskTitle.trim()}
+                >
+                  <Calendar className="h-3 w-3 mr-1" />
+                  Create Task
+                </Button>
               </div>
 
-              <div>
-                <h3 className="font-semibold text-sm mb-2">Recent Tasks</h3>
+              {/* Tasks List */}
+              <div className="border-t pt-2">
+                <h4 className="text-xs font-medium text-gray-500 mb-2">Contact Tasks</h4>
                 {tasks.length === 0 ? (
-                  <div className="text-center text-gray-500 text-sm py-4">No tasks yet</div>
+                  <div className="text-center text-gray-400 text-xs py-4">No tasks</div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {tasks.map((task) => (
-                      <div key={task.id} className="p-2 border rounded text-sm">
-                        <div className="font-medium">{task.title}</div>
-                        {task.dueDate && (
-                          <div className="text-xs text-gray-500">Due: {format(new Date(task.dueDate), 'MM/dd/yyyy')}</div>
-                        )}
+                      <div key={task.id} className={`p-2 border rounded text-xs ${task.status === 'completed' ? 'bg-gray-50 opacity-60' : ''}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className={`font-medium truncate ${task.status === 'completed' ? 'line-through text-gray-500' : ''}`}>
+                              {task.title}
+                            </div>
+                            {task.dueDate && (
+                              <div className="text-[10px] text-gray-500">
+                                Due: {format(new Date(task.dueDate), 'MM/dd/yy')}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {task.status !== 'completed' && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 hover:bg-green-100"
+                                  onClick={() => handleCompleteTask(task.id)}
+                                  title="Complete Task"
+                                >
+                                  <Check className="h-3 w-3 text-green-600" />
+                                </Button>
+                                <input
+                                  type="date"
+                                  className="h-6 w-20 text-[10px] border rounded px-1"
+                                  onChange={(e) => handleRescheduleTask(task.id, e.target.value)}
+                                  title="Reschedule"
+                                />
+                              </>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -221,8 +221,8 @@ export default function TextConversationsList({
                 <div className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     <AvatarFallback className="bg-primary/10 text-primary">
-                      {contact.firstName[0]}
-                      {contact.lastName[0]}
+                      {contact.firstName?.[0] || ''}
+                      {contact.lastName?.[0] || ''}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">

@@ -324,6 +324,14 @@ export default function ManualDialingTab() {
     }
   }
 
+  // Handle Enter key on dialpad input
+  const handleDialpadKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleDialpadCall()
+    }
+  }
+
   const dialpadButtons = [
     ['1', '2', '3'],
     ['4', '5', '6'],
@@ -511,6 +519,7 @@ export default function ManualDialingTab() {
               placeholder="Enter phone number"
               value={dialpadNumber}
               onChange={(e) => setDialpadNumber(e.target.value)}
+              onKeyDown={handleDialpadKeyDown}
               className="text-center text-lg"
             />
           </div>

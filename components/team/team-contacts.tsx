@@ -9,13 +9,17 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
-import { Search, User, Phone, Mail, MapPin, Building, Eye, Plus } from "lucide-react"
+import { Search, User, Phone, Mail, MapPin, Building, Eye, Plus, MessageSquare } from "lucide-react"
 
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import ContactName from "@/components/contacts/contact-name"
 
 import ContactDetails from "@/components/contacts/contact-details"
 import AddContactDialog from "@/components/contacts/add-contact-dialog"
+import { normalizePropertyType } from "@/lib/property-type-mapper"
+import { useEmailUI } from "@/lib/context/email-ui-context"
+import { useSmsUI } from "@/lib/context/sms-ui-context"
+import { useCallUI } from "@/lib/context/call-ui-context"
 
 interface Contact {
   id: string
@@ -44,6 +48,9 @@ interface Contact {
 export default function TeamContacts() {
   const { data: session } = useSession()
   const { toast } = useToast()
+  const { openEmail } = useEmailUI()
+  const { openSms } = useSmsUI()
+  const { openCall } = useCallUI()
 
   const [contacts, setContacts] = useState<Contact[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -241,17 +248,61 @@ export default function TeamContacts() {
                               </p>
                             )}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedContact(contact)
-                            }}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Button>
+                          <div className="flex gap-1">
+                            {contact.phone1 && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openCall(contact.phone1!)
+                                  }}
+                                  title="Call"
+                                >
+                                  <Phone className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openSms({ phoneNumber: contact.phone1!, contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName } })
+                                  }}
+                                  title="Send SMS"
+                                >
+                                  <MessageSquare className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                            {contact.email1 && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openEmail({ email: contact.email1!, contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName } })
+                                }}
+                                title="Send Email"
+                              >
+                                <Mail className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedContact(contact)
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
@@ -284,7 +335,7 @@ export default function TeamContacts() {
                         <div className="flex items-center gap-2 mt-3 flex-wrap">
                           {contact.propertyType && (
                             <Badge variant="outline" className="text-xs">
-                              {contact.propertyType}
+                              {normalizePropertyType(contact.propertyType)}
                             </Badge>
                           )}
                           {contact.estValue && (
@@ -398,7 +449,7 @@ export default function TeamContacts() {
                     <h4 className="font-medium mb-2">Property Details</h4>
                     <div className="space-y-2 text-sm">
                       {selectedContact.propertyType && (
-                        <p><span className="text-muted-foreground">Type:</span> {selectedContact.propertyType}</p>
+                        <p><span className="text-muted-foreground">Type:</span> {normalizePropertyType(selectedContact.propertyType)}</p>
                       )}
                       {selectedContact.estValue && (
                         <p><span className="text-muted-foreground">Est. Value:</span> {formatCurrency(selectedContact.estValue)}</p>

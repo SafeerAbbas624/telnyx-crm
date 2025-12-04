@@ -25,6 +25,7 @@ import {
   Trash2
 } from "lucide-react"
 import ContactName from "@/components/contacts/contact-name"
+import { useTaskUI } from "@/lib/context/task-ui-context"
 
 import { format, isPast, isToday, isBefore, addDays, addMonths } from "date-fns"
 
@@ -59,14 +60,13 @@ type TaskFilter = "overdue-today" | "next-7-days" | "next-month" | "all-time"
 
 export default function TeamActivities() {
   const { toast } = useToast()
+  const { openTask } = useTaskUI()
   const [activities, setActivities] = useState<Activity[]>([])
   const [assignedContacts, setAssignedContacts] = useState<Contact[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingActivity, setEditingActivity] = useState<Activity | null>(null)
   const [taskFilter, setTaskFilter] = useState<TaskFilter>("overdue-today")
-
   const [formData, setFormData] = useState({
     type: "call",
     title: "",
@@ -107,49 +107,6 @@ export default function TeamActivities() {
     }
   }
 
-  const handleCreateActivity = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    try {
-      const response = await fetch('/api/team/activities', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      })
-
-      if (response.ok) {
-        setIsCreateDialogOpen(false)
-        setFormData({
-          type: "call",
-          title: "",
-          description: "",
-          contactId: "",
-          priority: "medium",
-          dueDate: ""
-        })
-        loadActivities()
-        toast({
-          title: "Success",
-          description: "Activity created successfully",
-        })
-      } else {
-        const data = await response.json()
-        toast({
-          title: "Error",
-          description: data.error || "Failed to create activity",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "An error occurred while creating activity",
-        variant: "destructive",
-      })
-    }
-  }
 
   const handleActivityClick = (activity: Activity) => {
     setEditingActivity(activity)
@@ -289,10 +246,6 @@ export default function TeamActivities() {
     }
   }
 
-  const handleInputChange = (field: keyof typeof formData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-  }
-
   // Filter activities based on selected time period
   const getFilteredActivities = () => {
     const now = new Date()
@@ -350,116 +303,10 @@ export default function TeamActivities() {
               Manage your tasks and activities with assigned contacts
             </p>
           </div>
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Add Activity
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Create New Activity</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleCreateActivity} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="type">Activity Type</Label>
-                  <Select
-                    value={formData.type}
-                    onValueChange={(value) => handleInputChange("type", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="call">Call</SelectItem>
-                      <SelectItem value="meeting">Meeting</SelectItem>
-                      <SelectItem value="email">Email</SelectItem>
-                      <SelectItem value="task">Task</SelectItem>
-                      <SelectItem value="note">Notes</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="contactId">Contact</Label>
-                  <Select
-                    value={formData.contactId}
-                    onValueChange={(value) => handleInputChange("contactId", value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select contact" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {assignedContacts.map((contact) => (
-                        <SelectItem key={contact.id} value={contact.id}>
-                          {contact.firstName} {contact.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input
-                    id="title"
-                    value={formData.title}
-                    onChange={(e) => handleInputChange("title", e.target.value)}
-                    placeholder="Activity title"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => handleInputChange("description", e.target.value)}
-                    placeholder="Activity description"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="priority">Priority</Label>
-                    <Select
-                      value={formData.priority}
-                      onValueChange={(value) => handleInputChange("priority", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="low">Low</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="dueDate">Due Date</Label>
-                    <Input
-                      id="dueDate"
-                      type="datetime-local"
-                      value={formData.dueDate}
-                      onChange={(e) => handleInputChange("dueDate", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">Create Activity</Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button className="flex items-center gap-2" onClick={() => openTask()}>
+            <Plus className="h-4 w-4" />
+            Add Task
+          </Button>
 
           {/* Edit Activity Dialog */}
           <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -625,9 +472,9 @@ export default function TeamActivities() {
                   <p className="text-muted-foreground mb-4">
                     Create your first activity to start managing your tasks
                   </p>
-                  <Button onClick={() => setIsCreateDialogOpen(true)}>
+                  <Button onClick={() => openTask()}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Activity
+                    Add Task
                   </Button>
                 </div>
               </CardContent>

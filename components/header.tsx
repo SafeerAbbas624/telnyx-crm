@@ -13,17 +13,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
-import { Badge } from "@/components/ui/badge"
-import { Bell, Moon, Sun, User, Settings, LogOut } from "lucide-react"
+import { Moon, Sun, User, Settings, LogOut } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useSession, signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
-import { useNotifications } from "@/lib/context/notifications-context"
-import { MessageSquare, Mail as MailIcon } from "lucide-react"
+import GlobalSearch from "./global-search"
 
 export default function Header() {
-  const { items, unreadCount, markAllRead, clear } = useNotifications()
   const { theme, setTheme } = useTheme()
   const { data: session } = useSession()
   const router = useRouter()
@@ -66,70 +63,22 @@ export default function Header() {
         <Image src={Logo as any} alt="Logo" className="h-24 w-auto md:h-28" priority />
         <span className="text-xl font-semibold hidden sm:inline">Adler Capital CRM</span>
       </div>
+
+      {/* Global Search */}
+      <div className="flex-1 max-w-2xl mx-4">
+        <GlobalSearch />
+      </div>
+
       <div className="flex items-center gap-2">
-
-      {/* Notifications */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            {unreadCount > 0 && (
-              <Badge
-                variant="destructive"
-                className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
-              >
-                {unreadCount}
-              </Badge>
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-96">
-          <DropdownMenuLabel className="flex items-center justify-between">
-            <span>Notifications</span>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Button>
-              <Button variant="ghost" size="sm" onClick={clear}>Clear</Button>
-            </div>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {items.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">No notifications</div>
-          ) : (
-            items.slice(0, 10).map((n) => (
-              <DropdownMenuItem key={n.id} className="cursor-pointer" onClick={() => {
-                try {
-                  const url = new URL(window.location.href)
-                  if (n.kind === 'sms') url.searchParams.set('section', 'messaging')
-                  else url.searchParams.set('section', 'email')
-                  if (n.contactId) url.searchParams.set('contactId', n.contactId)
-                  url.pathname = '/dashboard'
-                  window.location.assign(url.toString())
-                } catch {}
-              }}>
-                <div className="flex items-start gap-3 py-1">
-                  {n.kind === 'sms' ? (
-                    <MessageSquare className="h-4 w-4 mt-1 text-blue-600" />
-                  ) : (
-                    <MailIcon className="h-4 w-4 mt-1 text-emerald-600" />
-                  )}
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate">{n.contactName || n.fromEmail || 'Unknown'}</p>
-                      {!n.read && <Badge variant="destructive">New</Badge>}
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{n.preview || ''}</p>
-                  </div>
-                </div>
-              </DropdownMenuItem>
-            ))
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
       {/* Theme Toggle */}
-      <Button variant="ghost" size="icon" onClick={toggleTheme}>
-        <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-        <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={toggleTheme}
+        className="relative hover:bg-accent"
+      >
+        <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all duration-200 dark:-rotate-90 dark:scale-0" />
+        <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all duration-200 dark:rotate-0 dark:scale-100" />
         <span className="sr-only">Toggle theme</span>
       </Button>
 
@@ -138,9 +87,11 @@ export default function Header() {
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-10 w-10 rounded-full">
             <Avatar className="h-10 w-10">
-              <AvatarImage src="/avatars/user.jpg" alt="User" />
-              <AvatarFallback>
-                <User className="h-5 w-5" />
+              {(session?.user as any)?.avatar && (
+                <AvatarImage src={(session?.user as any).avatar} alt="User" />
+              )}
+              <AvatarFallback className="bg-orange-100 text-orange-600">
+                {session?.user?.email?.charAt(0).toUpperCase() || <User className="h-5 w-5" />}
               </AvatarFallback>
             </Avatar>
           </Button>

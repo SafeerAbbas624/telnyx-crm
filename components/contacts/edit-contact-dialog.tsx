@@ -1,21 +1,17 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useToast } from "@/hooks/use-toast"
 import { TagInput } from "@/components/ui/tag-input"
@@ -27,126 +23,124 @@ interface EditContactDialogProps {
   contact: Contact | null
 }
 
+// Helper to format phone to 10 digits
+const formatPhone = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 10)
+  return digits
+}
+
+const propertyTypes = [
+  "Single-family (SFR)",
+  "Duplex",
+  "Triplex",
+  "Quadplex",
+  "Multifamily (5+ units)",
+  "Townhouse",
+  "Condominium (Condo)",
+]
+
 export default function EditContactDialog({ open, onOpenChange, contact }: EditContactDialogProps) {
-  const { updateContact, tags, refreshFilterOptions } = useContacts()
+  const { updateContact, refreshFilterOptions } = useContacts()
   const { toast } = useToast()
 
-  const [firstName, setFirstName] = useState(contact?.firstName || "")
-  const [lastName, setLastName] = useState(contact?.lastName || "")
-  const [llcName, setLlcName] = useState(contact?.llcName || "")
-  const [phone1, setPhone1] = useState(contact?.phone1 || "")
-  const [phone2, setPhone2] = useState(contact?.phone2 || "")
-  const [phone3, setPhone3] = useState(contact?.phone3 || "")
-  const [email1, setEmail1] = useState(contact?.email1 || "")
-  const [email2, setEmail2] = useState(contact?.email2 || "")
-  const [email3, setEmail3] = useState(contact?.email3 || "")
-  const [propertyAddress, setPropertyAddress] = useState(contact?.propertyAddress || "")
-  const [contactAddress, setContactAddress] = useState(contact?.contactAddress || "")
-  const [city, setCity] = useState(contact?.city || "")
-  const [state, setState] = useState(contact?.state || "")
-  const [propertyCounty, setPropertyCounty] = useState(contact?.propertyCounty || "")
-  const [propertyType, setPropertyType] = useState(contact?.propertyType || "")
-  const [bedrooms, setBedrooms] = useState<number | undefined>(contact?.bedrooms ?? undefined)
-  const [totalBathrooms, setTotalBathrooms] = useState<number | undefined>(contact?.totalBathrooms ?? undefined)
-  const [buildingSqft, setBuildingSqft] = useState<number | undefined>(contact?.buildingSqft ?? undefined)
-  const [effectiveYearBuilt, setEffectiveYearBuilt] = useState<number | undefined>(contact?.effectiveYearBuilt ?? undefined)
-  const [estValue, setEstValue] = useState<number | undefined>(contact?.estValue ?? undefined)
-  const [debtOwed, setDebtOwed] = useState<number | undefined>(contact?.debtOwed ?? undefined)
-  const [estEquity, setEstEquity] = useState<number | undefined>(contact?.estEquity ?? undefined)
-  const [dealStatus, setDealStatus] = useState<Contact["dealStatus"]>(contact?.dealStatus ?? "lead")
-  const [dnc, setDnc] = useState(contact?.dnc ?? false)
-  const [dncReason, setDncReason] = useState(contact?.dncReason || "")
-  const [notes, setNotes] = useState(contact?.notes || "")
-  const [selectedTags, setSelectedTags] = useState<Tag[]>(contact?.tags || [])
+  const [formData, setFormData] = useState({
+    fullName: "",
+    llcName: "",
+    phone: "",
+    email: "",
+    propertyAddress: "",
+    contactAddress: "",
+    city: "",
+    state: "",
+    propertyType: "",
+    bedrooms: "",
+    totalBathrooms: "",
+    buildingSqft: "",
+    effectiveYearBuilt: "",
+    estValue: "",
+    estEquity: "",
+    tags: [] as Tag[],
+  })
 
+  // Load contact data when contact changes
   useEffect(() => {
     if (contact) {
-      setFirstName(contact.firstName)
-      setLastName(contact.lastName)
-      setLlcName(contact.llcName || "")
-      setPhone1(contact.phone1 || "")
-      setPhone2(contact.phone2 || "")
-      setPhone3(contact.phone3 || "")
-      setEmail1(contact.email1 || "")
-      setEmail2(contact.email2 || "")
-      setEmail3(contact.email3 || "")
-      setPropertyAddress(contact.propertyAddress || "")
-      setContactAddress(contact.contactAddress || "")
-      setCity(contact.city || "")
-      setState(contact.state || "")
-      setPropertyCounty(contact.propertyCounty || "")
-      setPropertyType(contact.propertyType || "")
-      setBedrooms(contact.bedrooms ?? undefined)
-      setTotalBathrooms(contact.totalBathrooms ?? undefined)
-      setBuildingSqft(contact.buildingSqft ?? undefined)
-      setEffectiveYearBuilt(contact.effectiveYearBuilt ?? undefined)
-      setEstValue(contact.estValue ?? undefined)
-      setDebtOwed(contact.debtOwed ?? undefined)
-      setEstEquity(contact.estEquity ?? undefined)
-      setDealStatus(contact.dealStatus ?? "lead")
-      setDnc(contact.dnc ?? false)
-      setDncReason(contact.dncReason || "")
-      setNotes(contact.notes || "")
-      setSelectedTags(contact.tags || [])
+      setFormData({
+        fullName: `${contact.firstName || ""} ${contact.lastName || ""}`.trim(),
+        llcName: contact.llcName || "",
+        phone: contact.phone1 || "",
+        email: contact.email1 || "",
+        propertyAddress: contact.propertyAddress || "",
+        contactAddress: contact.contactAddress || "",
+        city: contact.city || "",
+        state: contact.state || "",
+        propertyType: contact.propertyType || "",
+        bedrooms: contact.bedrooms?.toString() || "",
+        totalBathrooms: contact.totalBathrooms?.toString() || "",
+        buildingSqft: contact.buildingSqft?.toString() || "",
+        effectiveYearBuilt: contact.effectiveYearBuilt?.toString() || "",
+        estValue: contact.estValue?.toString() || "",
+        estEquity: contact.estEquity?.toString() || "",
+        tags: contact.tags || [],
+      })
     }
   }, [contact])
 
-  const handleSubmit = async () => {
+  // Use callback to prevent tag updates from resetting other form fields
+  const handleTagChange = useCallback((newTags: Tag[]) => {
+    setFormData(prev => ({ ...prev, tags: newTags }))
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
     if (!contact) return
 
-    if (!firstName || !lastName) {
+    if (!formData.fullName.trim() || !formData.phone.trim()) {
       toast({
         title: "Error",
-        description: "First Name and Last Name are required.",
+        description: "Full Name and Phone are required.",
         variant: "destructive",
       })
       return
     }
 
+    const toNumber = (v: string) => (v && v.trim() !== "" ? Number(v) : undefined)
+
+    // Split full name into first and last name
+    const nameParts = formData.fullName.trim().split(/\s+/)
+    const firstName = nameParts[0] || ""
+    const lastName = nameParts.slice(1).join(" ") || ""
+
+    const tagsPayload = formData.tags.map((t: any) => {
+      // Handle new tags (prefixed with 'new:')
+      if (typeof t.id === 'string' && t.id.startsWith('new:')) {
+        return { name: t.name, color: t.color || '#3B82F6' }
+      }
+      // Handle existing tags
+      return { id: t.id, name: t.name, color: t.color }
+    })
+
     const payload: Partial<Contact> & { tags?: any[] } = {
       firstName,
-      lastName,
-      llcName: llcName || undefined,
-      phone1: phone1 || undefined,
-      phone2: phone2 || undefined,
-      phone3: phone3 || undefined,
-      email1: email1 || undefined,
-      email2: email2 || undefined,
-      email3: email3 || undefined,
-      propertyAddress: propertyAddress || undefined,
-      contactAddress: contactAddress || undefined,
-      city: city || undefined,
-      state: state || undefined,
-      propertyCounty: propertyCounty || undefined,
-      propertyType: propertyType || undefined,
-      bedrooms,
-      totalBathrooms,
-      buildingSqft,
-      effectiveYearBuilt,
-      estValue,
-      estEquity,
-      dealStatus,
-      dnc,
-      dncReason: dnc ? dncReason || "N/A" : undefined,
-      notes: notes || undefined,
-      tags: selectedTags.map((t: any) => {
-        // Handle new tags (prefixed with 'new:')
-        if (typeof t.id === 'string' && t.id.startsWith('new:')) {
-          return {
-            name: t.name,
-            color: t.color || '#3B82F6',
-          }
-        }
-        // Handle existing tags
-        return {
-          id: t.id,
-          name: t.name,
-          color: t.color,
-        }
-      }),
+      lastName: lastName || undefined,
+      llcName: formData.llcName || undefined,
+      phone1: formData.phone || undefined,
+      email1: formData.email || undefined,
+      propertyAddress: formData.propertyAddress || undefined,
+      contactAddress: formData.contactAddress || undefined,
+      city: formData.city || undefined,
+      state: formData.state || undefined,
+      propertyType: formData.propertyType || undefined,
+      bedrooms: toNumber(formData.bedrooms),
+      totalBathrooms: toNumber(formData.totalBathrooms),
+      buildingSqft: toNumber(formData.buildingSqft),
+      effectiveYearBuilt: toNumber(formData.effectiveYearBuilt),
+      estValue: toNumber(formData.estValue),
+      estEquity: toNumber(formData.estEquity),
+      tags: tagsPayload,
     }
 
-    const updated = await updateContact(contact.id, payload)
+    await updateContact(contact.id, payload)
 
     // Force refresh filter options after updating contact (especially for tags)
     console.log('🔄 [EDIT CONTACT] Manually refreshing filter options after update')
@@ -345,6 +339,88 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
             <Label htmlFor="notes">Notes</Label>
             <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
           </div>
+
+          {/* Custom Fields Section */}
+          {fieldDefinitions.length > 0 && (
+            <div className="space-y-3 pt-4 border-t">
+              <div className="flex items-center gap-2">
+                <Label className="text-base font-semibold">Custom Fields</Label>
+                <Badge variant="secondary" className="text-xs">{fieldDefinitions.length} fields</Badge>
+              </div>
+              <div className="grid gap-4">
+                {fieldDefinitions.map((field: any) => (
+                  <div key={field.id} className="space-y-2">
+                    <Label htmlFor={`custom-${field.fieldKey}`}>
+                      {field.name}
+                      {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                    </Label>
+                    {field.fieldType === 'textarea' ? (
+                      <Textarea
+                        id={`custom-${field.fieldKey}`}
+                        value={customFields[field.fieldKey] || ''}
+                        onChange={(e) => setCustomFields({ ...customFields, [field.fieldKey]: e.target.value })}
+                        placeholder={field.placeholder || ''}
+                        rows={3}
+                      />
+                    ) : field.fieldType === 'boolean' ? (
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          id={`custom-${field.fieldKey}`}
+                          checked={customFields[field.fieldKey] || false}
+                          onCheckedChange={(checked) => setCustomFields({ ...customFields, [field.fieldKey]: checked })}
+                        />
+                        <Label htmlFor={`custom-${field.fieldKey}`} className="font-normal cursor-pointer">
+                          {customFields[field.fieldKey] ? 'Yes' : 'No'}
+                        </Label>
+                      </div>
+                    ) : field.fieldType === 'select' ? (
+                      <Select
+                        value={customFields[field.fieldKey] || ''}
+                        onValueChange={(value) => setCustomFields({ ...customFields, [field.fieldKey]: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={field.placeholder || 'Select...'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {field.options && Array.isArray(field.options) && field.options.map((option: string) => (
+                            <SelectItem key={option} value={option}>{option}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : field.fieldType === 'date' ? (
+                      <Input
+                        id={`custom-${field.fieldKey}`}
+                        type="date"
+                        value={customFields[field.fieldKey] || ''}
+                        onChange={(e) => setCustomFields({ ...customFields, [field.fieldKey]: e.target.value })}
+                      />
+                    ) : field.fieldType === 'number' || field.fieldType === 'decimal' || field.fieldType === 'currency' ? (
+                      <Input
+                        id={`custom-${field.fieldKey}`}
+                        type="number"
+                        step={field.fieldType === 'decimal' || field.fieldType === 'currency' ? '0.01' : '1'}
+                        value={customFields[field.fieldKey] || ''}
+                        onChange={(e) => setCustomFields({ ...customFields, [field.fieldKey]: e.target.value })}
+                        placeholder={field.placeholder || ''}
+                      />
+                    ) : (
+                      <Input
+                        id={`custom-${field.fieldKey}`}
+                        type={field.fieldType === 'email' ? 'email' : field.fieldType === 'url' ? 'url' : field.fieldType === 'phone' ? 'tel' : 'text'}
+                        value={customFields[field.fieldKey] || ''}
+                        onChange={(e) => setCustomFields({ ...customFields, [field.fieldKey]: e.target.value })}
+                        placeholder={field.placeholder || ''}
+                      />
+                    )}
+                    {field.helpText && (
+                      <p className="text-xs text-gray-500">{field.helpText}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="tags">Tags</Label>
             <TagInput

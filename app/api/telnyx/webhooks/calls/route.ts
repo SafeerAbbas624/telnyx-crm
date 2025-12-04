@@ -215,8 +215,47 @@ async function handleCallAnswered(data: any) {
       where: { telnyxCallId: data.call_control_id },
       data: updateAnswered,
     });
+
+    // Start recording for all answered calls (especially WebRTC calls that don't have record set at dial time)
+    await startCallRecording(data.call_control_id);
   } catch (error) {
     console.error('Error handling call answered:', error);
+  }
+}
+
+// Start recording on a call using Telnyx Call Control API
+async function startCallRecording(callControlId: string) {
+  try {
+    const apiKey = process.env.TELNYX_API_KEY;
+    if (!apiKey) {
+      console.error('[TELNYX][RECORD] No API key configured');
+      return;
+    }
+
+    console.log('[TELNYX][RECORD] Starting recording for call:', callControlId);
+
+    const response = await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        format: 'mp3',
+        channels: 'dual',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[TELNYX][RECORD] Failed to start recording:', response.status, errorText);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('[TELNYX][RECORD] ✅ Recording started:', result);
+  } catch (error) {
+    console.error('[TELNYX][RECORD] Error starting recording:', error);
   }
 }
 
@@ -285,10 +324,19 @@ async function handleCallHangup(data: any) {
       updatedAt: new Date(),
       ...(data.call_session_id ? { telnyxSessionId: data.call_session_id } : {}),
     }
-    await prisma.telnyxCall.updateMany({
+    // Try to update by call_control_id first
+    let updated = await prisma.telnyxCall.updateMany({
       where: { telnyxCallId: data.call_control_id },
       data: updateHangup,
     });
+    // If no match by call_control_id, try by session_id (WebRTC calls)
+    if (updated.count === 0 && data.call_session_id) {
+      console.log('[TELNYX WEBHOOK][CALL] -> hangup: No match by callControlId, trying sessionId')
+      await prisma.telnyxCall.updateMany({
+        where: { telnyxSessionId: data.call_session_id },
+        data: { ...updateHangup, telnyxCallId: data.call_control_id },
+      });
+    }
 
     // Enqueue CDR reconciliation (retry will handle delayed CDR availability)
     try {
@@ -477,16 +525,41 @@ async function handleRecordingSaved(data: any) {
   try {
     if (!prisma.telnyxCall) return;
 
-    console.log('[TELNYX WEBHOOK][CALL] -> recording.saved', { callControlId: data.call_control_id, mp3: data.recording_urls?.mp3 || data.recording_url })
+    const recordingUrl = data.recording_urls?.mp3 || data.recording_url;
+    const callControlId = data.call_control_id;
+    const sessionId = data.call_session_id;
 
-    await prisma.telnyxCall.updateMany({
-      where: { telnyxCallId: data.call_control_id },
+    console.log('[TELNYX WEBHOOK][CALL] -> recording.saved', {
+      callControlId,
+      sessionId,
+      mp3: recordingUrl
+    })
+
+    // Try to find and update by call_control_id first
+    let updated = await prisma.telnyxCall.updateMany({
+      where: { telnyxCallId: callControlId },
       data: {
-        recordingUrl: data.recording_urls?.mp3 || data.recording_url,
+        recordingUrl,
         webhookData: data,
         updatedAt: new Date(),
       },
     });
+
+    // If no match by call_control_id, try by session_id (WebRTC calls)
+    if (updated.count === 0 && sessionId) {
+      console.log('[TELNYX WEBHOOK][CALL] -> recording.saved: No match by callControlId, trying sessionId')
+      updated = await prisma.telnyxCall.updateMany({
+        where: { telnyxSessionId: sessionId },
+        data: {
+          recordingUrl,
+          telnyxCallId: callControlId, // Also update the call_control_id for future reference
+          webhookData: data,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    console.log('[TELNYX WEBHOOK][CALL] -> recording.saved: Updated', updated.count, 'records')
   } catch (error) {
     console.error('Error handling recording saved:', error);
   }

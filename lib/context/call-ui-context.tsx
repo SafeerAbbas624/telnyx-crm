@@ -13,11 +13,13 @@ export type CallSession = {
   startedAt: number
   notes: string
   isMinimized: boolean
+  callId: string // Unique ID for this call session to prevent timer conflicts
+  direction?: 'inbound' | 'outbound'
 }
 
 type CallUIContextType = {
   call: CallSession | null
-  openCall: (opts: { contact?: Partial<Contact> & { id: string }, fromNumber: string, toNumber: string, mode: 'call_control' | 'webrtc', telnyxCallId?: string, webrtcSessionId?: string }) => void
+  openCall: (opts: { contact?: Partial<Contact> & { id: string }, fromNumber: string, toNumber: string, mode: 'call_control' | 'webrtc', telnyxCallId?: string, webrtcSessionId?: string, direction?: 'inbound' | 'outbound' }) => void
   setNotes: (notes: string) => void
   minimize: () => void
   maximize: () => void
@@ -31,7 +33,7 @@ export function CallUIProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<CallUIContextType>(() => ({
     call,
-    openCall: async ({ contact, fromNumber, toNumber, mode, telnyxCallId, webrtcSessionId }) => {
+    openCall: async ({ contact, fromNumber, toNumber, mode, telnyxCallId, webrtcSessionId, direction }) => {
       // Auto-close previous call if exists (Issue #2 fix)
       if (call) {
         setCall(null)
@@ -40,12 +42,14 @@ export function CallUIProvider({ children }: { children: React.ReactNode }) {
       }
 
       // If no contact provided, try to lookup by phone number (Issue #1 fix)
+      // For inbound calls, look up by fromNumber (caller); for outbound, by toNumber
       let resolvedContact = contact
-      if (!contact && toNumber) {
+      const lookupNumber = direction === 'inbound' ? fromNumber : toNumber
+      if (!contact && lookupNumber) {
         try {
           const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils')
-          const formattedNumber = formatPhoneNumberForTelnyx(toNumber)
-          const digits = (formattedNumber || toNumber).replace(/\D/g, '')
+          const formattedNumber = formatPhoneNumberForTelnyx(lookupNumber)
+          const digits = (formattedNumber || lookupNumber).replace(/\D/g, '')
           const last10 = digits.slice(-10)
 
           if (last10) {
@@ -76,7 +80,9 @@ export function CallUIProvider({ children }: { children: React.ReactNode }) {
         webrtcSessionId,
         startedAt: Date.now(),
         notes: "",
-        isMinimized: false
+        isMinimized: false,
+        callId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Unique call ID
+        direction: direction || 'outbound',
       })
     },
     setNotes: (notes: string) => {
