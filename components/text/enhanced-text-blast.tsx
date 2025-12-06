@@ -23,6 +23,7 @@ import MessageDelaySettings from "./message-delay-settings"
 import TemplateManager from "./template-manager"
 import { useContacts } from "@/lib/context/contacts-context"
 import { getBestPhoneNumber, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
+import { formatMessageTemplate, AVAILABLE_TEMPLATE_VARIABLES } from "@/lib/message-template"
 import type { Contact } from "@/lib/types"
 
 interface TelnyxPhoneNumber {
@@ -360,38 +361,9 @@ export default function EnhancedTextBlast() {
     return (currentBlast.sentCount / currentBlast.totalContacts) * 100
   }
 
+  // Use the shared formatMessageTemplate utility for consistent template processing
   const formatMessage = (template: string, contact: Contact): string => {
-    return template
-      // Name fields
-      .replace(/\{firstName\}/g, contact.firstName || '')
-      .replace(/\{lastName\}/g, contact.lastName || '')
-      .replace(/\{fullName\}/g, `${contact.firstName || ''} ${contact.lastName || ''}`.trim())
-      .replace(/\{llcName\}/g, contact.llcName || '')
-      // Phone fields
-      .replace(/\{phone1\}/g, contact.phone1 || '')
-      .replace(/\{phone2\}/g, contact.phone2 || '')
-      .replace(/\{phone3\}/g, contact.phone3 || '')
-      .replace(/\{phone\}/g, getBestPhoneNumber(contact) || '')
-      // Email fields
-      .replace(/\{email1\}/g, contact.email1 || '')
-      .replace(/\{email2\}/g, contact.email2 || '')
-      .replace(/\{email3\}/g, contact.email3 || '')
-      .replace(/\{email\}/g, contact.email1 || contact.email2 || contact.email3 || '')
-      // Address fields
-      .replace(/\{propertyAddress\}/g, contact.propertyAddress || '')
-      .replace(/\{contactAddress\}/g, contact.contactAddress || '')
-      .replace(/\{city\}/g, contact.city || '')
-      .replace(/\{state\}/g, contact.state || '')
-      // Property fields
-      .replace(/\{propertyType\}/g, contact.propertyType || '')
-      .replace(/\{propertyCounty\}/g, contact.propertyCounty || '')
-      .replace(/\{bedrooms\}/g, contact.bedrooms ? contact.bedrooms.toString() : '')
-      .replace(/\{totalBathrooms\}/g, contact.totalBathrooms ? contact.totalBathrooms.toString() : '')
-      .replace(/\{buildingSqft\}/g, contact.buildingSqft ? contact.buildingSqft.toString() : '')
-      .replace(/\{effectiveYearBuilt\}/g, contact.effectiveYearBuilt ? contact.effectiveYearBuilt.toString() : '')
-      // Financial fields
-      .replace(/\{estValue\}/g, contact.estValue ? contact.estValue.toString() : '')
-      .replace(/\{estEquity\}/g, contact.estEquity ? contact.estEquity.toString() : '')
+    return formatMessageTemplate(template, contact as any)
   }
 
   return (
@@ -818,7 +790,21 @@ export default function EnhancedTextBlast() {
                   rows={6}
                 />
                 <div className="text-xs text-muted-foreground mt-1">
-                  Available variables: {"{firstName}"}, {"{lastName}"}, {"{fullName}"}, {"{llcName}"}, {"{phone1}"}, {"{phone2}"}, {"{phone3}"}, {"{phone}"}, {"{email1}"}, {"{email2}"}, {"{email3}"}, {"{email}"}, {"{propertyAddress}"}, {"{contactAddress}"}, {"{city}"}, {"{state}"}, {"{propertyType}"}, {"{propertyCounty}"}, {"{bedrooms}"}, {"{totalBathrooms}"}, {"{buildingSqft}"}, {"{effectiveYearBuilt}"}, {"{estValue}"}, {"{estEquity}"}
+                  <details className="cursor-pointer">
+                    <summary className="hover:text-foreground">Available variables (click to expand)</summary>
+                    <div className="mt-1 p-2 bg-muted rounded text-xs">
+                      <div className="font-medium mb-1">Contact Info:</div>
+                      <div>{"{firstName}"}, {"{lastName}"}, {"{fullName}"}, {"{llcName}"}</div>
+                      <div>{"{phone}"}, {"{phone1}"}, {"{phone2}"}, {"{phone3}"}</div>
+                      <div>{"{email}"}, {"{email1}"}, {"{email2}"}, {"{email3}"}</div>
+                      <div className="font-medium mt-2 mb-1">Property (numbered for multi-property contacts):</div>
+                      <div>{"{propertyAddress1}"}, {"{city1}"}, {"{state1}"}, {"{zipCode1}"}, {"{llcName1}"}, {"{estValue1}"}</div>
+                      <div>{"{propertyAddress2}"}, {"{city2}"}, {"{state2}"}, {"{zipCode2}"}, {"{llcName2}"}, {"{estValue2}"}</div>
+                      <div>{"{propertyAddress3}"}, {"{city3}"}, {"{state3}"}, {"{zipCode3}"}, {"{llcName3}"}, {"{estValue3}"}</div>
+                      <div className="font-medium mt-2 mb-1">Legacy (primary property):</div>
+                      <div>{"{propertyAddress}"}, {"{city}"}, {"{state}"}, {"{propertyType}"}, {"{estValue}"}</div>
+                    </div>
+                  </details>
                 </div>
               </div>
               

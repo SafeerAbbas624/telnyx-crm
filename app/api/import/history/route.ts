@@ -15,8 +15,13 @@ export async function GET() {
         importedAt: true,
         totalRecords: true,
         importedCount: true,
+        newContactsCount: true,
+        existingContactsNewProperties: true,
+        noPhoneEnrichedCount: true,
+        ambiguousMatchCount: true,
         duplicateCount: true,
         missingPhoneCount: true,
+        skippedOtherCount: true,
         errors: true
       }
     });
@@ -38,9 +43,9 @@ export async function GET() {
         }
       }
 
-      // Calculate skipped count, ensuring it's never negative
-      const calculatedSkipped = Math.max(0,
-        record.totalRecords - record.importedCount - (record.duplicateCount || 0) - (record.missingPhoneCount || 0)
+      // Use stored skippedOtherCount if available, otherwise calculate
+      const skipped = record.skippedOtherCount ?? Math.max(0,
+        (record.totalRecords || 0) - (record.importedCount || 0) - (record.duplicateCount || 0) - (record.missingPhoneCount || 0)
       );
 
       return {
@@ -49,11 +54,15 @@ export async function GET() {
         fileUrl: record.fileUrl,
         tags: record.tags || [],
         importedAt: record.importedAt,
-        totalRecords: record.totalRecords,
-        imported: record.importedCount,
+        totalRecords: record.totalRecords || 0,
+        imported: record.importedCount || 0,
+        newContacts: record.newContactsCount || 0,
+        existingContactsNewProperties: record.existingContactsNewProperties || 0,
+        noPhoneEnriched: record.noPhoneEnrichedCount || 0,
+        ambiguousMatches: record.ambiguousMatchCount || 0,
         duplicates: record.duplicateCount || 0,
         missingPhones: record.missingPhoneCount || 0,
-        skipped: calculatedSkipped,
+        skipped: skipped,
         errorCount: parsedErrors.length,
         firstFewErrors: parsedErrors.slice(0, 5)
       };

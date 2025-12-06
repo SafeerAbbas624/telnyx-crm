@@ -21,6 +21,9 @@ interface BillingRecord {
   currency: string
   billingDate: string
   description: string
+  // SMS-specific fields
+  segmentCount?: number
+  encoding?: 'GSM-7' | 'Unicode'
 }
 
 interface BillingSummary {
@@ -29,16 +32,30 @@ interface BillingSummary {
     type: string
     cost: number
     count: number
+    // SMS-specific
+    totalSegments?: number
   }>
 }
 
 interface TelnyxPhoneNumber {
   id: string
   phoneNumber: string
+  friendlyName?: string | null
   state?: string
   totalCost: number
   totalSmsCount: number
   totalCallCount: number
+}
+
+interface PhoneNumberStats {
+  phoneNumber: string
+  friendlyName: string | null
+  monthlyPrice: number
+  totalCost: number
+  smsCount: number
+  callCount: number
+  smsCost: number
+  callCost: number
 }
 
 export default function BillingDashboard() {
@@ -46,8 +63,10 @@ export default function BillingDashboard() {
   const [billingRecords, setBillingRecords] = useState<BillingRecord[]>([])
   const [summary, setSummary] = useState<BillingSummary | null>(null)
   const [phoneNumbers, setPhoneNumbers] = useState<TelnyxPhoneNumber[]>([])
+  const [phoneStats, setPhoneStats] = useState<PhoneNumberStats[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
+  const [showPhoneBreakdown, setShowPhoneBreakdown] = useState(false)
   
   // Filters
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<string>("all")
@@ -61,10 +80,12 @@ export default function BillingDashboard() {
   useEffect(() => {
     loadData()
     loadPhoneNumbers()
+    loadPhoneStats()
   }, [])
 
   useEffect(() => {
     loadData()
+    loadPhoneStats()
   }, [selectedPhoneNumber, selectedRecordType, dateRange, customStartDate, customEndDate, currentPage])
 
   const loadPhoneNumbers = async () => {
@@ -72,10 +93,24 @@ export default function BillingDashboard() {
       const response = await fetch('/api/telnyx/phone-numbers')
       if (response.ok) {
         const data = await response.json()
-        setPhoneNumbers(data)
+        setPhoneNumbers(data.phoneNumbers || data)
       }
     } catch (error) {
       console.error('Error loading phone numbers:', error)
+    }
+  }
+
+  const loadPhoneStats = async () => {
+    try {
+      const { startDate, endDate } = getDateRange()
+      const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+      const response = await fetch(`/api/billing/phone-stats?days=${days}`)
+      if (response.ok) {
+        const data = await response.json()
+        setPhoneStats(data.stats || [])
+      }
+    } catch (error) {
+      console.error('Error loading phone stats:', error)
     }
   }
 
@@ -279,7 +314,15 @@ export default function BillingDashboard() {
                 ${summary?.breakdown.find(b => b.type === 'sms')?.cost.toFixed(2) || '0.00'}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {summary?.breakdown.find(b => b.type === 'sms')?.count || 0} messages sent
+                {summary?.breakdown.find(b => b.type === 'sms')?.count || 0} messages
+                {summary?.breakdown.find(b => b.type === 'sms')?.totalSegments && (
+                  <span className="ml-1">
+                    ({summary.breakdown.find(b => b.type === 'sms')?.totalSegments} segments)
+                  </span>
+                )}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Billed per segment (GSM: 160 chars, Unicode: 70 chars)
               </p>
             </CardContent>
           </Card>
@@ -299,6 +342,66 @@ export default function BillingDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Per-Number Breakdown */}
+        <Card className="mb-6">
+          <CardHeader className="cursor-pointer" onClick={() => setShowPhoneBreakdown(!showPhoneBreakdown)}>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Phone className="h-4 w-4" />
+                Cost by Phone Number
+              </CardTitle>
+              <Button variant="ghost" size="sm">
+                {showPhoneBreakdown ? 'Hide' : 'Show'} Details
+              </Button>
+            </div>
+          </CardHeader>
+          {showPhoneBreakdown && (
+            <CardContent>
+              {phoneStats.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No phone number data available</p>
+              ) : (
+                <div className="space-y-3">
+                  {phoneStats.map((stat) => (
+                    <div key={stat.phoneNumber} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{stat.phoneNumber}</span>
+                          {stat.friendlyName && (
+                            <Badge variant="outline" className="text-xs">{stat.friendlyName}</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <MessageSquare className="h-3 w-3" />
+                            {stat.smsCount} SMS (${stat.smsCost.toFixed(2)})
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" />
+                            {stat.callCount} calls (${stat.callCost.toFixed(2)})
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-lg">${stat.totalCost.toFixed(2)}</div>
+                        {stat.monthlyPrice > 0 && (
+                          <p className="text-xs text-muted-foreground">+${stat.monthlyPrice.toFixed(2)}/mo rental</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {/* Total row */}
+                  <div className="flex items-center justify-between p-3 border-t-2 mt-2 pt-4">
+                    <span className="font-semibold">Total (All Numbers)</span>
+                    <span className="font-bold text-lg">
+                      ${phoneStats.reduce((sum, s) => sum + s.totalCost, 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
 
         {/* Filters */}
         <Card className="mb-6">
@@ -320,7 +423,7 @@ export default function BillingDashboard() {
                     <SelectItem value="all">All numbers</SelectItem>
                     {phoneNumbers.map((phone) => (
                       <SelectItem key={phone.id} value={phone.phoneNumber}>
-                        {phone.phoneNumber} {phone.state && `(${phone.state})`}
+                        {phone.friendlyName ? `${phone.friendlyName} (${phone.phoneNumber})` : phone.phoneNumber}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -411,12 +514,26 @@ export default function BillingDashboard() {
                             <Calendar className="h-3 w-3" />
                             {format(new Date(record.billingDate), 'MMM d, yyyy h:mm a')}
                           </p>
+                          {/* Show segment info for SMS records */}
+                          {record.recordType === 'sms' && record.segmentCount && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {record.segmentCount} segment{record.segmentCount > 1 ? 's' : ''}
+                              {record.encoding && ` • ${record.encoding}`}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="text-right">
-                        <Badge className={getRecordTypeColor(record.recordType)}>
-                          {record.recordType.toUpperCase()}
-                        </Badge>
+                        <div className="flex items-center gap-2 justify-end">
+                          <Badge className={getRecordTypeColor(record.recordType)}>
+                            {record.recordType.toUpperCase()}
+                          </Badge>
+                          {record.recordType === 'sms' && record.segmentCount && record.segmentCount > 1 && (
+                            <Badge variant="outline" className="text-xs">
+                              {record.segmentCount} seg
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-sm font-bold mt-1">
                           ${Number(record.cost).toFixed(4)} {record.currency}
                         </p>

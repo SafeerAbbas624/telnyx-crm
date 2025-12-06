@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
             lastName: true,
             email1: true,
             phone1: true,
-            company: true,
+            llcName: true,
             propertyAddress: true,
           }
         }

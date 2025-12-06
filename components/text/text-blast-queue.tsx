@@ -111,12 +111,59 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
   const [sentCount, setSentCount] = useState(0)
   const [failedCount, setFailedCount] = useState(0)
 
-  // Load initial data
+  // Load initial data and check for running blast
   useEffect(() => {
     loadTags()
     loadPhoneNumbers()
     loadTemplates()
+    checkForRunningBlast()
   }, [])
+
+  // Check if there's already a running blast (for when user navigates away and back)
+  const checkForRunningBlast = async () => {
+    try {
+      const response = await fetch('/api/text-blast?checkRunning=true')
+      const data = await response.json()
+
+      if (data.hasRunning && data.runningBlast) {
+        const blast = data.runningBlast
+        setActiveBlastId(blast.id)
+        setIsRunning(blast.status === 'running')
+        setIsPaused(blast.status === 'paused' || blast.isPaused)
+        setSentCount(blast.sentCount || 0)
+        setFailedCount(blast.failedCount || 0)
+        setCurrentIndex(blast.currentIndex || 0)
+
+        // Load the contacts for this blast - fetch each contact by ID
+        if (blast.selectedContacts) {
+          try {
+            const contactIds = JSON.parse(blast.selectedContacts)
+            // Create placeholder contacts with IDs for now (full data not critical for status display)
+            const contacts = contactIds.map((id: string, idx: number) => ({
+              id,
+              firstName: 'Contact',
+              lastName: `#${idx + 1}`,
+              status: idx < blast.currentIndex ? 'sent' : 'pending' as const
+            }))
+            setQueueContacts(contacts)
+          } catch (e) {
+            console.error('Error loading blast contacts:', e)
+          }
+        }
+
+        // Start polling if running
+        if (blast.status === 'running' && !pollIntervalRef.current) {
+          pollIntervalRef.current = setInterval(() => {
+            pollBlastStatus(blast.id)
+          }, 2000)
+        }
+
+        toast.info(`Resumed tracking blast: ${blast.name}`)
+      }
+    } catch (error) {
+      console.error('Error checking for running blast:', error)
+    }
+  }
 
   // Auto-scroll to current contact during blast
   useEffect(() => {
@@ -510,17 +557,55 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
   const totalCost = pendingContacts.length * SMS_COST_PER_MESSAGE
   const estimatedTime = pendingContacts.length * delaySeconds
 
+  // Kill all running blasts
+  const killAllBlasts = async () => {
+    try {
+      const response = await fetch('/api/text-blast/kill-all', {
+        method: 'POST',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        toast.success(data.message || 'All text blasts stopped')
+        setIsRunning(false)
+        setIsPaused(false)
+        setActiveBlastId(null)
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+      } else {
+        toast.error('Failed to stop blasts')
+      }
+    } catch (error) {
+      toast.error('Error stopping blasts')
+    }
+  }
+
   return (
     <div className="h-full flex gap-6">
       {/* LEFT SIDE - Configuration */}
       <div className="flex-1 space-y-4 overflow-auto">
         {/* Header */}
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Send className="h-6 w-6" />
-            Text Blast
-          </h2>
-          <p className="text-muted-foreground">Send SMS to contacts by selecting a tag</p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Send className="h-6 w-6" />
+              Text Blast
+            </h2>
+            <p className="text-muted-foreground">Send SMS to contacts by selecting a tag</p>
+          </div>
+          {isRunning && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={killAllBlasts}
+              className="flex items-center gap-2"
+            >
+              <Square className="h-4 w-4" />
+              Kill All Blasts
+            </Button>
+          )}
         </div>
 
         {/* Tag Selection */}
@@ -829,7 +914,7 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
       </div>
 
       {/* RIGHT SIDE - Queue */}
-      <div className="w-[380px] flex flex-col border rounded-lg bg-card">
+      <div className="w-[450px] flex flex-col border rounded-lg bg-card">
         {/* Queue Header */}
         <div className="p-4 border-b">
           <div className="flex items-center gap-2">

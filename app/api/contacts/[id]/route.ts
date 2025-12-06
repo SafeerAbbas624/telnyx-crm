@@ -66,7 +66,8 @@ export async function GET(
       };
     }
 
-    const contact = await prisma.contact.findUnique({
+    // Use findFirst for complex where clauses with relations (findUnique doesn't support them)
+    const contact = await prisma.contact.findFirst({
       where: whereClause,
       include: {
         contact_tags: {
@@ -107,12 +108,16 @@ export async function GET(
       contactAddress: contact.contactAddress || '',
       city: contact.city || '',
       state: contact.state || '',
+      zipCode: contact.zipCode || '',
       propertyCounty: contact.propertyCounty || '',
       propertyType: contact.propertyType || '',
       bedrooms: contact.bedrooms,
       totalBathrooms: contact.totalBathrooms ? Number(contact.totalBathrooms) : null,
       buildingSqft: contact.buildingSqft,
+      lotSizeSqft: contact.lotSizeSqft,
       effectiveYearBuilt: contact.effectiveYearBuilt,
+      lastSaleDate: contact.lastSaleDate?.toISOString?.() || null,
+      lastSaleAmount: contact.lastSaleAmount,
       estValue: contact.estValue ? Number(contact.estValue) : null,
       estEquity: contact.estEquity ? Number(contact.estEquity) : null,
       dnc: contact.dnc,
@@ -138,13 +143,17 @@ export async function GET(
         address: p.address || '',
         city: p.city || '',
         state: p.state || '',
+        zipCode: p.zipCode || '',
         county: p.county || '',
         llcName: p.llcName || '',
         propertyType: p.propertyType || '',
         bedrooms: p.bedrooms ?? null,
         totalBathrooms: p.totalBathrooms ?? null,
         buildingSqft: p.buildingSqft ?? null,
+        lotSizeSqft: p.lotSizeSqft ?? null,
         effectiveYearBuilt: p.effectiveYearBuilt ?? null,
+        lastSaleDate: p.lastSaleDate?.toISOString?.() || null,
+        lastSaleAmount: p.lastSaleAmount ?? null,
         estValue: p.estValue ?? null,
         estEquity: p.estEquity ?? null,
         createdAt: p.createdAt?.toISOString?.() || undefined,
@@ -278,11 +287,81 @@ export async function PATCH(
       }
     }
 
-    // Re-fetch full contact with tags to return fresh data
+    // Handle additional properties (ContactProperty table)
+    if (Array.isArray(body.additionalProperties)) {
+      // Get existing additional properties
+      const existingProps = await prisma.contactProperty.findMany({
+        where: { contactId: id },
+        select: { id: true },
+      });
+      const existingPropIds = new Set(existingProps.map(p => p.id));
+
+      // Track which IDs are in the incoming data
+      const incomingPropIds = new Set<string>();
+
+      for (const prop of body.additionalProperties) {
+        if (prop.id && existingPropIds.has(prop.id)) {
+          // Update existing property
+          incomingPropIds.add(prop.id);
+          await prisma.contactProperty.update({
+            where: { id: prop.id },
+            data: {
+              address: prop.address || null,
+              city: prop.city || null,
+              state: prop.state || null,
+              zipCode: prop.zipCode || null,
+              llcName: prop.llcName || null,
+              propertyType: prop.propertyType || null,
+              bedrooms: prop.bedrooms ?? null,
+              totalBathrooms: prop.totalBathrooms ?? null,
+              buildingSqft: prop.buildingSqft ?? null,
+              lotSizeSqft: prop.lotSizeSqft ?? null,
+              lastSaleDate: prop.lastSaleDate ? new Date(prop.lastSaleDate) : null,
+              lastSaleAmount: prop.lastSaleAmount ?? null,
+              estValue: prop.estValue ?? null,
+              estEquity: prop.estEquity ?? null,
+            },
+          });
+        } else if (!prop.id || !existingPropIds.has(prop.id)) {
+          // Create new property
+          const newProp = await prisma.contactProperty.create({
+            data: {
+              contactId: id,
+              address: prop.address || null,
+              city: prop.city || null,
+              state: prop.state || null,
+              zipCode: prop.zipCode || null,
+              llcName: prop.llcName || null,
+              propertyType: prop.propertyType || null,
+              bedrooms: prop.bedrooms ?? null,
+              totalBathrooms: prop.totalBathrooms ?? null,
+              buildingSqft: prop.buildingSqft ?? null,
+              lotSizeSqft: prop.lotSizeSqft ?? null,
+              lastSaleDate: prop.lastSaleDate ? new Date(prop.lastSaleDate) : null,
+              lastSaleAmount: prop.lastSaleAmount ?? null,
+              estValue: prop.estValue ?? null,
+              estEquity: prop.estEquity ?? null,
+            },
+          });
+          incomingPropIds.add(newProp.id);
+        }
+      }
+
+      // Delete properties that are no longer in the list
+      const propsToDelete = [...existingPropIds].filter(pid => !incomingPropIds.has(pid));
+      if (propsToDelete.length > 0) {
+        await prisma.contactProperty.deleteMany({
+          where: { id: { in: propsToDelete } },
+        });
+      }
+    }
+
+    // Re-fetch full contact with tags and properties to return fresh data
     const updated = await prisma.contact.findUnique({
       where: { id },
       include: {
         contact_tags: { include: { tag: { select: { id: true, name: true, color: true } } } },
+        properties: true,
       },
     });
 
@@ -327,6 +406,23 @@ export async function PATCH(
       propertyValue: updated.estValue ? Number(updated.estValue) : null,
       debtOwed: updated.estValue && updated.estEquity ? Number(updated.estValue) - Number(updated.estEquity) : null,
       tags: updated.contact_tags.map((ct) => ({ id: ct.tag.id, name: ct.tag.name, color: ct.tag.color || '#3B82F6' })),
+      properties: updated.properties?.map((p) => ({
+        id: p.id,
+        address: p.address || '',
+        city: p.city || '',
+        state: p.state || '',
+        zipCode: p.zipCode || '',
+        llcName: p.llcName || '',
+        propertyType: p.propertyType || '',
+        bedrooms: p.bedrooms,
+        totalBathrooms: p.totalBathrooms ? Number(p.totalBathrooms) : null,
+        buildingSqft: p.buildingSqft,
+        lotSizeSqft: p.lotSizeSqft,
+        lastSaleDate: p.lastSaleDate ? p.lastSaleDate.toISOString() : null,
+        lastSaleAmount: p.lastSaleAmount,
+        estValue: p.estValue ? Number(p.estValue) : null,
+        estEquity: p.estEquity ? Number(p.estEquity) : null,
+      })) || [],
     };
 
     // Try to update Elasticsearch index (non-blocking on failure)
@@ -368,16 +464,28 @@ export async function PATCH(
   }
 }
 
-// DELETE contact
+// DELETE contact (soft delete by default)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    await prisma.contact.delete({
-      where: { id },
-    });
+    const { searchParams } = new URL(request.url);
+    const hardDelete = searchParams.get('hardDelete') === 'true';
+
+    if (hardDelete) {
+      // Permanently delete the contact
+      await prisma.contact.delete({
+        where: { id },
+      });
+    } else {
+      // Soft delete - set deletedAt timestamp
+      await prisma.contact.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+    }
 
     // Try to remove from Elasticsearch (non-blocking)
     try {
@@ -386,7 +494,11 @@ export async function DELETE(
       console.warn('ES deleteContact failed (non-fatal):', e)
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      softDelete: !hardDelete,
+      message: hardDelete ? 'Contact permanently deleted' : 'Contact deleted (can be restored)'
+    });
   } catch (error) {
     console.error('Error deleting contact:', error);
     return NextResponse.json(

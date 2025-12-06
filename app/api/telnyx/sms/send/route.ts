@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { formatPhoneNumberForTelnyx, isValidE164PhoneNumber, last10Digits } from '@/lib/phone-utils';
 
@@ -7,6 +9,15 @@ const TELNYX_API_URL = 'https://api.telnyx.com/v2/messages';
 
 export async function POST(request: NextRequest) {
   try {
+    // Authenticate user
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { fromNumber, toNumber, message, contactId, blastId, automationId } = body;
 
@@ -44,6 +55,31 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`Formatted phone numbers: ${fromNumber} -> ${formattedFromNumber}, ${toNumber} -> ${formattedToNumber}`);
+
+    // Check if user has permission to use this phone number
+    const isAdmin = session.user.role === 'ADMIN';
+
+    if (!isAdmin) {
+      // Non-admin users must have explicit permission for the phone number
+      const allowedNumber = await prisma.userAllowedPhoneNumber.findFirst({
+        where: {
+          userId: session.user.id,
+          phoneNumber: {
+            OR: [
+              { phoneNumber: fromNumber },
+              { phoneNumber: formattedFromNumber }
+            ]
+          }
+        }
+      });
+
+      if (!allowedNumber) {
+        return NextResponse.json(
+          { error: 'You do not have permission to send from this phone number' },
+          { status: 403 }
+        );
+      }
+    }
 
     // Test mode - only if explicitly enabled or using test numbers
     const isTestMode = process.env.TELNYX_TEST_MODE === 'true' ||

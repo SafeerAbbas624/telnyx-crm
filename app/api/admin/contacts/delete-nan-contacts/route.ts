@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     });
 
     await prisma.activity.deleteMany({
-      where: { contactId: { in: contactIds } }
+      where: { contact_id: { in: contactIds } }
     });
 
     await prisma.powerDialerListContact.deleteMany({

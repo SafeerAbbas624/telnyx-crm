@@ -1,32 +1,35 @@
 import { withAuth } from "next-auth/middleware"
 import { NextResponse } from "next/server"
 
+// Admin-only routes - these require ADMIN role to access
+const ADMIN_ONLY_ROUTES = [
+  '/billing',
+  '/import',
+  '/import-v2',
+  '/settings',
+  '/team-overview',
+]
+
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token
     const isAuth = !!token
     const isAuthPage = req.nextUrl.pathname.startsWith('/auth')
     const isRootPage = req.nextUrl.pathname === '/'
+    const pathname = req.nextUrl.pathname
 
-    // Redirect root to sign-in for unauthenticated users, dashboard for authenticated
+    // Redirect root to sign-in for unauthenticated users, contacts for authenticated
     if (isRootPage) {
       if (isAuth) {
-        if (token.role === 'ADMIN') {
-          return NextResponse.redirect(new URL('/contacts', req.url))
-        } else if (token.role === 'TEAM_USER') {
-          return NextResponse.redirect(new URL('/team-dashboard', req.url))
-        }
+        // All authenticated users go to /contacts (unified entry point)
+        return NextResponse.redirect(new URL('/contacts', req.url))
       }
       return NextResponse.redirect(new URL('/auth/signin', req.url))
     }
 
-    // If user is authenticated and trying to access auth pages, redirect to dashboard
+    // If user is authenticated and trying to access auth pages, redirect to contacts
     if (isAuth && isAuthPage) {
-      if (token.role === 'ADMIN') {
-        return NextResponse.redirect(new URL('/contacts', req.url))
-      } else if (token.role === 'TEAM_USER') {
-        return NextResponse.redirect(new URL('/team-dashboard', req.url))
-      }
+      return NextResponse.redirect(new URL('/contacts', req.url))
     }
 
     // Allow access to auth pages for unauthenticated users
@@ -39,19 +42,22 @@ export default withAuth(
       return NextResponse.redirect(new URL('/auth/signin', req.url))
     }
 
-    // Role-based access control
-    if (isAuth) {
-      const pathname = req.nextUrl.pathname
+    // Role-based access control for admin-only routes
+    if (isAuth && token.role !== 'ADMIN') {
+      // Check if trying to access an admin-only route
+      const isAdminOnlyRoute = ADMIN_ONLY_ROUTES.some(route =>
+        pathname === route || pathname.startsWith(route + '/')
+      )
 
-      // Admin-only routes
-      if (pathname.startsWith('/dashboard') && token.role !== 'ADMIN') {
-        return NextResponse.redirect(new URL('/team-dashboard', req.url))
-      }
-
-      // Team user-only routes
-      if (pathname.startsWith('/team-dashboard') && token.role !== 'TEAM_USER') {
+      if (isAdminOnlyRoute) {
+        // Redirect non-admin users to contacts page
         return NextResponse.redirect(new URL('/contacts', req.url))
       }
+    }
+
+    // Legacy team-dashboard redirect - send to unified layout
+    if (pathname.startsWith('/team-dashboard')) {
+      return NextResponse.redirect(new URL('/contacts', req.url))
     }
 
     return NextResponse.next()

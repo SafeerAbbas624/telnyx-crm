@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Phone,
@@ -405,23 +404,9 @@ export default function CallsCenterModern() {
         </div>
       </div>
 
-      {/* Main Content with Tabs */}
-      <div className="flex-1 overflow-auto p-6">
-        <Tabs defaultValue="dialer" className="h-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="dialer" className="flex items-center gap-2">
-              <Phone className="h-4 w-4" />
-              Manual Dialer
-            </TabsTrigger>
-            <TabsTrigger value="power-dialing" className="flex items-center gap-2">
-              <ListOrdered className="h-4 w-4" />
-              Power Dialing
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Manual Dialer Tab */}
-          <TabsContent value="dialer" className="h-[calc(100%-60px)]">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      {/* Main Content - Manual Dialer */}
+      <div className="flex-1 overflow-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
               {/* Left Side: Dialer */}
               <div className="lg:col-span-1">
                 <Card className="h-full">
@@ -677,68 +662,7 @@ export default function CallsCenterModern() {
                 </Card>
               </div>
             </div>
-          </TabsContent>
-
-          {/* Power Dialing Tab */}
-          <TabsContent value="power-dialing" className="h-[calc(100%-60px)]">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-              {/* Left Side: Call Queue Configuration */}
-              <div className="lg:col-span-2">
-                <Card className="h-full">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <ListOrdered className="h-5 w-5" />
-                      Power Dialing Queue
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col items-center justify-center h-[400px] text-center text-gray-500">
-                      <Users className="h-16 w-16 mb-4 text-gray-300" />
-                      <h3 className="text-lg font-medium text-gray-700 mb-2">Power Dialing Coming Soon</h3>
-                      <p className="text-sm max-w-md">
-                        Create a call queue by selecting contacts with specific tags.
-                        The dialer will automatically progress through your list.
-                      </p>
-                      <div className="mt-6 space-y-2 text-left text-sm">
-                        <p className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-medium">1</span>
-                          Select a tag to create your call list
-                        </p>
-                        <p className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-medium">2</span>
-                          Start the power dialer
-                        </p>
-                        <p className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-medium">3</span>
-                          Calls advance automatically when completed
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right Side: Next Up Panel */}
-              <div className="lg:col-span-1">
-                <Card className="h-full">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Users className="h-5 w-5" />
-                      Next Up in Queue
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col items-center justify-center h-[400px] text-center text-gray-400">
-                      <p className="text-sm">No contacts in queue</p>
-                      <p className="text-xs mt-1">Select a tag to load contacts</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </div>
+          </div>
     </div>
   );
 }

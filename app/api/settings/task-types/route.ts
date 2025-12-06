@@ -37,6 +37,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Admin-only route protection
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (session.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     console.log('[TASK TYPES POST] Starting...');
 
     const { taskTypes } = await request.json();
@@ -49,36 +58,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get or create a default user for task types
-    // Since this CRM doesn't enforce authentication on most routes, we'll use a system user
-    let user = await prisma.user.findFirst({
-      select: { id: true, adminId: true },
-    });
-
-    // If no users exist, create a default system user
-    if (!user) {
-      console.log('[TASK TYPES POST] No users found, creating default user...');
-      const bcrypt = require('bcryptjs');
-      const hashedPassword = await bcrypt.hash('admin123', 10);
-
-      user = await prisma.user.create({
-        data: {
-          email: 'admin@adlercapital.com',
-          firstName: 'System',
-          lastName: 'Admin',
-          password: hashedPassword,
-          role: 'ADMIN',
-          status: 'active',
-        },
-        select: { id: true, adminId: true },
-      });
-      console.log('[TASK TYPES POST] Created default user:', user.id);
-    }
-
-    console.log('[TASK TYPES POST] Using user:', user.id);
-
-    // Get admin user (or self if admin)
-    const adminId = user.adminId || user.id;
+    // Use the authenticated user
+    const adminId = session.user.id;
     console.log('[TASK TYPES POST] Admin ID:', adminId);
 
     // Update or create user settings

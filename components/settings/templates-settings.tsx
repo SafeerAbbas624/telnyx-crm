@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Edit, MessageSquare, Mail, Loader2, FileText } from 'lucide-react';
+import { TemplateVariableSelector } from '@/components/ui/template-variable-selector';
 import { toast } from 'sonner';
 
 interface SmsTemplate {
@@ -46,6 +47,11 @@ export default function TemplatesSettings() {
   const [editingSmsTemplate, setEditingSmsTemplate] = useState<SmsTemplate | null>(null);
   const [smsForm, setSmsForm] = useState({ name: '', content: '', description: '' });
   const [savingSms, setSavingSms] = useState(false);
+
+  // Refs for inserting variables at cursor position
+  const smsContentRef = useRef<HTMLTextAreaElement>(null);
+  const emailContentRef = useRef<HTMLTextAreaElement>(null);
+  const emailSubjectRef = useRef<HTMLInputElement>(null);
   
   // Email Template Dialog
   const [showEmailDialog, setShowEmailDialog] = useState(false);
@@ -77,6 +83,30 @@ export default function TemplatesSettings() {
       toast.error('Failed to load templates');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Insert variable at cursor position in textarea/input
+  const insertVariableAtCursor = (
+    variable: string,
+    ref: React.RefObject<HTMLTextAreaElement | HTMLInputElement | null>,
+    currentValue: string,
+    setValue: (value: string) => void
+  ) => {
+    const element = ref.current;
+    if (element) {
+      const start = element.selectionStart || 0;
+      const end = element.selectionEnd || 0;
+      const newValue = currentValue.substring(0, start) + variable + currentValue.substring(end);
+      setValue(newValue);
+      // Set cursor position after inserted variable
+      setTimeout(() => {
+        element.focus();
+        element.setSelectionRange(start + variable.length, start + variable.length);
+      }, 0);
+    } else {
+      // Fallback: append to end
+      setValue(currentValue + variable);
     }
   };
 
@@ -320,17 +350,33 @@ export default function TemplatesSettings() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingSmsTemplate ? 'Edit SMS Template' : 'Create SMS Template'}</DialogTitle>
-            <DialogDescription>Use {'{variableName}'} for dynamic content like {'{firstName}'}, {'{lastName}'}, {'{propertyAddress}'}</DialogDescription>
+            <DialogDescription>Click "Insert Variable" to add dynamic content at cursor position</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div><Label>Template Name</Label><Input value={smsForm.name} onChange={(e) => setSmsForm({ ...smsForm, name: e.target.value })} placeholder="e.g., Follow-up Message" /></div>
             <div><Label>Description (optional)</Label><Input value={smsForm.description} onChange={(e) => setSmsForm({ ...smsForm, description: e.target.value })} placeholder="Brief description" /></div>
             <div>
-              <Label>Message Content</Label>
-              <Textarea value={smsForm.content} onChange={(e) => setSmsForm({ ...smsForm, content: e.target.value })} placeholder="Hi {firstName}, I wanted to follow up about..." rows={5} />
+              <div className="flex items-center justify-between mb-2">
+                <Label>Message Content</Label>
+                <TemplateVariableSelector
+                  onSelect={(variable) => insertVariableAtCursor(
+                    variable,
+                    smsContentRef,
+                    smsForm.content,
+                    (value) => setSmsForm({ ...smsForm, content: value })
+                  )}
+                />
+              </div>
+              <Textarea
+                ref={smsContentRef}
+                value={smsForm.content}
+                onChange={(e) => setSmsForm({ ...smsForm, content: e.target.value })}
+                placeholder="Hi {firstName}, I wanted to follow up about..."
+                rows={5}
+              />
               {smsForm.content && extractVariables(smsForm.content).length > 0 && (
                 <div className="flex gap-1 mt-2 flex-wrap">
-                  <span className="text-xs text-muted-foreground">Variables:</span>
+                  <span className="text-xs text-muted-foreground">Variables used:</span>
                   {extractVariables(smsForm.content).map(v => <Badge key={v} variant="secondary" className="text-xs">{`{${v}}`}</Badge>)}
                 </div>
               )}
@@ -348,15 +394,53 @@ export default function TemplatesSettings() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{editingEmailTemplate ? 'Edit Email Template' : 'Create Email Template'}</DialogTitle>
-            <DialogDescription>Create reusable email templates with variables</DialogDescription>
+            <DialogDescription>Click "Insert Variable" to add dynamic content at cursor position</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Template Name</Label><Input value={emailForm.name} onChange={(e) => setEmailForm({ ...emailForm, name: e.target.value })} placeholder="e.g., Welcome Email" /></div>
               <div><Label>Category</Label><Input value={emailForm.category} onChange={(e) => setEmailForm({ ...emailForm, category: e.target.value })} placeholder="e.g., general, marketing" /></div>
             </div>
-            <div><Label>Subject Line</Label><Input value={emailForm.subject} onChange={(e) => setEmailForm({ ...emailForm, subject: e.target.value })} placeholder="e.g., Welcome to our service, {firstName}!" /></div>
-            <div><Label>Email Content</Label><Textarea value={emailForm.content} onChange={(e) => setEmailForm({ ...emailForm, content: e.target.value })} placeholder="Dear {firstName},\n\nThank you for..." rows={8} /></div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Subject Line</Label>
+                <TemplateVariableSelector
+                  onSelect={(variable) => insertVariableAtCursor(
+                    variable,
+                    emailSubjectRef,
+                    emailForm.subject,
+                    (value) => setEmailForm({ ...emailForm, subject: value })
+                  )}
+                  buttonSize="sm"
+                />
+              </div>
+              <Input
+                ref={emailSubjectRef}
+                value={emailForm.subject}
+                onChange={(e) => setEmailForm({ ...emailForm, subject: e.target.value })}
+                placeholder="e.g., Welcome to our service, {firstName}!"
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Email Content</Label>
+                <TemplateVariableSelector
+                  onSelect={(variable) => insertVariableAtCursor(
+                    variable,
+                    emailContentRef,
+                    emailForm.content,
+                    (value) => setEmailForm({ ...emailForm, content: value })
+                  )}
+                />
+              </div>
+              <Textarea
+                ref={emailContentRef}
+                value={emailForm.content}
+                onChange={(e) => setEmailForm({ ...emailForm, content: e.target.value })}
+                placeholder="Dear {firstName},\n\nThank you for..."
+                rows={8}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEmailDialog(false)}>Cancel</Button>

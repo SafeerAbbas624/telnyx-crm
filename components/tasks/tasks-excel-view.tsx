@@ -75,7 +75,9 @@ import { autoFitColumn } from '@/lib/excel-column-utils';
 import { useTaskUI } from '@/lib/context/task-ui-context';
 import { useSmsUI } from '@/lib/context/sms-ui-context';
 import { useEmailUI } from '@/lib/context/email-ui-context';
+import { useCallUI } from '@/lib/context/call-ui-context';
 import { normalizePropertyType } from '@/lib/property-type-mapper';
+import { usePhoneNumber } from '@/lib/context/phone-number-context';
 
 interface Task {
   id: string;
@@ -108,9 +110,11 @@ interface Contact {
 
 export default function TasksExcelView() {
   // Global UI contexts
-  const { openTask } = useTaskUI();
+  const { openTask, setOnTaskCreated } = useTaskUI();
   const { openSms } = useSmsUI();
   const { openEmail } = useEmailUI();
+  const { openCall } = useCallUI();
+  const { selectedPhoneNumber } = usePhoneNumber();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -124,7 +128,7 @@ export default function TasksExcelView() {
     contactCity: false,
     contactState: false,
     contactZip: false,
-    propertyType: false,
+    // propertyType is visible by default
   });
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
@@ -195,6 +199,72 @@ export default function TasksExcelView() {
     loadData();
     loadSavedViews();
   }, []);
+
+  // Register callback to refresh tasks when a task is created via global modal
+  useEffect(() => {
+    setOnTaskCreated(() => {
+      loadData(true);
+    });
+    return () => {
+      setOnTaskCreated(undefined);
+    };
+  }, [setOnTaskCreated]);
+
+  // Handle initiating a call via WebRTC (Telnyx dialer)
+  const handleInitiateCall = async (phone: string, contactId?: string, contactName?: string) => {
+    if (!phone) {
+      toast.error('No phone number available');
+      return;
+    }
+    if (!selectedPhoneNumber) {
+      toast.error('No phone number selected. Please select a calling number from the header.');
+      return;
+    }
+    const fromNumber = selectedPhoneNumber.phoneNumber;
+
+    try {
+      // Use WebRTC to make the call
+      const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils');
+      const toNumber = formatPhoneNumberForTelnyx(phone) || phone;
+
+      // Get WebRTC client
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client');
+      await rtcClient.ensureRegistered();
+      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber });
+
+      // Log the call to database
+      if (contactId) {
+        fetch('/api/telnyx/webrtc-calls', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webrtcSessionId: sessionId,
+            contactId,
+            fromNumber,
+            toNumber,
+          })
+        }).catch(err => console.error('Failed to log call:', err));
+      }
+
+      // Parse contact name for the call UI
+      const nameParts = (contactName || '').split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+
+      openCall({
+        contact: contactId ? { id: contactId, firstName, lastName } : undefined,
+        fromNumber,
+        toNumber,
+        mode: 'webrtc',
+        webrtcSessionId: sessionId,
+      });
+
+      toast.success(`Calling ${contactName || phone}`);
+    } catch (error: any) {
+      console.error('Error initiating call:', error);
+      toast.error(error.message || 'Failed to initiate call');
+    }
+  };
 
   // Load saved views from localStorage
   const loadSavedViews = () => {
@@ -368,15 +438,10 @@ export default function TasksExcelView() {
     try {
       setIsLoading(true);
 
-      // Check cache for contacts (they don't change often)
-      const cachedContacts = sessionStorage.getItem('contacts_cache');
-      const cacheTimestamp = sessionStorage.getItem('contacts_cache_timestamp');
-      const now = Date.now();
-      const useCache = !forceRefresh && cachedContacts && cacheTimestamp && (now - parseInt(cacheTimestamp)) < 30000;
-
+      // No caching for contacts - large datasets can exceed sessionStorage quota
       const [tasksRes, contactsRes, taskTypesRes] = await Promise.all([
         fetch('/api/tasks', { cache: 'no-store' }), // Always fresh tasks
-        useCache ? null : fetch('/api/contacts?limit=1000', { cache: 'force-cache' }),
+        fetch('/api/contacts?limit=1000', { cache: 'force-cache' }),
         fetch('/api/settings/task-types', { cache: 'force-cache' }),
       ]);
 
@@ -388,20 +453,12 @@ export default function TasksExcelView() {
         console.error('Failed to load tasks:', tasksRes.status);
       }
 
-      if (useCache && cachedContacts) {
-        // Use cached contacts
-        const contactsData = JSON.parse(cachedContacts);
-        console.log('Contacts loaded from cache:', contactsData.length || 0);
-        setContacts(contactsData);
-      } else if (contactsRes && contactsRes.ok) {
+      if (contactsRes && contactsRes.ok) {
         const contactsData = await contactsRes.json();
         const contactsList = contactsData.contacts || [];
         console.log('Contacts loaded:', contactsList.length || 0);
         setContacts(contactsList);
-        // Cache contacts
-        sessionStorage.setItem('contacts_cache', JSON.stringify(contactsList));
-        sessionStorage.setItem('contacts_cache_timestamp', now.toString());
-      } else if (!useCache) {
+      } else {
         console.error('Failed to load contacts:', contactsRes?.status);
       }
 
@@ -823,14 +880,33 @@ export default function TasksExcelView() {
           );
         },
         cell: ({ row }) => {
+          const isEditing = editingCell?.rowId === row.original.id && editingCell?.columnId === 'subject';
+          if (isEditing) {
+            return (
+              <Input
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={() => saveEdit(row.original.id, 'subject')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    saveEdit(row.original.id, 'subject');
+                  } else if (e.key === 'Escape') {
+                    cancelEditing();
+                  }
+                }}
+                autoFocus
+                className="h-8 w-full"
+              />
+            );
+          }
           return (
             <div
-              className="font-medium cursor-pointer hover:bg-accent hover:text-primary px-2 py-1 rounded text-blue-600 underline-offset-2 hover:underline"
-              onClick={(e) => {
+              className="font-medium cursor-pointer hover:bg-accent px-2 py-1 rounded"
+              onDoubleClick={(e) => {
                 e.stopPropagation();
-                openEditDialog(row.original);
+                startEditing(row.original.id, 'subject', row.original.subject);
               }}
-              title="Click to edit task"
+              title="Double-click to edit"
             >
               {row.original.subject}
             </div>
@@ -1250,13 +1326,13 @@ export default function TasksExcelView() {
                 onClick={(e) => {
                   e.stopPropagation();
                   if (phone) {
-                    // Use WebRTC call via context would require additional setup
-                    window.location.href = `tel:${phone}`;
+                    // Use Telnyx WebRTC dialer
+                    handleInitiateCall(phone, contactId, contactName);
                   } else {
                     toast.error('No phone number available');
                   }
                 }}
-                title="Call"
+                title="Call via Telnyx"
                 disabled={!phone}
               >
                 <Phone className="h-4 w-4" />
@@ -1331,7 +1407,20 @@ export default function TasksExcelView() {
         size: 180,
       },
     ],
-    [contacts, tasks]
+    [
+      contacts,
+      tasks,
+      editingCell,
+      editValue,
+      editingTypeCell,
+      typePickerOpen,
+      editingDateCell,
+      datePickerOpen,
+      editingDateValue,
+      editingPriorityCell,
+      priorityPickerOpen,
+      savedTaskTypes,
+    ]
   );
 
   // Filter tasks based on filters
@@ -1616,7 +1705,7 @@ export default function TasksExcelView() {
                   contactCity: false,
                   contactState: false,
                   contactZip: false,
-                  propertyType: false,
+                  // propertyType is visible by default
                 });
               }}
             >
@@ -1976,7 +2065,7 @@ export default function TasksExcelView() {
                 <SelectTrigger id="edit-task-type">
                   <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[300px] overflow-y-auto">
                   <SelectItem value="General">General</SelectItem>
                   {savedTaskTypes.map((type) => (
                     <SelectItem key={type} value={type}>

@@ -17,8 +17,8 @@ export async function POST(request: NextRequest) {
 
     console.log('[BULK DELETE] User authenticated:', session.user.email);
 
-    const { contactIds } = await request.json();
-    console.log('[BULK DELETE] Contact IDs to delete:', contactIds);
+    const { contactIds, hardDelete = false } = await request.json();
+    console.log('[BULK DELETE] Contact IDs to delete:', contactIds, 'Hard delete:', hardDelete);
 
     if (!contactIds || !Array.isArray(contactIds) || contactIds.length === 0) {
       console.log('[BULK DELETE] Invalid contactIds array');
@@ -37,11 +37,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('[BULK DELETE] Deleting', contactIds.length, 'contacts');
+    console.log('[BULK DELETE] Processing', contactIds.length, 'contacts');
+
+    // Soft delete by default - set deletedAt timestamp
+    if (!hardDelete) {
+      console.log('[BULK DELETE] Performing soft delete...');
+      const result = await prisma.contact.updateMany({
+        where: { id: { in: contactIds } },
+        data: { deletedAt: new Date() }
+      });
+      console.log('[BULK DELETE] Soft deleted', result.count, 'contacts');
+
+      // Remove from Elasticsearch (non-blocking) - they shouldn't appear in search
+      try {
+        console.log('[BULK DELETE] Removing from Elasticsearch...');
+        for (const contactId of contactIds) {
+          await elasticsearchClient.deleteContact(contactId);
+        }
+        console.log('[BULK DELETE] Removed from Elasticsearch');
+      } catch (esError) {
+        console.error('[BULK DELETE] Elasticsearch delete error:', esError);
+      }
+
+      // Invalidate cache
+      try {
+        console.log('[BULK DELETE] Invalidating cache...');
+        await redisClient.invalidateSearchCache();
+        console.log('[BULK DELETE] Cache invalidated');
+      } catch (redisError) {
+        console.error('[BULK DELETE] Redis cache invalidation error:', redisError);
+      }
+
+      console.log('[BULK DELETE] Soft delete completed successfully');
+      return NextResponse.json({
+        success: true,
+        deleted: result.count,
+        softDelete: true,
+        message: `Successfully deleted ${result.count} contacts (can be restored)`
+      });
+    }
+
+    // Hard delete - permanently remove contacts and all related data
+    console.log('[BULK DELETE] Performing hard delete...');
 
     // Delete related records first to avoid foreign key constraints
-    // Note: Prisma's deleteMany doesn't trigger cascade deletes, so we must delete all relations manually
-
     console.log('[BULK DELETE] Deleting contact tags...');
     await prisma.contactTag.deleteMany({
       where: { contact_id: { in: contactIds } }
@@ -102,12 +141,12 @@ export async function POST(request: NextRequest) {
       where: { contact_id: { in: contactIds } }
     });
 
-    // Delete the contacts
+    // Delete the contacts permanently
     console.log('[BULK DELETE] Deleting contacts from database...');
     const result = await prisma.contact.deleteMany({
       where: { id: { in: contactIds } }
     });
-    console.log('[BULK DELETE] Deleted', result.count, 'contacts from database');
+    console.log('[BULK DELETE] Hard deleted', result.count, 'contacts from database');
 
     // Remove from Elasticsearch (non-blocking)
     try {
@@ -129,11 +168,12 @@ export async function POST(request: NextRequest) {
       console.error('[BULK DELETE] Redis cache invalidation error:', redisError);
     }
 
-    console.log('[BULK DELETE] Bulk delete completed successfully');
+    console.log('[BULK DELETE] Hard delete completed successfully');
     return NextResponse.json({
       success: true,
       deleted: result.count,
-      message: `Successfully deleted ${result.count} contacts`
+      softDelete: false,
+      message: `Permanently deleted ${result.count} contacts`
     });
   } catch (error) {
     console.error('[BULK DELETE] Error in bulk delete contacts:', error);

@@ -6,12 +6,24 @@ import { authOptions } from '@/lib/auth';
 // GET /api/tasks - Get all tasks (activities of type 'task')
 export async function GET(request: NextRequest) {
   try {
+    // Parse query parameters
+    const { searchParams } = new URL(request.url);
+    const contactId = searchParams.get('contactId');
+
+    // Build where clause
+    const whereClause: any = {
+      type: 'task',
+    };
+
+    // Filter by contactId if provided
+    if (contactId) {
+      whereClause.contact_id = contactId;
+    }
+
     // Fetch all tasks (activities of type 'task')
     // No authentication required to match other API routes in this CRM
     const activities = await prisma.activity.findMany({
-      where: {
-        type: 'task',
-      },
+      where: whereClause,
       include: {
         contact: {
           select: {

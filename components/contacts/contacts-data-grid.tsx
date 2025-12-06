@@ -38,6 +38,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Calendar } from '@/components/ui/calendar';
 import {
   Dialog,
@@ -76,6 +77,8 @@ import {
   MessageSquare,
   Mail,
   Calendar as CalendarIcon,
+  Building2,
+  Search,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -94,6 +97,9 @@ import SmartFilterPanel from './smart-filter-panel';
 import { useSmsUI } from '@/lib/context/sms-ui-context';
 import { useCallUI } from '@/lib/context/call-ui-context';
 import { useEmailUI } from '@/lib/context/email-ui-context';
+import { useTaskUI } from '@/lib/context/task-ui-context';
+import { normalizePropertyType } from '@/lib/property-type-mapper';
+import { usePhoneNumber } from '@/lib/context/phone-number-context';
 import { useContacts } from '@/lib/context/contacts-context';
 
 // Custom filter function for number ranges
@@ -179,6 +185,8 @@ export default function ContactsDataGrid({
   const { openSms } = useSmsUI();
   const { openCall } = useCallUI();
   const { openEmail } = useEmailUI();
+  const { openTask } = useTaskUI();
+  const { selectedPhoneNumber } = usePhoneNumber();
 
   // Contacts context for filter options
   const { filterOptions, refreshFilterOptions } = useContacts();
@@ -229,6 +237,8 @@ export default function ContactsDataGrid({
   const [newTagName, setNewTagName] = useState('');
   const [newTagColor, setNewTagColor] = useState('#3b82f6');
   const [creatingTag, setCreatingTag] = useState(false);
+  const [tagOperationMode, setTagOperationMode] = useState<'assign' | 'remove'>('assign');
+  const [tagSearchQuery, setTagSearchQuery] = useState('');
 
   // Preset colors for tags
   const PRESET_COLORS = [
@@ -244,17 +254,7 @@ export default function ContactsDataGrid({
   const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
 
-  // Create task dialog state
-  const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
-  const [taskContact, setTaskContact] = useState<Contact | null>(null);
-  const [openTaskCalendar, setOpenTaskCalendar] = useState(false);
-  const [newTask, setNewTask] = useState({
-    taskType: '',
-    subject: '',
-    description: '',
-    dueDate: undefined as Date | undefined,
-    priority: 'low' as 'low' | 'medium' | 'high',
-  });
+  // Task types for reference (used in other places)
   const [savedTaskTypes, setSavedTaskTypes] = useState<string[]>([]);
 
   // Create deal dialog state
@@ -278,25 +278,7 @@ export default function ContactsDataGrid({
     { id: 'lost', name: 'Lost', color: '#EF4444' },
   ]);
 
-  // Available phone numbers for calling
-  const [availablePhoneNumbers, setAvailablePhoneNumbers] = useState<{phoneNumber: string, friendlyName?: string}[]>([]);
 
-  // Fetch available phone numbers on mount
-  useEffect(() => {
-    const fetchPhoneNumbers = async () => {
-      try {
-        const res = await fetch('/api/telnyx/phone-numbers');
-        if (res.ok) {
-          const data = await res.json();
-          const numbers = Array.isArray(data) ? data : data.phoneNumbers || [];
-          setAvailablePhoneNumbers(numbers.filter((n: any) => n.isActive));
-        }
-      } catch (error) {
-        console.error('Failed to fetch phone numbers:', error);
-      }
-    };
-    fetchPhoneNumbers();
-  }, []);
 
   // Handle initiating a call via WebRTC
   const handleInitiateCall = async (contact: Contact) => {
@@ -305,11 +287,11 @@ export default function ContactsDataGrid({
       toast.error('No phone number available for this contact');
       return;
     }
-    if (availablePhoneNumbers.length === 0) {
-      toast.error('No phone numbers available. Please configure Telnyx numbers.');
+    if (!selectedPhoneNumber) {
+      toast.error('No phone number selected. Please select a calling number from the header.');
       return;
     }
-    const fromNumber = availablePhoneNumbers[0].phoneNumber;
+    const fromNumber = selectedPhoneNumber.phoneNumber;
 
     try {
       // Use WebRTC to make the call
@@ -374,21 +356,17 @@ export default function ContactsDataGrid({
     });
   };
 
-  // Fetch contacts with caching
+  // Fetch contacts - no caching to avoid QuotaExceededError with large datasets
   useEffect(() => {
-    // Check if we have cached data from the last 30 seconds
-    const cachedData = sessionStorage.getItem('contacts_cache');
-    const cacheTimestamp = sessionStorage.getItem('contacts_cache_timestamp');
-    const now = Date.now();
-
-    if (cachedData && cacheTimestamp && (now - parseInt(cacheTimestamp)) < 30000) {
-      // Use cached data if less than 30 seconds old
-      setContacts(JSON.parse(cachedData));
-      setLoading(false);
-    } else {
-      // Fetch fresh data
-      fetchContacts();
+    // Clear any old cache to free up storage
+    try {
+      sessionStorage.removeItem('contacts_cache');
+      sessionStorage.removeItem('contacts_cache_timestamp');
+    } catch (e) {
+      // Ignore errors
     }
+    // Always fetch fresh data
+    fetchContacts();
 
     fetchFieldDefinitions();
     fetchTags();
@@ -426,12 +404,7 @@ export default function ContactsDataGrid({
       const data = await response.json();
       const contactsData = data.contacts || [];
       setContacts(contactsData);
-
-      // Only cache if no filters applied
-      if (Object.keys(filters).length === 0) {
-        sessionStorage.setItem('contacts_cache', JSON.stringify(contactsData));
-        sessionStorage.setItem('contacts_cache_timestamp', Date.now().toString());
-      }
+      // No caching - large datasets can exceed sessionStorage quota
     } catch (error) {
       console.error('Error fetching contacts:', error);
       toast.error('Failed to load contacts');
@@ -441,9 +414,6 @@ export default function ContactsDataGrid({
   };
 
   const onRefresh = () => {
-    // Clear cache and refresh
-    sessionStorage.removeItem('contacts_cache');
-    sessionStorage.removeItem('contacts_cache_timestamp');
     fetchContacts(true);
   };
 
@@ -609,53 +579,6 @@ export default function ContactsDataGrid({
     setRowSelection({});
   };
 
-  // Create task for contact
-  const handleCreateTask = async () => {
-    if (!taskContact) {
-      toast.error('No contact selected');
-      return;
-    }
-
-    if (!newTask.subject.trim()) {
-      toast.error('Please enter a subject');
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contactId: taskContact.id,
-          taskType: newTask.taskType || 'General',
-          subject: newTask.subject,
-          description: newTask.description,
-          dueDate: newTask.dueDate?.toISOString(),
-          priority: newTask.priority,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create task');
-      }
-
-      toast.success(`Task created for ${taskContact.firstName} ${taskContact.lastName}`);
-      setShowCreateTaskDialog(false);
-      setTaskContact(null);
-      setNewTask({
-        taskType: '',
-        subject: '',
-        description: '',
-        dueDate: undefined,
-        priority: 'low',
-      });
-    } catch (error) {
-      console.error('Error creating task:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to create task');
-    }
-  };
-
   // Create deal for contact
   const handleCreateDeal = async () => {
     if (!dealContact) {
@@ -748,6 +671,79 @@ export default function ContactsDataGrid({
     } catch (error) {
       console.error('Bulk tag assignment error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to assign tags');
+    } finally {
+      setAssigningTags(false);
+    }
+  };
+
+  const handleBulkTagRemoval = async () => {
+    const selectedRowsForRemoval = table.getFilteredSelectedRowModel().rows;
+    if (!selectedRowsForRemoval || selectedRowsForRemoval.length === 0) {
+      toast.error('No contacts selected');
+      return;
+    }
+
+    if (bulkTagIds.length === 0) {
+      toast.error('Please select at least one tag to remove');
+      return;
+    }
+
+    setAssigningTags(true);
+    try {
+      const contactIds = selectedRowsForRemoval.map((row: any) => row.original.id);
+
+      const response = await fetch('/api/contacts/bulk-remove-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactIds, tagIds: bulkTagIds })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || error.details || 'Failed to remove tags');
+      }
+
+      toast.success(`Tags removed from ${selectedRowsForRemoval.length} contacts`);
+      setShowBulkTagDialog(false);
+      setBulkTagIds([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Bulk tag removal error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to remove tags');
+    } finally {
+      setAssigningTags(false);
+    }
+  };
+
+  const handleRemoveAllTags = async () => {
+    const selectedRowsForRemoval = table.getFilteredSelectedRowModel().rows;
+    if (!selectedRowsForRemoval || selectedRowsForRemoval.length === 0) {
+      toast.error('No contacts selected');
+      return;
+    }
+
+    setAssigningTags(true);
+    try {
+      const contactIds = selectedRowsForRemoval.map((row: any) => row.original.id);
+
+      const response = await fetch('/api/contacts/bulk-remove-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactIds, removeAll: true })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || error.details || 'Failed to remove all tags');
+      }
+
+      toast.success(`All tags removed from ${selectedRowsForRemoval.length} contacts`);
+      setShowBulkTagDialog(false);
+      setBulkTagIds([]);
+      onRefresh();
+    } catch (error) {
+      console.error('Remove all tags error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to remove all tags');
     } finally {
       setAssigningTags(false);
     }
@@ -882,6 +878,7 @@ export default function ContactsDataGrid({
     contactCityStateZip: 'Contact City, State, Zip',
     tags: 'Tags',
     tasks: 'Tasks',
+    createdAt: 'Date Added',
     deals: 'Deals',
     actions: 'Actions',
   };
@@ -978,18 +975,71 @@ export default function ContactsDataGrid({
         header: 'Properties',
         cell: ({ row }) => {
           const count = row.original.propertyCount || 0;
+          const properties = (row.original as any).properties || [];
+          const mainPropertyAddress = row.original.propertyAddress;
+
           if (count <= 1) {
             return <span className="text-gray-500 text-xs">1</span>;
           }
+
           return (
-            <div className="flex items-center gap-1">
-              <Badge
-                variant="secondary"
-                className="bg-blue-100 text-blue-700 hover:bg-blue-200 text-xs px-1.5 py-0"
+            <HoverCard openDelay={200} closeDelay={100}>
+              <HoverCardTrigger asChild>
+                <div className="flex items-center gap-1 cursor-pointer">
+                  <Badge
+                    variant="secondary"
+                    className="bg-blue-100 text-blue-700 hover:bg-blue-200 text-xs px-1.5 py-0"
+                  >
+                    {count} properties
+                  </Badge>
+                </div>
+              </HoverCardTrigger>
+              <HoverCardContent
+                className="w-80 p-3"
+                side="right"
+                align="start"
+                onClick={(e) => e.stopPropagation()}
               >
-                {count} properties
-              </Badge>
-            </div>
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-blue-600" />
+                    {count} Properties
+                  </h4>
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {/* Primary property from contact */}
+                    {mainPropertyAddress && (
+                      <div className="p-2 rounded border border-blue-200 bg-blue-50">
+                        <p className="text-xs font-medium text-blue-800">Primary Property</p>
+                        <p className="text-sm text-gray-900">{mainPropertyAddress}</p>
+                        <p className="text-xs text-gray-500">
+                          {[row.original.city, row.original.state].filter(Boolean).join(', ')}
+                        </p>
+                      </div>
+                    )}
+                    {/* Additional properties from ContactProperty table */}
+                    {properties.map((prop: any, idx: number) => (
+                      <div key={prop.id || idx} className="p-2 rounded border border-gray-200 bg-gray-50">
+                        <p className="text-sm text-gray-900">{prop.address || 'No address'}</p>
+                        <p className="text-xs text-gray-500">
+                          {[prop.city, prop.state].filter(Boolean).join(', ') || '—'}
+                        </p>
+                        {prop.llcName && (
+                          <p className="text-xs text-purple-600 mt-0.5">LLC: {prop.llcName}</p>
+                        )}
+                        {prop.estValue && (
+                          <p className="text-xs text-green-600 mt-0.5">
+                            Est. Value: ${prop.estValue.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Click contact name to view all details
+                  </p>
+                </div>
+              </HoverCardContent>
+            </HoverCard>
           );
         },
         size: 100,
@@ -1014,6 +1064,7 @@ export default function ContactsDataGrid({
         header: 'Property Type',
         cell: ({ row }) => {
           const propertyType = row.getValue('propertyType') as string;
+          const normalizedType = normalizePropertyType(propertyType);
           const propertyTypes = [
             "Single-family (SFR)",
             "Duplex",
@@ -1027,7 +1078,7 @@ export default function ContactsDataGrid({
           return (
             <div onClick={(e) => e.stopPropagation()} className="relative">
               <Select
-                value={propertyType || ''}
+                value={normalizedType || ''}
                 onValueChange={async (value) => {
                   try {
                     const response = await fetch(`/api/contacts/${row.original.id}`, {
@@ -1048,7 +1099,9 @@ export default function ContactsDataGrid({
                 }}
               >
                 <SelectTrigger className="h-6 text-xs border-0 hover:bg-gray-100 w-full">
-                  <SelectValue placeholder="Select type..." />
+                  <SelectValue placeholder="Select type...">
+                    {normalizedType || 'Select type...'}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent
                   position="popper"
@@ -1236,7 +1289,14 @@ export default function ContactsDataGrid({
               });
               if (response.ok) {
                 toast.success('Tag updated');
-                fetchContacts();
+                // Update local state instead of reloading entire table
+                setContacts(prevContacts =>
+                  prevContacts.map(c =>
+                    c.id === row.original.id
+                      ? { ...c, tags: selectedTags }
+                      : c
+                  )
+                );
               }
             } catch (error) {
               toast.error('Failed to update tag');
@@ -1347,8 +1407,10 @@ export default function ContactsDataGrid({
                 className="h-6 text-xs text-gray-400 hover:text-gray-900"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setTaskContact(row.original);
-                  setShowCreateTaskDialog(true);
+                  openTask({
+                    contact: row.original,
+                    contactId: row.original.id,
+                  });
                 }}
               >
                 <Plus className="h-3 w-3 mr-1" />
@@ -1403,8 +1465,10 @@ export default function ContactsDataGrid({
                 className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setTaskContact(row.original);
-                  setShowCreateTaskDialog(true);
+                  openTask({
+                    contact: row.original,
+                    contactId: row.original.id,
+                  });
                 }}
                 title="Add Task"
               >
@@ -1428,6 +1492,52 @@ export default function ContactsDataGrid({
           const dueDateB = tasksB[0]?.dueDate ? new Date(tasksB[0].dueDate).getTime() : Infinity;
 
           return dueDateA - dueDateB;
+        },
+      },
+      {
+        accessorKey: 'createdAt',
+        header: 'Date Added',
+        cell: ({ row }) => {
+          const createdAt = row.original.createdAt;
+          if (!createdAt) return '';
+          const date = new Date(createdAt);
+          const now = new Date();
+          const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+          // Format the date
+          const formattedDate = date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+          });
+
+          // Add relative indicator for recent contacts
+          let relativeLabel = '';
+          let labelColor = 'text-gray-500';
+          if (diffDays === 0) {
+            relativeLabel = 'Today';
+            labelColor = 'text-green-600 font-medium';
+          } else if (diffDays === 1) {
+            relativeLabel = 'Yesterday';
+            labelColor = 'text-blue-600';
+          } else if (diffDays <= 7) {
+            relativeLabel = `${diffDays}d ago`;
+            labelColor = 'text-blue-500';
+          }
+
+          return (
+            <div className="text-xs">
+              <div className={labelColor}>{formattedDate}</div>
+              {relativeLabel && <div className={`text-xs ${labelColor}`}>{relativeLabel}</div>}
+            </div>
+          );
+        },
+        size: 110,
+        enableSorting: true,
+        sortingFn: (rowA, rowB) => {
+          const dateA = rowA.original.createdAt ? new Date(rowA.original.createdAt).getTime() : 0;
+          const dateB = rowB.original.createdAt ? new Date(rowB.original.createdAt).getTime() : 0;
+          return dateB - dateA; // Most recent first by default
         },
       },
       {
@@ -1614,8 +1724,10 @@ export default function ContactsDataGrid({
             className="h-8 w-8 p-0"
             onClick={(e) => {
               e.stopPropagation();
-              setTaskContact(row.original);
-              setShowCreateTaskDialog(true);
+              openTask({
+                contact: row.original,
+                contactId: row.original.id,
+              });
             }}
             title="Create Task"
           >
@@ -1709,7 +1821,7 @@ export default function ContactsDataGrid({
               onClick={() => setShowBulkTagDialog(true)}
             >
               <Tag className="h-4 w-4 mr-2" />
-              Assign Tags ({selectedCount})
+              Manage Tags ({selectedCount})
             </Button>
             <Button
               variant="outline"
@@ -2171,266 +2283,237 @@ export default function ContactsDataGrid({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk Tag Assignment Dialog */}
-      <Dialog open={showBulkTagDialog} onOpenChange={setShowBulkTagDialog}>
-        <DialogContent>
+      {/* Bulk Tag Assignment/Removal Dialog */}
+      <Dialog open={showBulkTagDialog} onOpenChange={(open) => {
+        setShowBulkTagDialog(open);
+        if (!open) {
+          setBulkTagIds([]);
+          setTagOperationMode('assign');
+          setTagSearchQuery('');
+        }
+      }}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Assign Tags to {selectedCount} Contacts</DialogTitle>
+            <DialogTitle>Manage Tags for {selectedCount} Contacts</DialogTitle>
             <DialogDescription>
-              Select tags to assign to the selected contacts. These tags will be added to any existing tags.
+              Assign or remove tags from the selected contacts.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+
+          {/* Mode Toggle Tabs */}
+          <div className="flex gap-2 border-b pb-3">
+            <Button
+              variant={tagOperationMode === 'assign' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                setTagOperationMode('assign');
+                setBulkTagIds([]);
+              }}
+              className={tagOperationMode === 'assign' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Assign Tags
+            </Button>
+            <Button
+              variant={tagOperationMode === 'remove' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                setTagOperationMode('remove');
+                setBulkTagIds([]);
+              }}
+              className={tagOperationMode === 'remove' ? 'bg-red-600 hover:bg-red-700' : ''}
+            >
+              <X className="h-4 w-4 mr-1" />
+              Remove Tags
+            </Button>
+          </div>
+
+          <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label>Select Tags</Label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-background min-h-[100px]">
+              <div className="flex items-center justify-between">
+                <Label>
+                  {tagOperationMode === 'assign' ? 'Select Tags to Assign' : 'Select Tags to Remove'}
+                </Label>
+                {bulkTagIds.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    {bulkTagIds.length} selected
+                  </Badge>
+                )}
+              </div>
+
+              {/* Tag Search Filter */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search tags..."
+                  value={tagSearchQuery}
+                  onChange={(e) => setTagSearchQuery(e.target.value)}
+                  className="pl-8 h-9"
+                />
+              </div>
+
+              {/* Tags List - Sorted alphabetically and filtered */}
+              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-background min-h-[100px] max-h-[200px] overflow-y-auto">
                 {!Array.isArray(availableTags) || availableTags.length === 0 ? (
                   <span className="text-sm text-muted-foreground">No tags available. Create tags first.</span>
                 ) : (
-                  availableTags.map((tag) => (
-                    <Badge
-                      key={tag.id}
-                      variant={bulkTagIds.includes(tag.id) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      style={bulkTagIds.includes(tag.id) ? { backgroundColor: tag.color } : {}}
-                      onClick={() => {
-                        setBulkTagIds(prev =>
-                          prev.includes(tag.id)
-                            ? prev.filter(t => t !== tag.id)
-                            : [...prev, tag.id]
-                        );
-                      }}
-                    >
-                      {tag.name}
-                      {bulkTagIds.includes(tag.id) && <Check className="h-3 w-3 ml-1" />}
-                    </Badge>
-                  ))
+                  [...availableTags]
+                    .filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((tag) => (
+                      <Badge
+                        key={tag.id}
+                        variant={bulkTagIds.includes(tag.id) ? "default" : "outline"}
+                        className={cn(
+                          "cursor-pointer transition-all hover:scale-105",
+                          bulkTagIds.includes(tag.id) && tagOperationMode === 'remove' && "bg-red-500 hover:bg-red-600"
+                        )}
+                        style={bulkTagIds.includes(tag.id) && tagOperationMode === 'assign' ? { backgroundColor: tag.color } : {}}
+                        onClick={() => {
+                          setBulkTagIds(prev =>
+                            prev.includes(tag.id)
+                              ? prev.filter(t => t !== tag.id)
+                              : [...prev, tag.id]
+                          );
+                        }}
+                      >
+                        {tag.name}
+                        {bulkTagIds.includes(tag.id) && <Check className="h-3 w-3 ml-1" />}
+                      </Badge>
+                    ))
+                )}
+                {Array.isArray(availableTags) && availableTags.length > 0 &&
+                  availableTags.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).length === 0 && (
+                  <span className="text-sm text-muted-foreground">No tags match "{tagSearchQuery}"</span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {bulkTagIds.length} tag(s) selected
-              </p>
-            </div>
-
-            {/* Create New Tag Section */}
-            <div className="space-y-3 pt-4 border-t">
-              <Label>Create New Tag</Label>
-              <div className="space-y-3">
-                <Input
-                  placeholder="Tag name"
-                  value={newTagName}
-                  onChange={(e) => setNewTagName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleCreateTag();
-                    }
-                  }}
-                  disabled={creatingTag}
-                />
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Select Color</Label>
-                  <div className="grid grid-cols-9 gap-2">
-                    {PRESET_COLORS.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        className={`w-8 h-8 rounded-full border-2 transition-all hover:scale-110 ${
-                          newTagColor === color ? 'border-gray-900 ring-2 ring-offset-2 ring-gray-400' : 'border-gray-300'
-                        }`}
-                        style={{ backgroundColor: color }}
-                        onClick={() => setNewTagColor(color)}
-                        disabled={creatingTag}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <Button
-                  onClick={handleCreateTag}
-                  disabled={creatingTag || !newTagName.trim()}
-                  size="sm"
-                  className="w-full"
-                >
-                  {creatingTag ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Tag
-                    </>
-                  )}
-                </Button>
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{availableTags.length} total tags</span>
+                {bulkTagIds.length > 0 && (
+                  <button
+                    onClick={() => setBulkTagIds([])}
+                    className="text-blue-500 hover:text-blue-700 hover:underline"
+                  >
+                    Clear selection
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* Create New Tag Section - Only show in assign mode */}
+            {tagOperationMode === 'assign' && (
+              <div className="space-y-3 pt-4 border-t">
+                <Label>Create New Tag</Label>
+                <div className="space-y-3">
+                  <Input
+                    placeholder="Tag name"
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleCreateTag();
+                      }
+                    }}
+                    disabled={creatingTag}
+                  />
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Select Color</Label>
+                    <div className="grid grid-cols-9 gap-2">
+                      {PRESET_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          className={`w-8 h-8 rounded-full border-2 transition-all hover:scale-110 ${
+                            newTagColor === color ? 'border-gray-900 ring-2 ring-offset-2 ring-gray-400' : 'border-gray-300'
+                          }`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => setNewTagColor(color)}
+                          disabled={creatingTag}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <Button
+                    onClick={handleCreateTag}
+                    disabled={creatingTag || !newTagName.trim()}
+                    size="sm"
+                    className="w-full"
+                  >
+                    {creatingTag ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Tag
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               variant="outline"
               onClick={() => {
                 setShowBulkTagDialog(false);
                 setBulkTagIds([]);
+                setTagOperationMode('assign');
               }}
               disabled={assigningTags}
             >
               Cancel
             </Button>
+            {tagOperationMode === 'remove' && (
+              <Button
+                onClick={handleRemoveAllTags}
+                disabled={assigningTags}
+                variant="destructive"
+                className="bg-red-700 hover:bg-red-800"
+              >
+                {assigningTags ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Removing All...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Remove All Tags
+                  </>
+                )}
+              </Button>
+            )}
             <Button
-              onClick={handleBulkTagAssignment}
+              onClick={tagOperationMode === 'assign' ? handleBulkTagAssignment : handleBulkTagRemoval}
               disabled={assigningTags || bulkTagIds.length === 0}
+              variant={tagOperationMode === 'remove' ? 'destructive' : 'default'}
             >
               {assigningTags ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Assigning...
+                  {tagOperationMode === 'assign' ? 'Assigning...' : 'Removing...'}
                 </>
               ) : (
                 <>
-                  <Tag className="h-4 w-4 mr-2" />
-                  Assign Tags
+                  {tagOperationMode === 'assign' ? (
+                    <>
+                      <Tag className="h-4 w-4 mr-2" />
+                      Assign Tags
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-4 w-4 mr-2" />
+                      Remove Selected Tags
+                    </>
+                  )}
                 </>
               )}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Task Dialog */}
-      <Dialog open={showCreateTaskDialog} onOpenChange={setShowCreateTaskDialog}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Create Task</DialogTitle>
-            <DialogDescription className="space-y-1">
-              <div>Create a new task for {taskContact?.firstName} {taskContact?.lastName}</div>
-              {taskContact?.phone1 && (
-                <div className="text-xs text-muted-foreground">
-                  📞 {formatPhoneNumber(taskContact.phone1)}
-                </div>
-              )}
-              {taskContact?.email && (
-                <div className="text-xs text-muted-foreground">
-                  📧 {taskContact.email}
-                </div>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Task Type */}
-            <div className="space-y-2">
-              <Label>Task Type</Label>
-              <Select
-                value={newTask.taskType}
-                onValueChange={(value) => setNewTask({ ...newTask, taskType: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select task type..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="General">General</SelectItem>
-                  {savedTaskTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Subject */}
-            <div className="space-y-2">
-              <Label>Subject *</Label>
-              <Input
-                placeholder="Enter task subject..."
-                value={newTask.subject}
-                onChange={(e) => setNewTask({ ...newTask, subject: e.target.value })}
-              />
-            </div>
-
-            {/* Description */}
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                placeholder="Enter task description..."
-                value={newTask.description}
-                onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                rows={3}
-              />
-            </div>
-
-            {/* Due Date and Priority - Side by Side */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Due Date */}
-              <div className="space-y-2">
-                <Label>Due Date</Label>
-                <Popover modal={true} open={openTaskCalendar} onOpenChange={setOpenTaskCalendar}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={cn(
-                        'w-full justify-start text-left font-normal',
-                        !newTask.dueDate && 'text-muted-foreground'
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {newTask.dueDate ? format(newTask.dueDate, 'PPP') : 'Pick a date'}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 z-[10000]" align="start" sideOffset={5} side="bottom">
-                    <Calendar
-                      mode="single"
-                      selected={newTask.dueDate}
-                      onSelect={(date) => {
-                        setNewTask({ ...newTask, dueDate: date });
-                        setOpenTaskCalendar(false);
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              {/* Priority */}
-              <div className="space-y-2">
-                <Label>Priority</Label>
-                <Select
-                  value={newTask.priority}
-                  onValueChange={(value: 'low' | 'medium' | 'high') =>
-                    setNewTask({ ...newTask, priority: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">⚪ Low</SelectItem>
-                    <SelectItem value="medium">🟡 Medium</SelectItem>
-                    <SelectItem value="high">🔴 High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowCreateTaskDialog(false);
-                setTaskContact(null);
-                setNewTask({
-                  taskType: '',
-                  subject: '',
-                  description: '',
-                  dueDate: undefined,
-                  priority: 'low',
-                });
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleCreateTask}>Create Task</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

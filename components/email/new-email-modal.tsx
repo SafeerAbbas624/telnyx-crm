@@ -395,7 +395,7 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, pref
             </div>
           )}
 
-          {/* Subject Field */}}
+          {/* Subject Field */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Subject

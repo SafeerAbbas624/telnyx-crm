@@ -8,9 +8,15 @@ export interface DealTask {
 
 export interface PipelineStage {
   id: string; // e.g., 'lead', 'contacted', 'qualified', 'proposal', 'negotiation', 'closing', 'closed-won', 'closed-lost'
+  key: string; // database key
   name: string;
+  label?: string;
   order: number;
+  orderIndex?: number;
   color?: string;
+  defaultProbability?: number;
+  isClosedStage?: boolean;
+  isLostStage?: boolean;
 }
 
 export interface Pipeline {
@@ -21,6 +27,15 @@ export interface Pipeline {
   createdAt: string;
   isDefault?: boolean;
   isLoanPipeline?: boolean;
+  color?: string;
+  icon?: string;
+}
+
+export interface Lender {
+  id: string;
+  name: string;
+  type?: string; // e.g., "Private Lender", "DSCR Lender"
+  isActive: boolean;
 }
 
 export interface DealLoanData {
@@ -57,7 +72,8 @@ export interface Deal {
   value: number; // amount
   contactId: string;
   contactName: string;
-  stage: string; // matches PipelineStage.id
+  stage: string; // matches PipelineStage.id or key
+  stageId?: string; // UUID reference to DealPipelineStage
   probability: number; // 0-100
   expectedCloseDate?: string; // YYYY-MM-DD
   notes?: string;
@@ -67,7 +83,23 @@ export interface Deal {
   assignedTo?: string;
   pipelineId?: string;
   archived: boolean;
+
+  // Loan-specific fields (for isLoanDeal = true)
+  isLoanDeal?: boolean;
+  lenderId?: string;
+  lenderName?: string;
+  llcName?: string;
+  propertyAddress?: string;
+  loanAmount?: number;
+  propertyValue?: number;
+  ltv?: number;
+  loanType?: string; // 'Purchase' | 'Refinance' | 'Cash Out' | 'DSCR'
+  interestRate?: number;
+  dscr?: number;
+
+  // Legacy loan data (for backward compatibility)
   loanData?: DealLoanData;
+  loanCopilotData?: any; // JSON data for Loan Copilot
 }
 
 export const DEFAULT_STAGES: PipelineStage[] = [

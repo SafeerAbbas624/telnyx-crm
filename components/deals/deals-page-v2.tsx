@@ -1,0 +1,256 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus, LayoutGrid, List, Loader2, RefreshCw, FileText } from 'lucide-react';
+import { toast } from 'sonner';
+import { Deal, Pipeline, PipelineStage, Lender } from '@/types/deals';
+import DealsKanbanView from './deals-kanban-view';
+import DealsTableView from './deals-table-view';
+import NewDealDialogV2 from './new-deal-dialog-v2';
+
+interface DealsPageV2Props {
+  initialPipelineId?: string;
+}
+
+export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [lenders, setLenders] = useState<Lender[]>([]);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string>(initialPipelineId || '');
+  const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
+  const [loading, setLoading] = useState(true);
+  const [showNewDealDialog, setShowNewDealDialog] = useState(false);
+
+  const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId);
+  const isLoanPipeline = selectedPipeline?.isLoanPipeline || false;
+
+  // Load pipelines on mount
+  useEffect(() => {
+    loadPipelines();
+    loadLenders();
+  }, []);
+
+  // Load deals when pipeline changes
+  useEffect(() => {
+    if (selectedPipelineId) {
+      loadDeals();
+    }
+  }, [selectedPipelineId]);
+
+  const loadPipelines = async () => {
+    try {
+      const res = await fetch('/api/pipelines?includeStages=true');
+      if (res.ok) {
+        const data = await res.json();
+        setPipelines(data.pipelines || []);
+        // Select first pipeline if none selected
+        if (!selectedPipelineId && data.pipelines?.length > 0) {
+          const defaultPipeline = data.pipelines.find((p: Pipeline) => p.isDefault) || data.pipelines[0];
+          setSelectedPipelineId(defaultPipeline.id);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading pipelines:', error);
+      toast.error('Failed to load pipelines');
+    }
+  };
+
+  const loadLenders = async () => {
+    try {
+      const res = await fetch('/api/lenders');
+      if (res.ok) {
+        const data = await res.json();
+        setLenders(data.lenders || []);
+      }
+    } catch (error) {
+      console.error('Error loading lenders:', error);
+    }
+  };
+
+  const loadDeals = useCallback(async () => {
+    if (!selectedPipelineId) return;
+    
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/deals?pipelineId=${selectedPipelineId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDeals(data.deals || []);
+      }
+    } catch (error) {
+      console.error('Error loading deals:', error);
+      toast.error('Failed to load deals');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedPipelineId]);
+
+  const handleDealCreated = () => {
+    setShowNewDealDialog(false);
+    loadDeals();
+    toast.success('Deal created successfully');
+  };
+
+  const handleDealUpdated = () => {
+    loadDeals();
+  };
+
+  const handleStageChange = async (dealId: string, newStageId: string) => {
+    const deal = deals.find(d => d.id === dealId);
+    if (!deal) return;
+
+    try {
+      const res = await fetch(`/api/deals/${dealId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...deal,
+          stage_id: newStageId,
+          name: deal.title,
+          contact_id: deal.contactId,
+        })
+      });
+
+      if (res.ok) {
+        toast.success('Deal stage updated');
+        loadDeals();
+      } else {
+        toast.error('Failed to update deal stage');
+      }
+    } catch (error) {
+      toast.error('Failed to update deal stage');
+    }
+  };
+
+  // Calculate pipeline stats
+  const stats = {
+    totalDeals: deals.length,
+    totalValue: deals.reduce((sum, d) => sum + (d.value || 0), 0),
+    avgProbability: deals.length > 0 
+      ? Math.round(deals.reduce((sum, d) => sum + (d.probability || 0), 0) / deals.length)
+      : 0,
+    weightedValue: deals.reduce((sum, d) => sum + ((d.value || 0) * (d.probability || 0) / 100), 0),
+  };
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+  };
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="flex-shrink-0 border-b bg-white px-6 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold">Deals</h1>
+            {/* Pipeline Selector */}
+            <Select value={selectedPipelineId} onValueChange={setSelectedPipelineId}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Select pipeline" />
+              </SelectTrigger>
+              <SelectContent>
+                {pipelines.map((pipeline) => (
+                  <SelectItem key={pipeline.id} value={pipeline.id}>
+                    <div className="flex items-center gap-2">
+                      {pipeline.isLoanPipeline && <FileText className="h-4 w-4 text-blue-500" />}
+                      {pipeline.name}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* View Mode Toggle */}
+            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'kanban' | 'table')}>
+              <TabsList>
+                <TabsTrigger value="kanban" className="gap-1">
+                  <LayoutGrid className="h-4 w-4" />
+                  Kanban
+                </TabsTrigger>
+                <TabsTrigger value="table" className="gap-1">
+                  <List className="h-4 w-4" />
+                  Table
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            <Button variant="outline" size="icon" onClick={loadDeals} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+
+            <Button onClick={() => setShowNewDealDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              New {isLoanPipeline ? 'Loan' : 'Deal'}
+            </Button>
+          </div>
+        </div>
+
+        {/* Stats Bar */}
+        <div className="flex items-center gap-6 text-sm">
+          <div>
+            <span className="text-muted-foreground">Total Deals:</span>{' '}
+            <span className="font-semibold">{stats.totalDeals}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Total Value:</span>{' '}
+            <span className="font-semibold text-green-600">{formatCurrency(stats.totalValue)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Weighted Value:</span>{' '}
+            <span className="font-semibold text-blue-600">{formatCurrency(stats.weightedValue)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground">Avg Probability:</span>{' '}
+            <span className="font-semibold">{stats.avgProbability}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-hidden">
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : viewMode === 'kanban' ? (
+          <DealsKanbanView
+            deals={deals}
+            stages={selectedPipeline?.stages || []}
+            isLoanPipeline={isLoanPipeline}
+            onStageChange={handleStageChange}
+            onDealUpdated={handleDealUpdated}
+            onRefresh={loadDeals}
+          />
+        ) : (
+          <DealsTableView
+            deals={deals}
+            stages={selectedPipeline?.stages || []}
+            isLoanPipeline={isLoanPipeline}
+            onDealUpdated={handleDealUpdated}
+            onRefresh={loadDeals}
+          />
+        )}
+      </div>
+
+      {/* New Deal Dialog */}
+      <NewDealDialogV2
+        open={showNewDealDialog}
+        onOpenChange={setShowNewDealDialog}
+        pipeline={selectedPipeline}
+        lenders={lenders}
+        isLoanPipeline={isLoanPipeline}
+        onSuccess={handleDealCreated}
+      />
+    </div>
+  );
+}
+

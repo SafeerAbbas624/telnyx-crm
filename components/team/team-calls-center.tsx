@@ -283,8 +283,6 @@ export default function TeamCallsCenter() {
 
   return (
     <div className="h-full flex flex-col">
-
-
       {/* Tabs control */}
       <div className="px-4 py-2 border-b">
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
@@ -294,7 +292,6 @@ export default function TeamCallsCenter() {
           </TabsList>
         </Tabs>
       </div>
-
 
       <div className="flex-1 flex">
         {/* Contacts List + Advanced Filters */}
@@ -305,18 +302,6 @@ export default function TeamCallsCenter() {
               onFilteredContactsChange={() => { /* ignore; we fetch server-side */ }}
               selectedContacts={[]}
               onSelectedContactsChange={() => {}}
-
-      {/* Tabs control */}
-      <div className="px-4 py-2 border-b">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-          <TabsList>
-            <TabsTrigger value="contacts">Contacts</TabsTrigger>
-            <TabsTrigger value="dialpad">Dialpad</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-
               showList={false}
               hideHeader
               hideSelectAllPagesButton
@@ -557,7 +542,7 @@ export default function TeamCallsCenter() {
                                   {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                                  {formatPhoneNumberForDisplay(call.fromNumber)} → {formatPhoneNumberForDisplay(call.toNumber)}
                                 </p>
                               </div>
                             </div>

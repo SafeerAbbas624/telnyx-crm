@@ -92,6 +92,10 @@ export async function GET(request: NextRequest) {
     const minProperties = searchParams.get('minProperties') ? parseInt(searchParams.get('minProperties')!) : undefined
     const maxProperties = searchParams.get('maxProperties') ? parseInt(searchParams.get('maxProperties')!) : undefined
 
+    // Date Added filter (when contact was imported/created)
+    const createdAfter = searchParams.get('createdAfter') ? new Date(searchParams.get('createdAfter')!) : undefined
+    const createdBefore = searchParams.get('createdBefore') ? new Date(searchParams.get('createdBefore')!) : undefined
+
     const hasMultiValues = [dealStatus, propertyType, city, state, propertyCounty, tags].some(v => (v ?? '').includes(','))
     const useElasticsearch = (searchParams.get('useElasticsearch') === 'true' || !!search) && !hasMultiValues
 
@@ -196,7 +200,10 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit
 
     // Build where clause for filtering
-    const where: any = {}
+    const where: any = {
+      // Exclude soft-deleted contacts by default
+      deletedAt: null
+    }
 
     if (search) {
       // Trim whitespace to handle trailing/leading spaces
@@ -326,6 +333,18 @@ export async function GET(request: NextRequest) {
       where.effectiveYearBuilt = {}
       if (minYearBuilt !== undefined) where.effectiveYearBuilt.gte = minYearBuilt
       if (maxYearBuilt !== undefined) where.effectiveYearBuilt.lte = maxYearBuilt
+    }
+
+    // Date Added filter (createdAt)
+    if (createdAfter || createdBefore) {
+      where.createdAt = {}
+      if (createdAfter) where.createdAt.gte = createdAfter
+      if (createdBefore) {
+        // Set to end of day for createdBefore
+        const endOfDay = new Date(createdBefore)
+        endOfDay.setHours(23, 59, 59, 999)
+        where.createdAt.lte = endOfDay
+      }
     }
 
     // Filter by property count (number of properties owned)
@@ -478,6 +497,25 @@ export async function GET(request: NextRequest) {
               properties: true,
             },
           },
+          properties: {
+            select: {
+              id: true,
+              address: true,
+              city: true,
+              state: true,
+              zipCode: true,
+              llcName: true,
+              propertyType: true,
+              bedrooms: true,
+              totalBathrooms: true,
+              buildingSqft: true,
+              estValue: true,
+              estEquity: true,
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
           activities: {
             where: {
               type: 'task',
@@ -574,6 +612,20 @@ export async function GET(request: NextRequest) {
       })),
       deals: [], // Deals are not directly on Contact model
       propertyCount: (contact as any)._count?.properties ?? 0,
+      properties: ((contact as any).properties ?? []).map((prop: any) => ({
+        id: prop.id,
+        address: prop.address,
+        city: prop.city,
+        state: prop.state,
+        zipCode: prop.zipCode,
+        llcName: prop.llcName,
+        propertyType: prop.propertyType,
+        bedrooms: prop.bedrooms,
+        totalBathrooms: prop.totalBathrooms,
+        buildingSqft: prop.buildingSqft,
+        estValue: prop.estValue ? Number(prop.estValue) : null,
+        estEquity: prop.estEquity ? Number(prop.estEquity) : null,
+      })),
     }));
 
 

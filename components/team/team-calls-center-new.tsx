@@ -553,8 +553,8 @@ export default function TeamCallsCenter() {
   }
 
 
-	  // Derive duration if missing using timestamps
-	  const computeDuration = (call: CallRecord) => {
+  // Derive duration if missing using timestamps
+  const computeDuration = (call: TelnyxCall) => {
 	    if (typeof call.duration === 'number' && call.duration > 0) return call.duration
 	    const answered = call.answeredAt ? new Date(call.answeredAt).getTime() : null
 	    const ended = call.endedAt ? new Date(call.endedAt).getTime() : null
@@ -787,7 +787,7 @@ export default function TeamCallsCenter() {
                     if (!last) return null
                     return (
                       <div className="mb-3 text-xs text-muted-foreground">
-                        Last call: {format(new Date(last.createdAt), 'MMM d, yyyy h:mm a')} • {formatDuration(computeDuration(last as any))} • {last.direction === 'outbound' ? 'From' : 'To'} {formatPhoneNumberForDisplay(last.fromNumber)} -> {formatPhoneNumberForDisplay(last.toNumber)} {last.hangupCause ? `• ${last.hangupCause}` : ''}
+                        Last call: {format(new Date(last.createdAt), 'MMM d, yyyy h:mm a')} • {formatDuration(computeDuration(last as any))} • {last.direction === 'outbound' ? 'From' : 'To'} {formatPhoneNumberForDisplay(last.fromNumber)} → {formatPhoneNumberForDisplay(last.toNumber)} {last.hangupCause ? `• ${last.hangupCause}` : ''}
                       </div>
                     )
                   })()}
@@ -824,7 +824,7 @@ export default function TeamCallsCenter() {
                                   {formatPhoneNumberForDisplay(call.fromNumber)}   {formatPhoneNumberForDisplay(call.toNumber)}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                                  {formatPhoneNumberForDisplay(call.fromNumber)} → {formatPhoneNumberForDisplay(call.toNumber)}
                                 </p>
 
                               </div>
@@ -894,7 +894,7 @@ export default function TeamCallsCenter() {
                                 {format(new Date(call.createdAt), 'MMM d, yyyy h:mm a')}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {formatPhoneNumberForDisplay(call.fromNumber)} -> {formatPhoneNumberForDisplay(call.toNumber)}
+                                {formatPhoneNumberForDisplay(call.fromNumber)} → {formatPhoneNumberForDisplay(call.toNumber)}
                               </p>
                             </div>
                           </div>

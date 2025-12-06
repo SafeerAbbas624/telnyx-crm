@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -8,9 +8,13 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useContacts } from "@/lib/context/contacts-context"
 import { useToast } from "@/hooks/use-toast"
@@ -23,127 +27,124 @@ interface EditContactDialogProps {
   contact: Contact | null
 }
 
-// Helper to format phone to 10 digits
-const formatPhone = (value: string) => {
-  const digits = value.replace(/\D/g, '').slice(0, 10)
-  return digits
-}
-
-const propertyTypes = [
-  "Single-family (SFR)",
-  "Duplex",
-  "Triplex",
-  "Quadplex",
-  "Multifamily (5+ units)",
-  "Townhouse",
-  "Condominium (Condo)",
-]
-
 export default function EditContactDialog({ open, onOpenChange, contact }: EditContactDialogProps) {
   const { updateContact, refreshFilterOptions } = useContacts()
   const { toast } = useToast()
 
-  const [formData, setFormData] = useState({
-    fullName: "",
-    llcName: "",
-    phone: "",
-    email: "",
-    propertyAddress: "",
-    contactAddress: "",
-    city: "",
-    state: "",
-    propertyType: "",
-    bedrooms: "",
-    totalBathrooms: "",
-    buildingSqft: "",
-    effectiveYearBuilt: "",
-    estValue: "",
-    estEquity: "",
-    tags: [] as Tag[],
-  })
+  // Individual state for all fields
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
+  const [llcName, setLlcName] = useState("")
+  const [phone1, setPhone1] = useState("")
+  const [phone2, setPhone2] = useState("")
+  const [phone3, setPhone3] = useState("")
+  const [email1, setEmail1] = useState("")
+  const [email2, setEmail2] = useState("")
+  const [email3, setEmail3] = useState("")
+  const [propertyAddress, setPropertyAddress] = useState("")
+  const [contactAddress, setContactAddress] = useState("")
+  const [city, setCity] = useState("")
+  const [state, setState] = useState("")
+  const [propertyCounty, setPropertyCounty] = useState("")
+  const [propertyType, setPropertyType] = useState("")
+  const [bedrooms, setBedrooms] = useState<number | undefined>(undefined)
+  const [totalBathrooms, setTotalBathrooms] = useState<number | undefined>(undefined)
+  const [buildingSqft, setBuildingSqft] = useState<number | undefined>(undefined)
+  const [effectiveYearBuilt, setEffectiveYearBuilt] = useState<number | undefined>(undefined)
+  const [estValue, setEstValue] = useState<number | undefined>(undefined)
+  const [estEquity, setEstEquity] = useState<number | undefined>(undefined)
+  const [debtOwed, setDebtOwed] = useState<number | undefined>(undefined)
+  const [dealStatus, setDealStatus] = useState<Contact["dealStatus"]>("lead")
+  const [dnc, setDnc] = useState(false)
+  const [dncReason, setDncReason] = useState("")
+  const [notes, setNotes] = useState("")
+  const [selectedTags, setSelectedTags] = useState<Tag[]>([])
+  const [fieldDefinitions, setFieldDefinitions] = useState<any[]>([])
+  const [customFields, setCustomFields] = useState<Record<string, any>>({})
 
   // Load contact data when contact changes
   useEffect(() => {
-    if (contact) {
-      setFormData({
-        fullName: `${contact.firstName || ""} ${contact.lastName || ""}`.trim(),
-        llcName: contact.llcName || "",
-        phone: contact.phone1 || "",
-        email: contact.email1 || "",
-        propertyAddress: contact.propertyAddress || "",
-        contactAddress: contact.contactAddress || "",
-        city: contact.city || "",
-        state: contact.state || "",
-        propertyType: contact.propertyType || "",
-        bedrooms: contact.bedrooms?.toString() || "",
-        totalBathrooms: contact.totalBathrooms?.toString() || "",
-        buildingSqft: contact.buildingSqft?.toString() || "",
-        effectiveYearBuilt: contact.effectiveYearBuilt?.toString() || "",
-        estValue: contact.estValue?.toString() || "",
-        estEquity: contact.estEquity?.toString() || "",
-        tags: contact.tags || [],
-      })
+    if (contact && open) {
+      setFirstName(contact.firstName || "")
+      setLastName(contact.lastName || "")
+      setLlcName(contact.llcName || "")
+      setPhone1(contact.phone1 || "")
+      setPhone2(contact.phone2 || "")
+      setPhone3(contact.phone3 || "")
+      setEmail1(contact.email1 || "")
+      setEmail2(contact.email2 || "")
+      setEmail3(contact.email3 || "")
+      setPropertyAddress(contact.propertyAddress || "")
+      setContactAddress(contact.contactAddress || "")
+      setCity(contact.city || "")
+      setState(contact.state || "")
+      setPropertyCounty(contact.propertyCounty || "")
+      setPropertyType(contact.propertyType || "")
+      setBedrooms(contact.bedrooms ?? undefined)
+      setTotalBathrooms(contact.totalBathrooms ?? undefined)
+      setBuildingSqft(contact.buildingSqft ?? undefined)
+      setEffectiveYearBuilt(contact.effectiveYearBuilt ?? undefined)
+      setEstValue(contact.estValue ?? undefined)
+      setEstEquity(contact.estEquity ?? undefined)
+      setDebtOwed(contact.estValue && contact.estEquity ? contact.estValue - contact.estEquity : undefined)
+      setDealStatus(contact.dealStatus || "lead")
+      setDnc(contact.dnc || false)
+      setDncReason(contact.dncReason || "")
+      setNotes(contact.notes || "")
+      setSelectedTags(contact.tags || [])
     }
-  }, [contact])
-
-  // Use callback to prevent tag updates from resetting other form fields
-  const handleTagChange = useCallback((newTags: Tag[]) => {
-    setFormData(prev => ({ ...prev, tags: newTags }))
-  }, [])
+  }, [contact, open])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!contact) return
 
-    if (!formData.fullName.trim() || !formData.phone.trim()) {
+    if (!firstName.trim()) {
       toast({
         title: "Error",
-        description: "Full Name and Phone are required.",
+        description: "First Name is required.",
         variant: "destructive",
       })
       return
     }
 
-    const toNumber = (v: string) => (v && v.trim() !== "" ? Number(v) : undefined)
-
-    // Split full name into first and last name
-    const nameParts = formData.fullName.trim().split(/\s+/)
-    const firstName = nameParts[0] || ""
-    const lastName = nameParts.slice(1).join(" ") || ""
-
-    const tagsPayload = formData.tags.map((t: any) => {
-      // Handle new tags (prefixed with 'new:')
+    const tagsPayload = selectedTags.map((t: any) => {
       if (typeof t.id === 'string' && t.id.startsWith('new:')) {
         return { name: t.name, color: t.color || '#3B82F6' }
       }
-      // Handle existing tags
       return { id: t.id, name: t.name, color: t.color }
     })
 
     const payload: Partial<Contact> & { tags?: any[] } = {
-      firstName,
-      lastName: lastName || undefined,
-      llcName: formData.llcName || undefined,
-      phone1: formData.phone || undefined,
-      email1: formData.email || undefined,
-      propertyAddress: formData.propertyAddress || undefined,
-      contactAddress: formData.contactAddress || undefined,
-      city: formData.city || undefined,
-      state: formData.state || undefined,
-      propertyType: formData.propertyType || undefined,
-      bedrooms: toNumber(formData.bedrooms),
-      totalBathrooms: toNumber(formData.totalBathrooms),
-      buildingSqft: toNumber(formData.buildingSqft),
-      effectiveYearBuilt: toNumber(formData.effectiveYearBuilt),
-      estValue: toNumber(formData.estValue),
-      estEquity: toNumber(formData.estEquity),
+      firstName: firstName.trim(),
+      lastName: lastName.trim() || undefined,
+      llcName: llcName || undefined,
+      phone1: phone1 || undefined,
+      phone2: phone2 || undefined,
+      phone3: phone3 || undefined,
+      email1: email1 || undefined,
+      email2: email2 || undefined,
+      email3: email3 || undefined,
+      propertyAddress: propertyAddress || undefined,
+      contactAddress: contactAddress || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      propertyCounty: propertyCounty || undefined,
+      propertyType: propertyType || undefined,
+      bedrooms,
+      totalBathrooms,
+      buildingSqft,
+      effectiveYearBuilt,
+      estValue,
+      estEquity,
+      dealStatus,
+      dnc,
+      dncReason: dnc ? dncReason : undefined,
+      notes: notes || undefined,
       tags: tagsPayload,
     }
 
     await updateContact(contact.id, payload)
-
-    // Force refresh filter options after updating contact (especially for tags)
-    console.log('🔄 [EDIT CONTACT] Manually refreshing filter options after update')
     await refreshFilterOptions()
 
     toast({
@@ -151,7 +152,6 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       description: `${firstName} ${lastName}'s details have been updated.`,
     })
     onOpenChange(false)
-    return updated
   }
 
   return (

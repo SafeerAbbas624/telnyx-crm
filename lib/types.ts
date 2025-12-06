@@ -12,13 +12,17 @@ export interface ContactProperty {
   address?: string | null;
   city?: string | null;
   state?: string | null;
+  zipCode?: string | null;
   county?: string | null;
   llcName?: string | null;
   propertyType?: string | null;
   bedrooms?: number | null;
   totalBathrooms?: number | null;
   buildingSqft?: number | null;
+  lotSizeSqft?: number | null;
   effectiveYearBuilt?: number | null;
+  lastSaleDate?: string | null;
+  lastSaleAmount?: number | null;
   estValue?: number | null;
   estEquity?: number | null;
   createdAt?: string;

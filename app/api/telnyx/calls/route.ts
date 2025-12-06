@@ -127,25 +127,34 @@ export async function POST(request: NextRequest) {
       ts: new Date().toISOString(),
     })
 
-    // Team restriction: team users must call from their assigned number
-    if (session?.user?.role === 'TEAM_USER') {
-      const assigned = session.user.assignedPhoneNumber || ''
-      const formattedAssigned = formatPhoneNumberForTelnyx(assigned)
+    // Check if user has permission to use this phone number
+    if (session?.user?.role !== 'ADMIN') {
+      // Non-admin users must have explicit permission for the phone number
       const formattedFromCandidate = formatPhoneNumberForTelnyx(fromNumber)
-      if (!formattedAssigned || !formattedFromCandidate || formattedFromCandidate !== formattedAssigned) {
-        console.warn('[TELNYX CALLS][GUARD] Team user attempted call from non-assigned number', {
-          userId: session.user.id,
-          assigned,
+      const allowedNumber = await prisma.userAllowedPhoneNumber.findFirst({
+        where: {
+          userId: session?.user?.id,
+          phoneNumber: {
+            OR: [
+              { phoneNumber: fromNumber },
+              { phoneNumber: formattedFromCandidate || '' }
+            ]
+          }
+        }
+      });
+
+      if (!allowedNumber) {
+        console.warn('[TELNYX CALLS][GUARD] User attempted call from non-allowed number', {
+          userId: session?.user?.id,
           fromNumber,
-          formattedAssigned,
           formattedFromCandidate,
         })
         return NextResponse.json(
-          { error: 'Forbidden: Team users must call from their assigned phone number' },
+          { error: 'You do not have permission to call from this phone number' },
           { status: 403 }
         )
       }
-      console.log('[TELNYX CALLS][GUARD] Team user from-number validated', { userId: session.user.id, fromNumber })
+      console.log('[TELNYX CALLS][GUARD] User from-number validated', { userId: session?.user?.id, fromNumber })
     }
 
     if (!TELNYX_API_KEY) {

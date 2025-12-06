@@ -9,13 +9,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ArrowLeft, Phone, Mail, Info, Send, User, Building, MapPin, Calendar, MessageSquare } from "lucide-react"
+import { ArrowLeft, Phone, Mail, Info, Send, User, Building, MapPin, Calendar, MessageSquare, UserPlus } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatDistanceToNow } from "date-fns"
 import { useSession } from "next-auth/react"
 import AssignContactModal from "@/components/admin/assign-contact-modal"
 import { useCallUI } from "@/lib/context/call-ui-context"
 import type { Contact } from "@/lib/types"
+import { SmsSegmentInfo } from "@/components/sms/sms-segment-info"
+import AddContactDialog from "@/components/contacts/add-contact-dialog"
+import { useContacts } from "@/lib/context/contacts-context"
 
 import ContactName from "@/components/contacts/contact-name"
 
@@ -48,6 +51,7 @@ interface EnhancedConversationProps {
 export default function EnhancedConversation({ contact, onBack, onConversationRead }: EnhancedConversationProps) {
   const { data: session } = useSession()
   const { openCall } = useCallUI()
+  const { refreshContacts } = useContacts()
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [selectedSenderNumber, setSelectedSenderNumber] = useState<string>("")
@@ -56,6 +60,8 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [showContactInfo, setShowContactInfo] = useState(false)
+  const [showAddContactDialog, setShowAddContactDialog] = useState(false)
+  const [currentContact, setCurrentContact] = useState<Contact>(contact)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
   const [hasMarkedAsRead, setHasMarkedAsRead] = useState(false)  // Track if we've marked messages as read
@@ -63,10 +69,68 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
   // Check if current user is admin
   const isAdmin = session?.user?.role === 'ADMIN'
 
+  // Check if contact is "unknown" (no real name set)
+  const isUnknownContact = !currentContact.firstName || currentContact.firstName === 'Unknown' || currentContact.firstName.startsWith('Unknown ')
+
+  // Update currentContact when contact prop changes
+  useEffect(() => {
+    setCurrentContact(contact)
+  }, [contact])
+
   useEffect(() => {
     loadMessages()
     loadPhoneNumbers()
   }, [contact.id])
+
+  // Handler for adding a new contact from conversation (for unknown callers)
+  const handleAddContact = async (contactData: any) => {
+    try {
+      // Update the existing contact record with the new details
+      const response = await fetch(`/api/contacts/${contact.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: contactData.firstName,
+          lastName: contactData.lastName,
+          llcName: contactData.llcName,
+          email1: contactData.email1,
+          propertyAddress: contactData.propertyAddress,
+          contactAddress: contactData.contactAddress,
+          city: contactData.city,
+          state: contactData.state,
+          propertyType: contactData.propertyType,
+          bedrooms: contactData.bedrooms,
+          totalBathrooms: contactData.totalBathrooms,
+          buildingSqft: contactData.buildingSqft,
+          effectiveYearBuilt: contactData.effectiveYearBuilt,
+          estValue: contactData.estValue,
+          estEquity: contactData.estEquity,
+          tags: contactData.tags,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update contact')
+      }
+
+      const updatedContact = await response.json()
+      setCurrentContact(updatedContact)
+      refreshContacts()
+
+      toast({
+        title: "Contact saved",
+        description: `${contactData.firstName} ${contactData.lastName || ''} has been saved`,
+      })
+
+      setShowAddContactDialog(false)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save contact",
+        variant: "destructive",
+      })
+    }
+  }
 
   useEffect(() => {
     scrollToBottom()
@@ -416,9 +480,21 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
             <Button variant="ghost" size="sm" onClick={handleEmail}>
               <Mail className="h-4 w-4" />
             </Button>
+            {/* Add Contact button for unknown contacts */}
+            {isUnknownContact && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAddContactDialog(true)}
+                title="Add as Contact"
+                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+              >
+                <UserPlus className="h-4 w-4" />
+              </Button>
+            )}
             {isAdmin && (
               <AssignContactModal
-                contact={contact}
+                contact={currentContact}
                 onAssignmentComplete={() => {
                   toast({
                     title: "Success",
@@ -638,6 +714,12 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
             )}
           </Button>
         </div>
+        {/* SMS Segment Info - shows character count, segments, encoding, and cost */}
+        {newMessage && (
+          <div className="mt-2">
+            <SmsSegmentInfo message={newMessage} compact={true} showCost={true} />
+          </div>
+        )}
         {selectedNumber && (
           <div className="text-xs mt-2 flex items-center gap-1" style={{color: '#333333'}}>
             <span>Sending from</span>
@@ -650,6 +732,192 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
           </div>
         )}
       </div>
+
+      {/* Add Contact Dialog - for unknown inbound texters */}
+      <AddContactDialogWithPhone
+        open={showAddContactDialog}
+        onOpenChange={setShowAddContactDialog}
+        onAddContact={handleAddContact}
+        prefillPhone={contact.phone1 || contact.phone2 || contact.phone3 || ''}
+      />
     </div>
+  )
+}
+
+// Custom AddContactDialog that pre-fills phone number
+function AddContactDialogWithPhone({
+  open,
+  onOpenChange,
+  onAddContact,
+  prefillPhone
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onAddContact: (contact: any) => void
+  prefillPhone: string
+}) {
+  const [formData, setFormData] = useState({
+    fullName: "",
+    llcName: "",
+    phone: prefillPhone,
+    email: "",
+    propertyAddress: "",
+    contactAddress: "",
+    city: "",
+    state: "",
+    propertyType: "",
+    bedrooms: "",
+    totalBathrooms: "",
+    buildingSqft: "",
+    effectiveYearBuilt: "",
+    estValue: "",
+    estEquity: "",
+    tags: [] as any[],
+  })
+
+  // Reset form when dialog opens with prefilled phone
+  useEffect(() => {
+    if (open) {
+      setFormData(prev => ({ ...prev, phone: prefillPhone }))
+    }
+  }, [open, prefillPhone])
+
+  const propertyTypes = [
+    "Single-family (SFR)",
+    "Duplex",
+    "Triplex",
+    "Quadplex",
+    "Multifamily (5+ units)",
+    "Townhouse",
+    "Condominium (Condo)",
+  ]
+
+  const formatPhone = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10)
+    return digits
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!formData.fullName.trim()) {
+      return
+    }
+
+    const toNumber = (v: string) => (v && v.trim() !== "" ? Number(v) : undefined)
+
+    const nameParts = formData.fullName.trim().split(/\s+/)
+    const firstName = nameParts[0] || ""
+    const lastName = nameParts.slice(1).join(" ") || ""
+
+    const contactData: any = {
+      firstName,
+      lastName: lastName || undefined,
+      llcName: formData.llcName || undefined,
+      phone1: formData.phone,
+      email1: formData.email || undefined,
+      propertyAddress: formData.propertyAddress || undefined,
+      contactAddress: formData.contactAddress || undefined,
+      city: formData.city || undefined,
+      state: formData.state || undefined,
+      propertyType: formData.propertyType || undefined,
+      bedrooms: toNumber(formData.bedrooms),
+      totalBathrooms: toNumber(formData.totalBathrooms),
+      buildingSqft: toNumber(formData.buildingSqft),
+      effectiveYearBuilt: toNumber(formData.effectiveYearBuilt),
+      estValue: toNumber(formData.estValue),
+      estEquity: toNumber(formData.estEquity),
+      tags: formData.tags,
+    }
+
+    onAddContact(contactData)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Save Contact Details</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Full Name *</label>
+            <input
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              placeholder="John Doe"
+              value={formData.fullName}
+              onChange={(e) => setFormData(p => ({ ...p, fullName: e.target.value }))}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">LLC Name</label>
+            <input
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={formData.llcName}
+              onChange={(e) => setFormData(p => ({ ...p, llcName: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Phone</label>
+              <input
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm bg-muted"
+                value={formData.phone}
+                onChange={(e) => setFormData(p => ({ ...p, phone: formatPhone(e.target.value) }))}
+                readOnly
+              />
+              <p className="text-xs text-muted-foreground">Pre-filled from conversation</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email</label>
+              <input
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData(p => ({ ...p, email: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Property Address</label>
+            <input
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={formData.propertyAddress}
+              onChange={(e) => setFormData(p => ({ ...p, propertyAddress: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium">City</label>
+              <input
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={formData.city}
+                onChange={(e) => setFormData(p => ({ ...p, city: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">State</label>
+              <input
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                placeholder="NY"
+                value={formData.state}
+                onChange={(e) => setFormData(p => ({ ...p, state: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit">Save Contact</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

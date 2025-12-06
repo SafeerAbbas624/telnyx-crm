@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
           sentimentStats[call.sentiment] = (sentimentStats[call.sentiment] || 0) + 1
         }
         totalDuration += call.duration || 0
-        if (call.status === 'answered' || call.status === 'completed') {
+        if (call.status === 'bridged' || call.status === 'hangup') {
           answeredCount++
         }
       })
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
       })
     } else if (reportType === 'outcomes') {
       // Get detailed outcome report
-      const [telnyxCalls, vapiCalls, powerDialerCalls] = await Promise.all([
+      const [telnyxCalls, _vapiCalls, _powerDialerCalls] = await Promise.all([
         prisma.telnyxCall.findMany({
           where: whereClause,
           select: {
@@ -124,7 +124,7 @@ export async function GET(req: NextRequest) {
             callOutcome: true,
             duration: true,
             createdAt: true,
-            contact: { select: { firstName: true, lastName: true } },
+            contactId: true,
           },
         }),
         prisma.vapiCall.findMany({
@@ -160,7 +160,7 @@ export async function GET(req: NextRequest) {
         outcomes[outcome].calls.push({
           id: call.id,
           type: 'telnyx',
-          contact: call.contact,
+          contactId: call.contactId,
           duration: call.duration,
           date: call.createdAt,
         })
@@ -173,7 +173,7 @@ export async function GET(req: NextRequest) {
       })
     } else if (reportType === 'sentiment') {
       // Get sentiment report
-      const [telnyxCalls, vapiCalls, powerDialerCalls] = await Promise.all([
+      const [telnyxCalls, _vapiCalls2, _powerDialerCalls2] = await Promise.all([
         prisma.telnyxCall.findMany({
           where: whereClause,
           select: {

@@ -8,12 +8,15 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { X, Minimize2, Send, MessageSquare, RefreshCw, FileText, ChevronDown, Pencil, Plus } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { X, Minimize2, Send, MessageSquare, RefreshCw, FileText, ChevronDown, Pencil, Plus, Clock } from "lucide-react"
 import { useSmsUI, SmsSession } from "@/lib/context/sms-ui-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { toast } from "sonner"
 import { format } from "date-fns"
+import { TemplateVariableSelector } from "@/components/ui/template-variable-selector"
+import { ScheduleSendModal } from "@/components/ui/schedule-send-modal"
 
 interface TelnyxPhoneNumber {
   id: string
@@ -91,8 +94,11 @@ function SingleSmsPanel({
   const [templateName, setTemplateName] = useState("")
   const [templateContent, setTemplateContent] = useState("")
   const [savingTemplate, setSavingTemplate] = useState(false)
+  // Schedule send state
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null)
+  const templateContentRef = useRef<HTMLTextAreaElement>(null)
 
   // Calculate position offset for stacking
   const offsetX = index * 30
@@ -360,6 +366,44 @@ function SingleSmsPanel({
     }
   }
 
+  // Schedule send handler
+  const handleScheduleSend = async (scheduledAt: Date) => {
+    if (!message.trim()) {
+      throw new Error('Please enter a message')
+    }
+
+    if (!selectedSenderNumber) {
+      throw new Error('Please select a sender number')
+    }
+
+    if (!session.contact?.id) {
+      throw new Error('No contact selected')
+    }
+
+    const response = await fetch('/api/scheduled-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: 'SMS',
+        contactId: session.contact.id,
+        scheduledAt: scheduledAt.toISOString(),
+        fromNumber: selectedSenderNumber,
+        toNumber: session.phoneNumber,
+        body: message,
+        metadata: { source: 'manual_sms' },
+      }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to schedule message')
+    }
+
+    toast.success(`SMS scheduled for ${format(scheduledAt, "MMM d 'at' h:mm a")}`)
+    setMessage("")
+  }
+
   const contactName = session.contact
     ? `${session.contact.firstName || ''} ${session.contact.lastName || ''}`.trim()
     : 'Unknown Contact'
@@ -561,17 +605,36 @@ function SingleSmsPanel({
               }}
               autoFocus
             />
-            <Button
-              onClick={handleSend}
-              disabled={isSending || !message.trim()}
-              className="bg-blue-600 hover:bg-blue-700 h-[60px] w-[60px] p-0"
-            >
-              {isSending ? (
-                <RefreshCw className="h-5 w-5 animate-spin" />
-              ) : (
-                <Send className="h-5 w-5" />
-              )}
-            </Button>
+            {/* Send button with dropdown for schedule */}
+            <div className="flex gap-1">
+              <Button
+                onClick={handleSend}
+                disabled={isSending || !message.trim()}
+                className="bg-blue-600 hover:bg-blue-700 h-[60px] w-[50px] p-0 rounded-r-none"
+              >
+                {isSending ? (
+                  <RefreshCw className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    disabled={isSending || !message.trim()}
+                    className="bg-blue-600 hover:bg-blue-700 h-[60px] w-[30px] p-0 rounded-l-none border-l border-blue-500"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setShowScheduleModal(true)}>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Schedule send...
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <div className="flex justify-between items-center mt-1">
             <p className="text-xs text-gray-400">{message.length} chars</p>
@@ -585,6 +648,9 @@ function SingleSmsPanel({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create New Template'}</DialogTitle>
+            <DialogDescription>
+              Click &quot;Insert Variable&quot; to add dynamic content at cursor position
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -597,8 +663,29 @@ function SingleSmsPanel({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="template-content">Message Content</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="template-content">Message Content</Label>
+                <TemplateVariableSelector
+                  onSelect={(variable) => {
+                    const element = templateContentRef.current;
+                    if (element) {
+                      const start = element.selectionStart || 0;
+                      const end = element.selectionEnd || 0;
+                      const newValue = templateContent.substring(0, start) + variable + templateContent.substring(end);
+                      setTemplateContent(newValue);
+                      // Set cursor position after inserted variable
+                      setTimeout(() => {
+                        element.focus();
+                        element.setSelectionRange(start + variable.length, start + variable.length);
+                      }, 0);
+                    } else {
+                      setTemplateContent(templateContent + variable);
+                    }
+                  }}
+                />
+              </div>
               <Textarea
+                ref={templateContentRef}
                 id="template-content"
                 value={templateContent}
                 onChange={(e) => setTemplateContent(e.target.value)}
@@ -606,7 +693,7 @@ function SingleSmsPanel({
                 rows={5}
               />
               <p className="text-xs text-gray-500">
-                Available variables: {'{firstName}'}, {'{lastName}'}, {'{fullName}'}, {'{phone}'}, {'{email}'}, {'{propertyAddress}'}, {'{city}'}, {'{state}'}
+                Use {'{firstName}'} or {'{propertyAddress}'} to insert dynamic values. Use the Variables dropdown to see all options.
               </p>
             </div>
           </div>
@@ -620,6 +707,18 @@ function SingleSmsPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Schedule Send Modal */}
+      <ScheduleSendModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        onSchedule={handleScheduleSend}
+        channel="SMS"
+        preview={{
+          to: formatPhoneNumberForDisplay(session.phoneNumber || ''),
+          bodyPreview: message.substring(0, 100),
+        }}
+      />
     </div>
   )
 }

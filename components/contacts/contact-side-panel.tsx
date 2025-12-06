@@ -1,17 +1,27 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { X, Phone, Mail, MapPin, Building2, Calendar, Tag, MessageSquare, PhoneCall, FileText, CheckSquare, User, Edit } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { X, Phone, Mail, Building2, Calendar, Tag, MessageSquare, PhoneCall, FileText, CheckSquare, User, Plus, Save, Loader2, Trash2, ChevronDown, ChevronUp, Edit2, Check, Cloud, CloudOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import type { Contact, Activity } from "@/lib/types"
 import { format } from "date-fns"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
-import EditContactDialog from "./edit-contact-dialog"
-import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
+import { useCallUI } from "@/lib/context/call-ui-context"
+import { useTaskUI } from "@/lib/context/task-ui-context"
+import Link from "next/link"
+
+import { TagInput } from "@/components/ui/tag-input"
+import { toast } from "sonner"
+import ContactSequences from "./contact-sequences"
+import { formatPhoneNumberForTelnyx, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 
 interface ContactSidePanelProps {
   contact: Contact | null
@@ -29,22 +39,156 @@ interface Task {
   taskType?: string
 }
 
+interface Deal {
+  id: string
+  title: string
+  value: number
+  stage: string
+  stageLabel?: string
+  stageColor?: string
+  probability: number
+  isLoanDeal?: boolean
+  lenderName?: string
+  propertyAddress?: string
+}
+
+interface Property {
+  id?: string
+  address: string
+  city: string
+  state: string
+  zipCode: string
+  llcName: string
+  propertyType: string
+  bedrooms?: number
+  totalBathrooms?: number
+  buildingSqft?: number
+  lotSizeSqft?: number
+  lastSaleDate?: string
+  lastSaleAmount?: number
+  estValue?: number
+  estEquity?: number
+}
+
+// Phone number type for Telnyx
+interface TelnyxPhoneNumber {
+  id: string
+  phoneNumber: string
+  friendlyName?: string
+  isActive: boolean
+  capabilities: string[]
+}
+
 export default function ContactSidePanel({ contact, open, onClose }: ContactSidePanelProps) {
   const [activities, setActivities] = useState<Activity[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingTasks, setLoadingTasks] = useState(false)
-  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [loadingDeals, setLoadingDeals] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [currentContact, setCurrentContact] = useState<Contact | null>(contact)
+
+  // Editable fields
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
+  const [phones, setPhones] = useState<string[]>([])
+  const [emails, setEmails] = useState<string[]>([])
+  const [properties, setProperties] = useState<Property[]>([])
+  const [selectedTags, setSelectedTags] = useState<any[]>([])
+  const [dealStatus, setDealStatus] = useState<string>("lead")
+  const [showActivityHistory, setShowActivityHistory] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
+
+  // Auto-save state
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSavedDataRef = useRef<string>('')
+
+  // Telnyx phone numbers for calling
+  const [telnyxPhoneNumbers, setTelnyxPhoneNumbers] = useState<TelnyxPhoneNumber[]>([])
+  const [selectedTelnyxNumber, setSelectedTelnyxNumber] = useState<TelnyxPhoneNumber | null>(null)
+
+  // Task editing state
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [editingTaskData, setEditingTaskData] = useState<Partial<Task>>({})
 
   const { openSms } = useSmsUI()
   const { openEmail } = useEmailUI()
+  const { openCall } = useCallUI()
+  const { openTask, setOnTaskCreated } = useTaskUI()
 
+  // Initialize form when contact changes
   useEffect(() => {
-    setCurrentContact(contact)
-  }, [contact])
+    if (contact && open) {
+      setCurrentContact(contact)
+      initializeForm(contact)
+    }
+  }, [contact, open])
 
-  // Fetch full contact details including properties when panel opens
+  const initializeForm = (c: Contact) => {
+    setFirstName(c.firstName || "")
+    setLastName(c.lastName || "")
+
+    // Collect phones (only non-empty)
+    const phoneList = [c.phone1, c.phone2, c.phone3].filter(Boolean) as string[]
+    setPhones(phoneList.length > 0 ? phoneList : [""])
+
+    // Collect emails (only non-empty)
+    const emailList = [c.email1, c.email2, c.email3].filter(Boolean) as string[]
+    setEmails(emailList.length > 0 ? emailList : [""])
+
+    // Collect properties
+    const propList: Property[] = []
+    // Add primary property from contact if exists
+    if (c.propertyAddress) {
+      propList.push({
+        address: c.propertyAddress || "",
+        city: c.city || "",
+        state: c.state || "",
+        zipCode: c.zipCode || "",
+        llcName: c.llcName || "",
+        propertyType: c.propertyType || "",
+        bedrooms: c.bedrooms ?? undefined,
+        totalBathrooms: c.totalBathrooms ?? undefined,
+        buildingSqft: c.buildingSqft ?? undefined,
+        lotSizeSqft: (c as any).lotSizeSqft ?? undefined,
+        lastSaleDate: (c as any).lastSaleDate ?? undefined,
+        lastSaleAmount: (c as any).lastSaleAmount ?? undefined,
+        estValue: c.estValue ?? undefined,
+        estEquity: c.estEquity ?? undefined,
+      })
+    }
+    // Add additional properties
+    if ((c as any).properties) {
+      (c as any).properties.forEach((p: any) => {
+        propList.push({
+          id: p.id,
+          address: p.address || "",
+          city: p.city || "",
+          state: p.state || "",
+          zipCode: p.zipCode || "",
+          llcName: p.llcName || "",
+          propertyType: p.propertyType || "",
+          bedrooms: p.bedrooms,
+          totalBathrooms: p.totalBathrooms,
+          buildingSqft: p.buildingSqft,
+          lotSizeSqft: p.lotSizeSqft,
+          lastSaleDate: p.lastSaleDate,
+          lastSaleAmount: p.lastSaleAmount,
+          estValue: p.estValue,
+          estEquity: p.estEquity,
+        })
+      })
+    }
+    setProperties(propList.length > 0 ? propList : [{ address: "", city: "", state: "", zipCode: "", llcName: "", propertyType: "" }])
+
+    setSelectedTags(c.tags || [])
+    setDealStatus(c.dealStatus || "lead")
+    setHasChanges(false)
+  }
+
+  // Fetch full contact details
   useEffect(() => {
     const fetchFullContact = async () => {
       if (contact?.id && open) {
@@ -53,6 +197,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
           if (res.ok) {
             const fullContact = await res.json()
             setCurrentContact(fullContact)
+            initializeForm(fullContact)
           }
         } catch (error) {
           console.error('Failed to fetch full contact:', error)
@@ -66,11 +211,218 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     if (contact?.id && open) {
       loadActivities()
       loadTasks()
+      loadDeals()
+      loadTelnyxPhoneNumbers()
     }
   }, [contact?.id, open])
 
-  const handleCall = (phone: string) => {
-    window.location.href = `tel:${phone}`
+  // Register callback to refresh tasks when a task is created via global modal
+  useEffect(() => {
+    if (open && contact?.id) {
+      setOnTaskCreated(() => {
+        loadTasks()
+      })
+      return () => {
+        setOnTaskCreated(undefined)
+      }
+    }
+  }, [open, contact?.id, setOnTaskCreated])
+
+  // Load Telnyx phone numbers for calling
+  const loadTelnyxPhoneNumbers = async () => {
+    try {
+      const res = await fetch('/api/telnyx/phone-numbers')
+      if (res.ok) {
+        const data = await res.json()
+        const voiceNumbers = data.filter((pn: TelnyxPhoneNumber) =>
+          pn.capabilities.includes('VOICE') && pn.isActive
+        )
+        setTelnyxPhoneNumbers(voiceNumbers)
+        if (voiceNumbers.length > 0 && !selectedTelnyxNumber) {
+          setSelectedTelnyxNumber(voiceNumbers[0])
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load Telnyx phone numbers:', error)
+    }
+  }
+
+  // Auto-save functionality with debounce
+  const performAutoSave = useCallback(async () => {
+    if (!currentContact) return
+
+    const payload: any = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim() || undefined,
+      phone1: phones[0] || undefined,
+      phone2: phones[1] || undefined,
+      phone3: phones[2] || undefined,
+      email1: emails[0] || undefined,
+      email2: emails[1] || undefined,
+      email3: emails[2] || undefined,
+      dealStatus,
+      tags: selectedTags.map((t: any) => ({
+        id: typeof t.id === 'string' && t.id.startsWith('new:') ? undefined : t.id,
+        name: t.name,
+        color: t.color || '#3B82F6'
+      })),
+    }
+
+    // First property goes to contact record
+    if (properties[0]) {
+      payload.propertyAddress = properties[0].address || undefined
+      payload.city = properties[0].city || undefined
+      payload.state = properties[0].state || undefined
+      payload.zipCode = properties[0].zipCode || undefined
+      payload.llcName = properties[0].llcName || undefined
+      payload.propertyType = properties[0].propertyType || undefined
+      payload.bedrooms = properties[0].bedrooms
+      payload.totalBathrooms = properties[0].totalBathrooms
+      payload.buildingSqft = properties[0].buildingSqft
+      payload.lotSizeSqft = properties[0].lotSizeSqft
+      payload.lastSaleDate = properties[0].lastSaleDate
+      payload.lastSaleAmount = properties[0].lastSaleAmount
+      payload.estValue = properties[0].estValue
+      payload.estEquity = properties[0].estEquity
+    }
+
+    // Additional properties
+    if (properties.length > 1) {
+      payload.additionalProperties = properties.slice(1).map(p => ({
+        id: p.id,
+        address: p.address,
+        city: p.city,
+        state: p.state,
+        zipCode: p.zipCode,
+        llcName: p.llcName,
+        propertyType: p.propertyType,
+        bedrooms: p.bedrooms,
+        totalBathrooms: p.totalBathrooms,
+        buildingSqft: p.buildingSqft,
+        lotSizeSqft: p.lotSizeSqft,
+        lastSaleDate: p.lastSaleDate,
+        lastSaleAmount: p.lastSaleAmount,
+        estValue: p.estValue,
+        estEquity: p.estEquity,
+      }))
+    }
+
+    // Check if data actually changed
+    const currentDataString = JSON.stringify(payload)
+    if (currentDataString === lastSavedDataRef.current) {
+      return // No changes, skip save
+    }
+
+    setSaveStatus('saving')
+    try {
+      const res = await fetch(`/api/contacts/${currentContact.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (res.ok) {
+        const updated = await res.json()
+        setCurrentContact(updated)
+        lastSavedDataRef.current = currentDataString
+        setSaveStatus('saved')
+        setHasChanges(false)
+        // Reset to idle after 2 seconds
+        setTimeout(() => setSaveStatus('idle'), 2000)
+      } else {
+        setSaveStatus('error')
+      }
+    } catch (error) {
+      console.error('Auto-save failed:', error)
+      setSaveStatus('error')
+    }
+  }, [currentContact, firstName, lastName, phones, emails, properties, selectedTags, dealStatus])
+
+  // Trigger auto-save when changes are made (debounced)
+  const markChanged = useCallback(() => {
+    setHasChanges(true)
+
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    // Set new timeout for auto-save (800ms debounce)
+    saveTimeoutRef.current = setTimeout(() => {
+      performAutoSave()
+    }, 800)
+  }, [performAutoSave])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Save pending changes when panel closes
+  useEffect(() => {
+    if (!open && hasChanges) {
+      performAutoSave()
+    }
+  }, [open, hasChanges, performAutoSave])
+
+  // Handle call using Telnyx WebRTC
+  const handleCall = async (phone: string) => {
+    if (!currentContact) return
+
+    if (!selectedTelnyxNumber) {
+      toast.error('No phone number available for calling. Please configure Telnyx numbers.')
+      return
+    }
+
+    try {
+      const toNumber = formatPhoneNumberForTelnyx(phone)
+      if (!toNumber) {
+        toast.error('Invalid phone number')
+        return
+      }
+
+      // Start WebRTC call
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      await rtcClient.ensureRegistered()
+      const { sessionId } = await rtcClient.startCall({
+        toNumber,
+        fromNumber: selectedTelnyxNumber.phoneNumber
+      })
+
+      // Log the call to database
+      fetch('/api/telnyx/webrtc-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webrtcSessionId: sessionId,
+          contactId: currentContact.id,
+          fromNumber: selectedTelnyxNumber.phoneNumber,
+          toNumber,
+        })
+      }).catch(err => console.error('Failed to log call:', err))
+
+      // Open call UI
+      openCall({
+        contact: {
+          id: currentContact.id,
+          firstName: currentContact.firstName,
+          lastName: currentContact.lastName
+        },
+        fromNumber: selectedTelnyxNumber.phoneNumber,
+        toNumber,
+        mode: 'webrtc',
+        webrtcSessionId: sessionId,
+      })
+
+      toast.success(`Calling ${currentContact.firstName} ${currentContact.lastName}`)
+    } catch (error) {
+      console.error('Failed to make call:', error)
+      toast.error('Failed to initiate call. Please try again.')
+    }
   }
 
   const handleText = (phone: string) => {
@@ -97,26 +449,84 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     })
   }
 
-  // Refresh contact data when edit dialog closes
-  const handleEditDialogChange = async (open: boolean) => {
-    setShowEditDialog(open)
-    if (!open && currentContact) {
-      // Refresh contact data after edit
-      try {
-        const res = await fetch(`/api/contacts/${currentContact.id}`)
-        if (res.ok) {
-          const updated = await res.json()
-          setCurrentContact(updated)
-        }
-      } catch (error) {
-        console.error('Failed to refresh contact:', error)
+  // Task completion handler
+  const handleTaskComplete = async (taskId: string, completed: boolean) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: completed ? 'completed' : 'open' }),
+      })
+
+      if (res.ok) {
+        // Update local state
+        setTasks(prev => prev.map(t =>
+          t.id === taskId ? { ...t, status: completed ? 'completed' : 'open' } : t
+        ))
+        toast.success(completed ? 'Task completed!' : 'Task reopened')
+      } else {
+        toast.error('Failed to update task')
       }
+    } catch (error) {
+      console.error('Failed to update task:', error)
+      toast.error('Failed to update task')
     }
+  }
+
+  // Start editing a task
+  const startEditingTask = (task: Task) => {
+    setEditingTaskId(task.id)
+    setEditingTaskData({
+      subject: task.subject,
+      description: task.description,
+      dueDate: task.dueDate,
+      priority: task.priority,
+    })
+  }
+
+  // Cancel task editing
+  const cancelEditingTask = () => {
+    setEditingTaskId(null)
+    setEditingTaskData({})
+  }
+
+  // Save task edits
+  const saveTaskEdit = async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingTaskData),
+      })
+
+      if (res.ok) {
+        // Update local state
+        setTasks(prev => prev.map(t =>
+          t.id === taskId ? { ...t, ...editingTaskData } : t
+        ))
+        setEditingTaskId(null)
+        setEditingTaskData({})
+        toast.success('Task updated')
+      } else {
+        toast.error('Failed to update task')
+      }
+    } catch (error) {
+      console.error('Failed to update task:', error)
+      toast.error('Failed to update task')
+    }
+  }
+
+  // Open task creation dialog
+  const handleCreateTask = () => {
+    if (!currentContact) return
+    openTask({
+      contact: currentContact,
+      contactId: currentContact.id,
+    })
   }
 
   const loadActivities = async () => {
     if (!contact?.id) return
-
     setLoading(true)
     try {
       const response = await fetch(`/api/activities?contactId=${contact.id}`)
@@ -133,7 +543,6 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
 
   const loadTasks = async () => {
     if (!contact?.id) return
-
     setLoadingTasks(true)
     try {
       const response = await fetch(`/api/tasks?contactId=${contact.id}`)
@@ -148,64 +557,150 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     }
   }
 
+  const loadDeals = async () => {
+    if (!contact?.id) return
+    setLoadingDeals(true)
+    try {
+      const response = await fetch(`/api/deals?contactId=${contact.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setDeals(data.deals || [])
+      }
+    } catch (error) {
+      console.error('Failed to load deals:', error)
+    } finally {
+      setLoadingDeals(false)
+    }
+  }
+
+  // Phone management
+  const addPhone = () => {
+    if (phones.length < 3) {
+      setPhones([...phones, ""])
+      markChanged()
+    }
+  }
+  const removePhone = (idx: number) => {
+    if (phones.length > 1) {
+      setPhones(phones.filter((_, i) => i !== idx))
+      markChanged()
+    }
+  }
+  const updatePhone = (idx: number, value: string) => {
+    const newPhones = [...phones]
+    newPhones[idx] = value
+    setPhones(newPhones)
+    markChanged()
+  }
+
+  // Email management
+  const addEmail = () => {
+    if (emails.length < 3) {
+      setEmails([...emails, ""])
+      markChanged()
+    }
+  }
+  const removeEmail = (idx: number) => {
+    if (emails.length > 1) {
+      setEmails(emails.filter((_, i) => i !== idx))
+      markChanged()
+    }
+  }
+  const updateEmail = (idx: number, value: string) => {
+    const newEmails = [...emails]
+    newEmails[idx] = value
+    setEmails(newEmails)
+    markChanged()
+  }
+
+  // Property management
+  const addProperty = () => {
+    setProperties([...properties, { address: "", city: "", state: "", zipCode: "", llcName: "", propertyType: "" }])
+    markChanged()
+  }
+  const removeProperty = (idx: number) => {
+    if (properties.length > 1) {
+      setProperties(properties.filter((_, i) => i !== idx))
+      markChanged()
+    }
+  }
+  const updateProperty = (idx: number, field: keyof Property, value: any) => {
+    const newProps = [...properties]
+    ;(newProps[idx] as any)[field] = value
+    setProperties(newProps)
+    markChanged()
+  }
+
   if (!open || !contact) return null
+
+  // Split tasks into open and completed
+  const openTasks = tasks.filter(t => t.status !== 'completed')
+  const completedTasks = tasks.filter(t => t.status === 'completed')
 
   const getActivityIcon = (type: string) => {
     switch (type) {
       case 'call': return <PhoneCall className="h-4 w-4 text-blue-500" />
-      case 'email': return <Mail className="h-4 w-4 text-green-500" />
-      case 'meeting': return <Calendar className="h-4 w-4 text-purple-500" />
+      case 'sms': case 'text': return <MessageSquare className="h-4 w-4 text-green-500" />
+      case 'email': return <Mail className="h-4 w-4 text-purple-500" />
       case 'task': return <CheckSquare className="h-4 w-4 text-orange-500" />
-      case 'note': return <FileText className="h-4 w-4 text-gray-500" />
-      default: return <MessageSquare className="h-4 w-4 text-gray-400" />
-    }
-  }
-
-  const getActivityColor = (type: string) => {
-    switch (type) {
-      case 'call': return 'bg-blue-50 border-blue-200'
-      case 'email': return 'bg-green-50 border-green-200'
-      case 'meeting': return 'bg-purple-50 border-purple-200'
-      case 'task': return 'bg-orange-50 border-orange-200'
-      case 'note': return 'bg-gray-50 border-gray-200'
-      default: return 'bg-gray-50 border-gray-200'
+      default: return <FileText className="h-4 w-4 text-gray-400" />
     }
   }
 
   return (
     <>
       {/* Overlay */}
-      <div 
+      <div
         className="fixed inset-0 bg-black/20 z-40 transition-opacity"
         onClick={onClose}
       />
-      
+
       {/* Side Panel */}
-      <div className="fixed right-0 top-0 h-full w-[600px] bg-white shadow-2xl z-50 flex flex-col">
+      <div className="fixed right-0 top-0 h-full w-[500px] bg-white shadow-2xl z-50 flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-primary/5 to-primary/10">
-          <div className="flex items-center gap-3">
-            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <User className="h-6 w-6 text-primary" />
+        <div className="flex items-center justify-between p-3 border-b bg-gradient-to-r from-primary/5 to-primary/10">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <User className="h-5 w-5 text-primary" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-gray-900">
-                {`${currentContact?.firstName || ''} ${currentContact?.lastName || ''}`.trim()}
-              </h2>
-              {currentContact?.llcName && (
-                <p className="text-sm text-gray-600 flex items-center gap-1">
-                  <Building2 className="h-3 w-3" />
-                  {currentContact.llcName}
-                </p>
-              )}
+            <div className="flex gap-2 flex-1">
+              <Input
+                value={firstName}
+                onChange={(e) => { setFirstName(e.target.value); markChanged() }}
+                placeholder="First Name"
+                className="h-8 text-base font-semibold bg-white/50"
+              />
+              <Input
+                value={lastName}
+                onChange={(e) => { setLastName(e.target.value); markChanged() }}
+                placeholder="Last Name"
+                className="h-8 text-base font-semibold bg-white/50"
+              />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowEditDialog(true)} className="flex items-center gap-1">
-              <Edit className="h-4 w-4" />
-              Edit
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+          <div className="flex items-center gap-2 ml-2">
+            {/* Auto-save status indicator */}
+            <div className="flex items-center gap-1.5 text-xs">
+              {saveStatus === 'saving' && (
+                <span className="flex items-center gap-1 text-gray-500">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Saving...
+                </span>
+              )}
+              {saveStatus === 'saved' && (
+                <span className="flex items-center gap-1 text-green-600">
+                  <Cloud className="h-3 w-3" />
+                  Saved
+                </span>
+              )}
+              {saveStatus === 'error' && (
+                <span className="flex items-center gap-1 text-red-600 cursor-pointer" onClick={performAutoSave}>
+                  <CloudOff className="h-3 w-3" />
+                  Error - Retry
+                </span>
+              )}
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
               <X className="h-5 w-5" />
             </Button>
           </div>
@@ -213,293 +708,394 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
 
         {/* Content */}
         <ScrollArea className="flex-1">
-          <div className="p-4 space-y-4">
-            {/* Contact Information Card */}
+          <div className="p-3 space-y-3">
+            {/* Contact Information - Phones & Emails */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Contact Information
+              <CardHeader className="pb-2 pt-3 px-3">
+                <CardTitle className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                  <Phone className="h-3.5 w-3.5" />
+                  Contact Info
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {currentContact?.phone1 && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-blue-500" />
-                      <span className="text-gray-700">{formatPhoneNumberForDisplay(currentContact.phone1)}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 hover:bg-blue-50"
-                        onClick={() => handleCall(currentContact.phone1!)}
-                        title="Call"
-                      >
-                        <Phone className="h-3.5 w-3.5 text-blue-600" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 hover:bg-green-50"
-                        onClick={() => handleText(currentContact.phone1!)}
-                        title="Text"
-                      >
-                        <MessageSquare className="h-3.5 w-3.5 text-green-600" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                {currentContact?.phone2 && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-gray-400" />
-                      <span className="text-gray-600 text-xs">{formatPhoneNumberForDisplay(currentContact.phone2)}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 hover:bg-blue-50"
-                        onClick={() => handleCall(currentContact.phone2!)}
-                        title="Call"
-                      >
-                        <Phone className="h-3 w-3 text-blue-600" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 w-6 p-0 hover:bg-green-50"
-                        onClick={() => handleText(currentContact.phone2!)}
-                        title="Text"
-                      >
-                        <MessageSquare className="h-3 w-3 text-green-600" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-                {currentContact?.email1 && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-purple-500" />
-                      <span className="text-gray-700 truncate max-w-[200px]">{currentContact.email1}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 hover:bg-purple-50"
-                      onClick={() => handleEmail(currentContact.email1!)}
-                      title="Send Email"
-                    >
-                      <Mail className="h-3.5 w-3.5 text-purple-600" />
-                    </Button>
-                  </div>
-                )}
-                {currentContact?.propertyAddress && (
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-gray-400 mt-0.5" />
-                    <div>
-                      <p className="text-gray-700">{currentContact.propertyAddress}</p>
-                      {(currentContact.city || currentContact.state || currentContact.zipCode) && (
-                        <p className="text-gray-600 text-xs">
-                          {[currentContact.city, currentContact.state, currentContact.zipCode].filter(Boolean).join(', ')}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Property Details Card */}
-            {(currentContact?.propertyType || currentContact?.bedrooms || currentContact?.totalBathrooms || currentContact?.buildingSqft) && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
-                    Property Details
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                  {currentContact?.propertyType && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Type</span>
-                      <p className="font-medium">{currentContact.propertyType}</p>
-                    </div>
-                  )}
-                  {currentContact?.bedrooms && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Bedrooms</span>
-                      <p className="font-medium">{currentContact.bedrooms}</p>
-                    </div>
-                  )}
-                  {currentContact?.totalBathrooms && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Bathrooms</span>
-                      <p className="font-medium">{currentContact.totalBathrooms}</p>
-                    </div>
-                  )}
-                  {currentContact?.buildingSqft && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Sq Ft</span>
-                      <p className="font-medium">{currentContact.buildingSqft.toLocaleString()}</p>
-                    </div>
-                  )}
-                  {currentContact?.effectiveYearBuilt && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Year Built</span>
-                      <p className="font-medium">{currentContact.effectiveYearBuilt}</p>
-                    </div>
-                  )}
-                  {currentContact?.estValue && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Est. Value</span>
-                      <p className="font-medium text-green-600">${currentContact.estValue.toLocaleString()}</p>
-                    </div>
-                  )}
-                  {currentContact?.estEquity && (
-                    <div>
-                      <span className="text-gray-500 text-xs">Est. Equity</span>
-                      <p className="font-medium text-blue-600">${currentContact.estEquity.toLocaleString()}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Multiple Properties Section */}
-            {currentContact?.properties && currentContact.properties.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Building2 className="h-4 w-4 text-green-600" />
-                    Properties Owned ({currentContact.properties.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {currentContact.properties.map((prop: any, idx: number) => (
-                    <div
-                      key={prop.id || idx}
-                      className="p-2 rounded-lg border border-gray-200 bg-gray-50 text-sm"
-                    >
-                      <p className="font-medium text-gray-900">{prop.address || '—'}</p>
-                      <p className="text-xs text-gray-600">
-                        {[prop.city, prop.state].filter(Boolean).join(', ') || '—'}
-                      </p>
-                      {prop.llcName && (
-                        <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />
-                          {prop.llcName}
-                        </p>
-                      )}
-                      <div className="flex gap-2 mt-1 text-xs text-gray-500">
-                        {prop.bedrooms && <span>{prop.bedrooms} bed</span>}
-                        {prop.totalBathrooms && <span>• {prop.totalBathrooms} bath</span>}
-                        {prop.propertyType && <span>• {prop.propertyType}</span>}
+              <CardContent className="px-3 pb-3 space-y-2">
+                {/* Phones */}
+                {phones.map((phone, idx) => (
+                  <div key={`phone-${idx}`} className="flex items-center gap-2">
+                    <Input
+                      value={phone}
+                      onChange={(e) => updatePhone(idx, e.target.value)}
+                      placeholder={`Phone ${idx + 1}`}
+                      type="tel"
+                      className="h-8 text-sm flex-1"
+                    />
+                    {phone && (
+                      <div className="flex items-center gap-0.5">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-blue-50" onClick={() => handleCall(phone)} title="Call">
+                          <Phone className="h-3.5 w-3.5 text-blue-600" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-green-50" onClick={() => handleText(phone)} title="Text">
+                          <MessageSquare className="h-3.5 w-3.5 text-green-600" />
+                        </Button>
                       </div>
-                      {prop.estValue && (
-                        <p className="text-xs text-green-600 font-medium mt-1">
-                          ${prop.estValue.toLocaleString()}
-                          {prop.estEquity && (
-                            <span className="text-gray-500 ml-1">
-                              (Equity: ${prop.estEquity.toLocaleString()})
-                            </span>
-                          )}
-                        </p>
+                    )}
+                    {phones.length > 1 && (
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-red-50" onClick={() => removePhone(idx)}>
+                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                {phones.length < 3 && (
+                  <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600 hover:text-blue-700 p-0" onClick={addPhone}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Phone
+                  </Button>
+                )}
+
+                {/* Emails */}
+                <div className="border-t pt-2 mt-2">
+                  {emails.map((email, idx) => (
+                    <div key={`email-${idx}`} className="flex items-center gap-2 mb-2">
+                      <Input
+                        value={email}
+                        onChange={(e) => updateEmail(idx, e.target.value)}
+                        placeholder={`Email ${idx + 1}`}
+                        type="email"
+                        className="h-8 text-sm flex-1"
+                      />
+                      {email && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-purple-50" onClick={() => handleEmail(email)} title="Send Email">
+                          <Mail className="h-3.5 w-3.5 text-purple-600" />
+                        </Button>
+                      )}
+                      {emails.length > 1 && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-red-50" onClick={() => removeEmail(idx)}>
+                          <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                        </Button>
                       )}
                     </div>
                   ))}
-                </CardContent>
-              </Card>
-            )}
+                  {emails.length < 3 && (
+                    <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600 hover:text-blue-700 p-0" onClick={addEmail}>
+                      <Plus className="h-3 w-3 mr-1" /> Add Email
+                    </Button>
+                  )}
+                </div>
 
-            {/* Tags */}
-            {currentContact?.tags && currentContact.tags.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Tag className="h-4 w-4" />
-                    Tags
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {currentContact.tags.map((tag: any) => (
-                      <Badge
-                        key={tag.id}
-                        variant="outline"
-                        style={{
-                          backgroundColor: `${tag.color}20`,
-                          borderColor: tag.color,
-                          color: tag.color
-                        }}
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                {/* Deal Status */}
+                <div className="border-t pt-2 mt-2">
+                  <Label className="text-xs text-gray-500">Deal Status</Label>
+                  <Select value={dealStatus} onValueChange={(v) => { setDealStatus(v); markChanged() }}>
+                    <SelectTrigger className="h-8 text-sm mt-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lead">Lead</SelectItem>
+                      <SelectItem value="credit_run">Credit Run</SelectItem>
+                      <SelectItem value="document_collection">Document Collection</SelectItem>
+                      <SelectItem value="processing">Processing</SelectItem>
+                      <SelectItem value="underwriting">Underwriting</SelectItem>
+                      <SelectItem value="closing">Closing</SelectItem>
+                      <SelectItem value="funded">Funded</SelectItem>
+                      <SelectItem value="lost">Lost</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
 
-            {/* Tasks Section */}
+            {/* Properties Section - Numbered */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4" />
-                  Tasks
+              <CardHeader className="pb-2 pt-3 px-3">
+                <CardTitle className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-3.5 w-3.5" />
+                    Properties ({properties.length})
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600 hover:text-blue-700 p-0" onClick={addProperty}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Property
+                  </Button>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-3 pb-3 space-y-3">
+                {properties.map((prop, idx) => (
+                  <div key={idx} className="p-2.5 rounded-lg border border-gray-200 bg-gray-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-blue-600">Property {idx + 1}</span>
+                      {properties.length > 1 && (
+                        <Button variant="ghost" size="sm" className="h-5 w-5 p-0 hover:bg-red-50" onClick={() => removeProperty(idx)}>
+                          <Trash2 className="h-3 w-3 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                    <Input
+                      value={prop.address}
+                      onChange={(e) => updateProperty(idx, 'address', e.target.value)}
+                      placeholder="Address"
+                      className="h-7 text-sm"
+                    />
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Input
+                        value={prop.city}
+                        onChange={(e) => updateProperty(idx, 'city', e.target.value)}
+                        placeholder="City"
+                        className="h-7 text-xs"
+                      />
+                      <Input
+                        value={prop.state}
+                        onChange={(e) => updateProperty(idx, 'state', e.target.value)}
+                        placeholder="State"
+                        className="h-7 text-xs"
+                      />
+                      <Input
+                        value={prop.zipCode}
+                        onChange={(e) => updateProperty(idx, 'zipCode', e.target.value)}
+                        placeholder="Zip"
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <Input
+                      value={prop.llcName}
+                      onChange={(e) => updateProperty(idx, 'llcName', e.target.value)}
+                      placeholder="LLC Name (optional)"
+                      className="h-7 text-sm"
+                    />
+                    {/* Property Type - display friendly label */}
+                    <Select
+                      value={prop.propertyType || ''}
+                      onValueChange={(v) => updateProperty(idx, 'propertyType', v)}
+                    >
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue placeholder="Property Type">
+                          {prop.propertyType || "Property Type"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Single-family">Single-family</SelectItem>
+                        <SelectItem value="Duplex">Duplex</SelectItem>
+                        <SelectItem value="Triplex">Triplex</SelectItem>
+                        <SelectItem value="Quadplex">Quadplex</SelectItem>
+                        <SelectItem value="Multifamily">Multifamily (5+)</SelectItem>
+                        <SelectItem value="Townhouse">Townhouse</SelectItem>
+                        <SelectItem value="Condo">Condo</SelectItem>
+                        <SelectItem value="Mobile Home">Mobile Home</SelectItem>
+                        <SelectItem value="Land">Land</SelectItem>
+                        <SelectItem value="Commercial">Commercial</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {/* Beds, Baths, Sqft */}
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Beds</Label>
+                        <Input
+                          type="number"
+                          value={prop.bedrooms || ''}
+                          onChange={(e) => updateProperty(idx, 'bedrooms', e.target.value ? parseInt(e.target.value) : undefined)}
+                          placeholder="—"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Baths</Label>
+                        <Input
+                          type="number"
+                          value={prop.totalBathrooms || ''}
+                          onChange={(e) => updateProperty(idx, 'totalBathrooms', e.target.value ? parseInt(e.target.value) : undefined)}
+                          placeholder="—"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Sqft</Label>
+                        <Input
+                          type="number"
+                          value={prop.buildingSqft || ''}
+                          onChange={(e) => updateProperty(idx, 'buildingSqft', e.target.value ? parseInt(e.target.value) : undefined)}
+                          placeholder="—"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    </div>
+                    {/* Value & Equity */}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Est. Value</Label>
+                        <Input
+                          type="number"
+                          value={prop.estValue || ''}
+                          onChange={(e) => updateProperty(idx, 'estValue', e.target.value ? parseInt(e.target.value) : undefined)}
+                          placeholder="$"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Est. Equity</Label>
+                        <Input
+                          type="number"
+                          value={prop.estEquity || ''}
+                          onChange={(e) => updateProperty(idx, 'estEquity', e.target.value ? parseInt(e.target.value) : undefined)}
+                          placeholder="$"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    </div>
+                    {/* Last Sale Date & Amount - collapsed/less prominent */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-gray-100">
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Last Sale Date</Label>
+                        <Input
+                          type="date"
+                          value={prop.lastSaleDate ? prop.lastSaleDate.split('T')[0] : ''}
+                          onChange={(e) => updateProperty(idx, 'lastSaleDate', e.target.value || undefined)}
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-gray-400">Last Sale Amt</Label>
+                        <Input
+                          type="number"
+                          value={prop.lastSaleAmount || ''}
+                          onChange={(e) => updateProperty(idx, 'lastSaleAmount', e.target.value ? parseInt(e.target.value) : undefined)}
+                          placeholder="$"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* Tags */}
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-3">
+                <CardTitle className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                  <Tag className="h-3.5 w-3.5" />
+                  Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 pb-3">
+                <TagInput
+                  value={selectedTags}
+                  onChange={(tags) => { setSelectedTags(tags); markChanged() }}
+                  contactId={currentContact?.id}
+                  placeholder="Add tags..."
+                  showSuggestions={true}
+                  allowCreate={true}
+                />
+              </CardContent>
+            </Card>
+
+            {/* Open Tasks Section */}
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-3">
+                <CardTitle className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckSquare className="h-3.5 w-3.5" />
+                    Open Tasks ({openTasks.length})
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-6 text-xs text-blue-600 hover:text-blue-700 p-0" onClick={handleCreateTask}>
+                    <Plus className="h-3 w-3 mr-1" /> Add Task
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 pb-3">
                 {loadingTasks ? (
-                  <div className="text-center py-4 text-gray-500 text-sm">Loading tasks...</div>
-                ) : tasks.length === 0 ? (
-                  <div className="text-center py-4 text-gray-500 text-sm">No tasks assigned</div>
+                  <div className="text-center py-3 text-gray-500 text-xs">Loading...</div>
+                ) : openTasks.length === 0 ? (
+                  <div className="text-center py-3 text-gray-400 text-xs">No open tasks</div>
                 ) : (
-                  <div className="space-y-2">
-                    {tasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className={`p-2 rounded-lg border text-sm ${
-                          task.status === 'completed' ? 'bg-green-50 border-green-200' :
-                          task.status === 'open' ? 'bg-blue-50 border-blue-200' :
-                          'bg-gray-50 border-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-gray-900 truncate">{task.subject}</div>
-                            {task.description && (
-                              <p className="text-xs text-gray-600 mt-0.5 line-clamp-1">{task.description}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {task.priority && (
-                              <Badge
-                                variant="outline"
-                                className={`text-xs ${
-                                  task.priority === 'high' ? 'border-red-500 text-red-600' :
-                                  task.priority === 'medium' ? 'border-orange-500 text-orange-600' :
-                                  'border-gray-300 text-gray-600'
-                                }`}
+                  <div className="space-y-1.5">
+                    {openTasks.map((task) => (
+                      <div key={task.id} className="p-2 rounded border border-blue-100 bg-blue-50/50 text-sm">
+                        {editingTaskId === task.id ? (
+                          // Editing mode
+                          <div className="space-y-2">
+                            <Input
+                              value={editingTaskData.subject || ''}
+                              onChange={(e) => setEditingTaskData(prev => ({ ...prev, subject: e.target.value }))}
+                              placeholder="Task subject"
+                              className="h-7 text-sm"
+                            />
+                            <Input
+                              value={editingTaskData.description || ''}
+                              onChange={(e) => setEditingTaskData(prev => ({ ...prev, description: e.target.value }))}
+                              placeholder="Description (optional)"
+                              className="h-7 text-xs"
+                            />
+                            <div className="flex gap-2">
+                              <Input
+                                type="date"
+                                value={editingTaskData.dueDate ? editingTaskData.dueDate.split('T')[0] : ''}
+                                onChange={(e) => setEditingTaskData(prev => ({ ...prev, dueDate: e.target.value }))}
+                                className="h-7 text-xs flex-1"
+                              />
+                              <Select
+                                value={editingTaskData.priority || 'low'}
+                                onValueChange={(v) => setEditingTaskData(prev => ({ ...prev, priority: v }))}
                               >
-                                {task.priority}
-                              </Badge>
+                                <SelectTrigger className="h-7 text-xs w-24">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="low">Low</SelectItem>
+                                  <SelectItem value="medium">Medium</SelectItem>
+                                  <SelectItem value="high">High</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex gap-1 justify-end">
+                              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={cancelEditingTask}>
+                                Cancel
+                              </Button>
+                              <Button size="sm" className="h-6 text-xs" onClick={() => saveTaskEdit(task.id)}>
+                                Save
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          // Display mode
+                          <>
+                            <div className="flex items-start gap-2">
+                              <Checkbox
+                                checked={false}
+                                onCheckedChange={(checked) => handleTaskComplete(task.id, !!checked)}
+                                className="mt-0.5 h-4 w-4"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-gray-900 truncate text-sm">{task.subject}</div>
+                                {task.description && (
+                                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{task.description}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] px-1.5 py-0 ${
+                                    task.priority === 'high' ? 'border-red-400 text-red-600 bg-red-50' :
+                                    task.priority === 'medium' ? 'border-yellow-400 text-yellow-700 bg-yellow-50' :
+                                    'border-gray-300 text-gray-500'
+                                  }`}
+                                >
+                                  {task.priority || 'low'}
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 hover:bg-blue-100"
+                                  onClick={() => startEditingTask(task)}
+                                >
+                                  <Edit2 className="h-3 w-3 text-blue-600" />
+                                </Button>
+                              </div>
+                            </div>
+                            {task.dueDate && (
+                              <div className="flex items-center gap-1 mt-1 text-xs text-gray-500 ml-6">
+                                <Calendar className="h-3 w-3" />
+                                {format(new Date(task.dueDate), 'MMM d, yyyy')}
+                              </div>
                             )}
-                            <Badge
-                              variant={task.status === 'completed' ? 'default' : 'secondary'}
-                              className="text-xs"
-                            >
-                              {task.status}
-                            </Badge>
-                          </div>
-                        </div>
-                        {task.dueDate && (
-                          <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
-                            <Calendar className="h-3 w-3" />
-                            {format(new Date(task.dueDate), 'MMM d, yyyy')}
-                          </div>
+                          </>
                         )}
                       </div>
                     ))}
@@ -508,101 +1104,140 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
               </CardContent>
             </Card>
 
-            {/* Activity History */}
+            {/* Sequences Section */}
+            {currentContact?.id && (
+              <ContactSequences contactId={currentContact.id} />
+            )}
+
+            {/* Deals Section */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  Activity History
+              <CardHeader className="pb-2 pt-3 px-3">
+                <CardTitle className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                  <FileText className="h-3.5 w-3.5" />
+                  Deals ({deals.length})
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                {loading ? (
-                  <div className="text-center py-8 text-gray-500">Loading activities...</div>
-                ) : activities.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">No activities yet</div>
+              <CardContent className="px-3 pb-3">
+                {loadingDeals ? (
+                  <div className="text-center py-3 text-gray-500 text-xs">Loading...</div>
+                ) : deals.length === 0 ? (
+                  <div className="text-center py-3 text-gray-400 text-xs">No deals yet</div>
                 ) : (
-                  <div className="space-y-3">
-                    {activities.map((activity) => (
-                      <div
-                        key={activity.id}
-                        className={`p-3 rounded-lg border ${getActivityColor(activity.type)}`}
+                  <div className="space-y-1.5">
+                    {deals.map((deal) => (
+                      <Link
+                        key={deal.id}
+                        href={deal.isLoanDeal ? `/loan-copilot/${deal.id}` : `/deals?dealId=${deal.id}`}
+                        className="block p-2 rounded border border-gray-200 bg-white hover:bg-gray-50 hover:border-blue-300 transition-colors"
                       >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5">{getActivityIcon(activity.type)}</div>
+                        <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 className="font-medium text-sm text-gray-900">{activity.title}</h4>
-                              <Badge variant="outline" className="text-xs shrink-0">
-                                {activity.type}
-                              </Badge>
-                            </div>
-                            {activity.description && (
-                              <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                                {activity.description}
-                              </p>
+                            <div className="font-medium text-gray-900 truncate text-sm">{deal.title}</div>
+                            {deal.propertyAddress && (
+                              <p className="text-xs text-gray-500 mt-0.5 truncate">{deal.propertyAddress}</p>
                             )}
-                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                              {activity.dueDate && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {format(new Date(activity.dueDate), 'MMM d, yyyy')}
-                                </span>
-                              )}
-                              <Badge
-                                variant={activity.status === 'completed' ? 'default' : 'secondary'}
-                                className="text-xs"
-                              >
-                                {activity.status}
-                              </Badge>
-                              {activity.priority && (
-                                <Badge
-                                  variant="outline"
-                                  className={`text-xs ${
-                                    activity.priority === 'urgent' ? 'border-red-500 text-red-600' :
-                                    activity.priority === 'high' ? 'border-orange-500 text-orange-600' :
-                                    'border-gray-300 text-gray-600'
-                                  }`}
-                                >
-                                  {activity.priority}
-                                </Badge>
-                              )}
-                            </div>
+                            {deal.lenderName && (
+                              <p className="text-xs text-gray-400 mt-0.5">Lender: {deal.lenderName}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-1">
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] px-1.5 py-0"
+                              style={{
+                                backgroundColor: deal.stageColor ? `${deal.stageColor}20` : undefined,
+                                borderColor: deal.stageColor || undefined,
+                                color: deal.stageColor || undefined,
+                              }}
+                            >
+                              {deal.stageLabel || deal.stage}
+                            </Badge>
+                            <span className="text-xs font-medium text-green-600">
+                              ${deal.value?.toLocaleString() || 0}
+                            </span>
                           </div>
                         </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            {/* Notes Section */}
-            {currentContact?.notes && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Notes
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{currentContact.notes}</p>
+            {/* Activity History - Collapsible */}
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-3">
+                <CardTitle
+                  className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center justify-between cursor-pointer"
+                  onClick={() => setShowActivityHistory(!showActivityHistory)}
+                >
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-3.5 w-3.5" />
+                    Activity History ({activities.length + completedTasks.length})
+                  </div>
+                  {showActivityHistory ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </CardTitle>
+              </CardHeader>
+              {showActivityHistory && (
+                <CardContent className="px-3 pb-3">
+                  {loading ? (
+                    <div className="text-center py-3 text-gray-500 text-xs">Loading...</div>
+                  ) : (activities.length === 0 && completedTasks.length === 0) ? (
+                    <div className="text-center py-3 text-gray-400 text-xs">No activity yet</div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                      {/* Combine activities and completed tasks, sort by date */}
+                      {[
+                        ...activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: new Date(a.createdAt || a.dueDate || 0) })),
+                        ...completedTasks.map(t => ({
+                          id: t.id,
+                          title: t.subject,
+                          description: t.description,
+                          type: 'task',
+                          itemType: 'completedTask' as const,
+                          sortDate: new Date(t.dueDate || 0)
+                        }))
+                      ]
+                        .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+                        .map((item) => (
+                          <div key={item.id} className="p-2 rounded border border-gray-100 bg-gray-50/50 text-sm">
+                            <div className="flex items-start gap-2">
+                              {item.itemType === 'completedTask' ? (
+                                <Checkbox
+                                  checked={true}
+                                  onCheckedChange={(checked) => handleTaskComplete(item.id, !!checked)}
+                                  className="mt-0.5 h-4 w-4"
+                                />
+                              ) : (
+                                <div className="mt-0.5">{getActivityIcon(item.type)}</div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className={`font-medium text-sm truncate ${item.itemType === 'completedTask' ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
+                                    {item.title}
+                                  </span>
+                                  <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${item.itemType === 'completedTask' ? 'text-green-600 border-green-300 bg-green-50' : 'text-gray-500'}`}>
+                                    {item.itemType === 'completedTask' ? 'completed' : item.type}
+                                  </Badge>
+                                </div>
+                                {item.description && (
+                                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.description}</p>
+                                )}
+                                <div className="text-[10px] text-gray-400 mt-1">
+                                  {format(item.sortDate, 'MMM d, yyyy h:mm a')}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </CardContent>
-              </Card>
-            )}
+              )}
+            </Card>
           </div>
         </ScrollArea>
       </div>
-
-      {/* Edit Contact Dialog */}
-      {currentContact && (
-        <EditContactDialog
-          contact={currentContact}
-          open={showEditDialog}
-          onOpenChange={handleEditDialogChange}
-        />
-      )}
     </>
   )
 }

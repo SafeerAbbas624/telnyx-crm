@@ -15,6 +15,7 @@ import { Plus, X, Check, AlertCircle, Upload, FileText, ArrowRight, History, Dow
 import { toast } from 'sonner';
 import { Checkbox } from '@/components/ui/checkbox';
 import { normalizePropertyType } from '@/lib/property-type-mapper';
+import { findFieldMapping, normalizeHeader } from '@/lib/import/fieldMappings';
 
 type CSVRow = Record<string, string>;
 
@@ -26,6 +27,10 @@ type ImportHistoryRecord = {
   importedAt: string;
   totalRecords: number;
   imported: number;
+  newContacts: number;
+  existingContactsNewProperties: number;
+  noPhoneEnriched: number;
+  ambiguousMatches: number;
   duplicates: number;
   missingPhones: number;
   skipped: number;
@@ -295,108 +300,31 @@ export default function ImportV2Page() {
         isNewField: false
       }));
 
-      // Smart auto-mapping with custom rules (higher priority)
-      // Priority mappings - these get preference if multiple columns map to same field
-      // First item in array has highest priority
-      const priorityMappings: Record<string, string[]> = {
-        'llcName': ['LLC Name', 'Owner 1 Last Name'], // LLC Name has priority over Owner 1 Last Name
-        'firstName': ['First Name', 'Owner 1 First Name'], // First Name preferred over Owner 1 First Name
-        'fullName': ['Name (Formatted)', 'Full Name'], // Name (Formatted) preferred
-        'phone1': ['Contact Number', 'Phone'], // Contact Number preferred
-        'email1': ['Contact Email1', 'Email'], // Contact Email1 preferred
-      };
-
-      const columnMappingRules: Record<string, string> = {
-        // Property fields
-        'Address': 'propertyAddress',
-        'City': 'city',
-        'State': 'state',
-        'Zip': 'zipCode',
-        'County': 'propertyCounty',
-        'Property Type': 'propertyType',
-        'Bedrooms': 'bedrooms',
-        'Total Bathrooms': 'totalBathrooms',
-        'Building Sqft': 'buildingSqft',
-        'Lot Size Sqft': 'lotSizeSqft',
-        'Effective Year Built': 'effectiveYearBuilt',
-        'Last Sale Recording Date': 'lastSaleDate',
-        'Last Sale Amount': 'lastSaleAmount',
-        'Est. Remaining balance of Open Loans': 'estRemainingBalance',
-        'Est. Value': 'estValue',
-        'Est. Equity': 'estEquity',
-        // MLS fields
-        'MLS Status': 'mlsStatus',
-        'MLS Date': 'mlsDate',
-        'MLS Amount': 'mlsAmount',
-        'Lien Amount': 'lienAmount',
-        // Contact fields - PRIORITY: Use Name (Formatted) for fullName, NOT Owner fields
-        'LLC Name': 'llcName',
-        'Name (Formatted)': 'fullName',  // This is the correct name field!
-        'Contact Address (Street)': 'contactAddress',
-        'Contact Address (City, State)': 'contactCityState',
-        'Contact Number': 'phone1',
-        'Contact Email1': 'email1',
-        'Contact Email2': 'email2',
-        'Contact Email3': 'email3',
-        // Alternative column names commonly seen
-        'Phone': 'phone1',
-        'Email': 'email1',
-        'First Name': 'firstName',
-        'Last Name': 'lastName',
-        'Full Name': 'fullName',
-        // DO NOT map Owner fields - they contain LLC names, not person names
-      };
-
       // Track which fields have already been mapped (prevents duplicate mappings)
       const mappedFieldKeys = new Set<string>();
 
-      // For priority fields, check if the preferred column exists in CSV
-      for (const [fieldKey, preferredColumns] of Object.entries(priorityMappings)) {
-        for (const preferredColumn of preferredColumns) {
-          if (headers.includes(preferredColumn)) {
-            // This column exists, mark this field as reserved for it
-            mappedFieldKeys.add(`${fieldKey}:${preferredColumn}`);
-            break; // First match wins
-          }
-        }
-      }
-
-      // Auto-map columns
+      // Auto-map columns using centralized field mappings
       initialMappings.forEach(mapping => {
-        // First try custom mapping rules
-        const ruleFieldKey = columnMappingRules[mapping.csvColumn];
-        if (ruleFieldKey) {
-          // Check if this field is already mapped to another column (for priority fields)
-          const alreadyMapped = Array.from(mappedFieldKeys).some(key => {
-            const [fk, col] = key.split(':');
-            return fk === ruleFieldKey && col !== mapping.csvColumn;
-          });
+        // Use centralized auto-mapping from lib/import/fieldMappings.ts
+        const fieldKey = findFieldMapping(mapping.csvColumn);
 
-          if (alreadyMapped) {
-            // Skip this mapping - a higher priority column will map to this field
-            return;
-          }
-
-          // Check if this field is already mapped
-          if (mappedFieldKeys.has(ruleFieldKey)) {
-            return; // Skip - already mapped
-          }
-
-          const matchedField = fieldDefinitions.find(f => f.fieldKey === ruleFieldKey);
+        if (fieldKey && !mappedFieldKeys.has(fieldKey)) {
+          const matchedField = fieldDefinitions.find(f => f.fieldKey === fieldKey);
           if (matchedField) {
             mapping.fieldId = matchedField.id;
             mapping.fieldKey = matchedField.fieldKey;
             mapping.fieldName = matchedField.name;
             mapping.fieldType = matchedField.fieldType;
-            mappedFieldKeys.add(ruleFieldKey);
+            mappedFieldKeys.add(fieldKey);
             return;
           }
         }
 
-        // Then try exact name/key match
+        // Fallback: try exact name/key match (for custom fields)
+        const normalizedColumn = normalizeHeader(mapping.csvColumn);
         const matchedField = fieldDefinitions.find(
-          f => f.name.toLowerCase() === mapping.csvColumn.toLowerCase() ||
-               f.fieldKey.toLowerCase() === mapping.csvColumn.toLowerCase()
+          f => normalizeHeader(f.name) === normalizedColumn ||
+               normalizeHeader(f.fieldKey) === normalizedColumn
         );
         if (matchedField && !mappedFieldKeys.has(matchedField.fieldKey)) {
           mapping.fieldId = matchedField.id;
@@ -1285,26 +1213,40 @@ export default function ImportV2Page() {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                           <div>
                             <p className="text-xs text-muted-foreground">Total Rows</p>
                             <p className="text-lg font-semibold">{record.totalRecords}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Imported</p>
+                            <p className="text-xs text-muted-foreground">Total Imported</p>
                             <p className="text-lg font-semibold text-green-600">{record.imported}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">New Contacts</p>
+                            <p className="text-lg font-semibold text-blue-600">{record.newContacts || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">New Properties (via Phone)</p>
+                            <p className="text-lg font-semibold text-purple-600">{(record.existingContactsNewProperties || 0) - (record.noPhoneEnriched || 0)}</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Enriched (Name+City)</p>
+                            <p className="text-lg font-semibold text-teal-600">{record.noPhoneEnriched || 0}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Duplicates</p>
                             <p className="text-lg font-semibold text-yellow-600">{record.duplicates}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">No Phone</p>
+                            <p className="text-xs text-muted-foreground">No Phone (No Match)</p>
                             <p className="text-lg font-semibold text-orange-600">{record.missingPhones}</p>
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Other Skipped</p>
-                            <p className="text-lg font-semibold text-gray-600">{record.skipped}</p>
+                            <p className="text-xs text-muted-foreground">Ambiguous</p>
+                            <p className="text-lg font-semibold text-amber-600">{record.ambiguousMatches || 0}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">Errors</p>
@@ -1349,7 +1291,7 @@ export default function ImportV2Page() {
                   <h3 className="text-sm font-semibold text-muted-foreground mb-3">Protected Fields (Cannot be deleted)</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     {fieldDefinitions
-                      .filter(f => ['phone1', 'fullName', 'email1', 'firstName', 'lastName'].includes(f.fieldKey))
+                      .filter(f => ['phone1', 'fullName', 'email1', 'firstName', 'lastName', 'propertyAddress', 'city', 'state', 'zipCode', 'llcName'].includes(f.fieldKey))
                       .map(field => (
                         <div key={field.id} className="flex items-center gap-2 p-2 bg-muted rounded text-sm">
                           <Check className="h-4 w-4 text-green-500" />
@@ -1362,12 +1304,12 @@ export default function ImportV2Page() {
                 {/* All Other Fields Section */}
                 <div>
                   <h3 className="text-sm font-semibold text-muted-foreground mb-3">All Fields</h3>
-                  {fieldDefinitions.filter(f => !['phone1', 'fullName', 'email1', 'firstName', 'lastName'].includes(f.fieldKey)).length === 0 ? (
+                  {fieldDefinitions.filter(f => !['phone1', 'fullName', 'email1', 'firstName', 'lastName', 'propertyAddress', 'city', 'state', 'zipCode', 'llcName'].includes(f.fieldKey)).length === 0 ? (
                     <p className="text-muted-foreground text-center py-8">No additional fields. Create one during import or use the button below.</p>
                   ) : (
                     <div className="border rounded-lg divide-y">
                       {fieldDefinitions
-                        .filter(f => !['phone1', 'fullName', 'email1', 'firstName', 'lastName'].includes(f.fieldKey))
+                        .filter(f => !['phone1', 'fullName', 'email1', 'firstName', 'lastName', 'propertyAddress', 'city', 'state', 'zipCode', 'llcName'].includes(f.fieldKey))
                         .map(field => (
                           <div key={field.id} className="flex items-center justify-between p-3 hover:bg-muted/50">
                             <div className="flex items-center gap-3">

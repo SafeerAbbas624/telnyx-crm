@@ -245,8 +245,14 @@ export default function TeamConversations() {
             className: 'cursor-pointer',
             onClick: () => {
               if (contactId) {
-                try { localStorage.setItem('openConvContactId', contactId) } catch {}
-                try { window.location.assign('/team-dashboard') } catch {}
+                // Unified navigation - go to dashboard messaging section
+                try {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  url.searchParams.set('section', 'messaging')
+                  url.searchParams.set('contactId', contactId)
+                  window.location.assign(url.toString())
+                } catch {}
               }
             }
           })
@@ -270,8 +276,14 @@ export default function TeamConversations() {
             className: 'cursor-pointer',
             onClick: () => {
               if (contactId) {
-                try { localStorage.setItem('openEmailContactId', contactId) } catch {}
-                try { window.location.assign('/team-dashboard') } catch {}
+                // Unified navigation - go to dashboard email section
+                try {
+                  const url = new URL(window.location.href)
+                  url.pathname = '/dashboard'
+                  url.searchParams.set('section', 'email')
+                  url.searchParams.set('contactId', contactId)
+                  window.location.assign(url.toString())
+                } catch {}
               }
             }
           })

@@ -5,10 +5,17 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
-import { Phone, Mail, MessageSquare, UserPlus, Users2 } from "lucide-react"
+import { Phone, Mail, MessageSquare, UserPlus, Users2, Settings2 } from "lucide-react"
 import EditResourcesDialog from "./edit-resources-dialog"
 import AddTeamMemberDialog from "./add-team-member-dialog"
 import AssignContactsToTeamDialog from "./assign-contacts-to-team-dialog"
+import PhonePermissionsDialog from "./phone-permissions-dialog"
+
+interface TelnyxPhoneNumber {
+  id: string
+  phoneNumber: string
+  friendlyName?: string
+}
 
 interface TeamUser {
   id: string
@@ -23,6 +30,10 @@ interface TeamUser {
     emailAddress: string
     displayName: string
   }
+  defaultPhoneNumberId?: string
+  defaultPhoneNumber?: TelnyxPhoneNumber
+  allowedPhoneNumbers?: TelnyxPhoneNumber[]
+  allowedPhoneNumbersCount?: number
   assignedContactsCount: number
   createdAt: string
   lastLoginAt?: string
@@ -43,8 +54,10 @@ export default function TeamOverview() {
   const [showAddMemberDialog, setShowAddMemberDialog] = useState(false)
   const [showEditResourcesDialog, setShowEditResourcesDialog] = useState(false)
   const [showAssignContactsDialog, setShowAssignContactsDialog] = useState(false)
+  const [showPhonePermissionsDialog, setShowPhonePermissionsDialog] = useState(false)
   const [editingUser, setEditingUser] = useState<TeamUserWithStats | null>(null)
   const [assigningToUser, setAssigningToUser] = useState<TeamUserWithStats | null>(null)
+  const [phonePermissionsUser, setPhonePermissionsUser] = useState<TeamUserWithStats | null>(null)
 
   // Helper function to check if user is online
   // User is online if their last activity (heartbeat) was within last 5 minutes
@@ -166,6 +179,17 @@ export default function TeamOverview() {
     loadTeamOverview()
   }
 
+  const handlePhonePermissions = (user: TeamUserWithStats) => {
+    setPhonePermissionsUser(user)
+    setShowPhonePermissionsDialog(true)
+  }
+
+  const handlePhonePermissionsUpdated = () => {
+    setShowPhonePermissionsDialog(false)
+    setPhonePermissionsUser(null)
+    loadTeamOverview()
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -254,9 +278,12 @@ export default function TeamOverview() {
                       <div className="flex items-start gap-2">
                         <Phone className="h-4 w-4 text-gray-500 mt-0.5 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs text-gray-500">Assigned Phone</p>
+                          <p className="text-xs text-gray-500">Phone Numbers</p>
                           <p className="text-sm text-gray-900 truncate">
-                            {user.assignedPhoneNumber || 'Not assigned'}
+                            {user.allowedPhoneNumbersCount || 0} allowed
+                            {user.defaultPhoneNumber && (
+                              <span className="text-gray-500"> • Default: {user.defaultPhoneNumber.phoneNumber}</span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -312,23 +339,32 @@ export default function TeamOverview() {
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="flex-1 text-sm"
+                        className="flex-1 text-sm min-w-[100px]"
                         onClick={() => handleAssignContacts(user)}
                       >
                         <Users2 className="h-4 w-4 mr-1" />
-                        Assign Contacts
+                        Contacts
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="flex-1 text-sm"
+                        className="flex-1 text-sm min-w-[100px]"
+                        onClick={() => handlePhonePermissions(user)}
+                      >
+                        <Settings2 className="h-4 w-4 mr-1" />
+                        Phone Access
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-sm min-w-[100px]"
                         onClick={() => handleEditResources(user)}
                       >
-                        Edit Resources
+                        Resources
                       </Button>
                     </div>
                   </CardContent>
@@ -369,6 +405,19 @@ export default function TeamOverview() {
           }}
           teamMember={assigningToUser}
           onSuccess={handleContactsAssigned}
+        />
+      )}
+
+      {/* Phone Permissions Dialog */}
+      {phonePermissionsUser && (
+        <PhonePermissionsDialog
+          isOpen={showPhonePermissionsDialog}
+          onClose={() => {
+            setShowPhonePermissionsDialog(false)
+            setPhonePermissionsUser(null)
+          }}
+          user={phonePermissionsUser}
+          onSuccess={handlePhonePermissionsUpdated}
         />
       )}
     </div>

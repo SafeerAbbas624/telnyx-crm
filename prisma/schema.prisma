@@ -47,6 +47,7 @@ model Contact {
   customFields            Json?                    @default("{}") @map("custom_fields")
   createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime?                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt               DateTime?                @map("deleted_at") @db.Timestamptz(6)
   pipeline                Pipeline?                @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   contact_tags            ContactTag[]
   messages                Message[]
@@ -60,6 +61,10 @@ model Contact {
   powerDialerQueue        PowerDialerQueue[]
   powerDialerCalls        PowerDialerCall[]
   powerDialerListContacts PowerDialerListContact[] @relation("PowerDialerListContacts")
+  callCampaignContacts    CallCampaignContact[]
+  deals                   Deal[]                   @relation("ContactDeals")
+  sequenceEnrollments     SequenceEnrollment[]     @relation("ContactSequenceEnrollments")
+  scheduledMessages       ScheduledMessage[]       @relation("ContactScheduledMessages")
 
   // Performance indexes for common queries
   @@index([pipelineId], name: "idx_contacts_pipeline_id")
@@ -71,6 +76,7 @@ model Contact {
   @@index([city, state], name: "idx_contacts_location")
   @@index([propertyType], name: "idx_contacts_property_type")
   @@index([dnc], name: "idx_contacts_dnc")
+  @@index([deletedAt], name: "idx_contacts_deleted_at")
   @@map("contacts")
 }
 
@@ -393,7 +399,7 @@ model Deal {
   id                  String    @id @default(uuid()) @db.Uuid
   contact_id          String    @db.Uuid
   name                String
-  stage               DealStage @default(lead)
+  stage               DealStage @default(lead) // Legacy enum field - kept for backward compatibility
   value               Decimal   @default(0) @db.Decimal(15, 2)
   probability         Int?      @default(0)
   expected_close_date DateTime? @db.Date
@@ -415,6 +421,32 @@ model Deal {
   Pipeline            Pipeline? @relation(fields: [pipelineId], references: [id])
   pipelineId          String?   @db.Uuid
 
+  // New fields for Deals + Loan Copilot integration
+  stageId             String?   @map("stage_id") @db.Uuid // Reference to DealPipelineStage
+  lenderId            String?   @map("lender_id") @db.Uuid // Reference to Lender
+  llcName             String?   @map("llc_name") @db.VarChar(255) // Borrowing entity / LLC
+  propertyAddress     String?   @map("property_address")
+  propertyCity        String?   @map("property_city") @db.VarChar(100)
+  propertyState       String?   @map("property_state") @db.VarChar(50)
+  propertyZip         String?   @map("property_zip") @db.VarChar(20)
+  loanAmount          Decimal?  @map("loan_amount") @db.Decimal(15, 2)
+  propertyValue       Decimal?  @map("property_value") @db.Decimal(15, 2)
+  ltv                 Decimal?  @db.Decimal(5, 2) // Loan-to-value ratio
+  loanType            String?   @map("loan_type") @db.VarChar(50) // Purchase, Refinance, Cash Out
+  interestRate        Decimal?  @map("interest_rate") @db.Decimal(5, 3)
+  dscr                Decimal?  @db.Decimal(5, 2) // Debt Service Coverage Ratio
+  isLoanDeal          Boolean   @default(false) @map("is_loan_deal") // Flag to identify loan deals
+  loanCopilotData     Json?     @map("loan_copilot_data") // Extended loan data (documents, contacts, etc.)
+
+  // Relations
+  dealStage DealPipelineStage? @relation("DealPipelineStage", fields: [stageId], references: [id])
+  lender    Lender?            @relation("DealLender", fields: [lenderId], references: [id])
+  contact   Contact            @relation("ContactDeals", fields: [contact_id], references: [id], onDelete: Cascade)
+
+  @@index([contact_id])
+  @@index([stageId])
+  @@index([lenderId])
+  @@index([isLoanDeal])
   @@map("deals")
 }
 
@@ -679,38 +711,47 @@ model VapiCall {
 }
 
 model ImportHistory {
-  id                String   @id @default(uuid()) @db.Uuid
-  fileName          String?  @map("file_name")
-  fileUrl           String?  @map("file_url") // S3 or local path to uploaded file
-  tags              String[] @default([]) // Tags to apply to imported contacts
-  importedAt        DateTime @default(now()) @map("imported_at")
-  totalRecords      Int?     @map("total_records")
-  importedCount     Int?     @map("imported_count")
-  duplicateCount    Int?     @map("duplicate_count")
-  missingPhoneCount Int?     @map("missing_phone_count")
-  errors            Json?
+  id                            String   @id @default(uuid()) @db.Uuid
+  fileName                      String?  @map("file_name")
+  fileUrl                       String?  @map("file_url") // S3 or local path to uploaded file
+  tags                          String[] @default([]) // Tags to apply to imported contacts
+  importedAt                    DateTime @default(now()) @map("imported_at")
+  totalRecords                  Int?     @map("total_records")
+  importedCount                 Int?     @map("imported_count") // Total imported (new contacts + new properties)
+  newContactsCount              Int?     @map("new_contacts_count") // Brand new contacts created
+  existingContactsNewProperties Int?     @map("existing_contacts_new_properties") // Existing contacts with new properties added
+  noPhoneEnrichedCount          Int?     @map("no_phone_enriched_count") // No-phone rows matched via name+city/state
+  duplicateCount                Int?     @map("duplicate_count") // True duplicates (same phone + same property)
+  missingPhoneCount             Int?     @map("missing_phone_count") // Rows with no valid phone (no match found)
+  ambiguousMatchCount           Int?     @map("ambiguous_match_count") // No-phone rows with ambiguous matches
+  skippedOtherCount             Int?     @map("skipped_other_count") // Skipped for other reasons
+  errors                        Json?
 
   @@map("import_history")
 }
 
 model ContactProperty {
-  id                 String   @id @default(uuid()) @db.Uuid
-  contactId          String   @map("contact_id") @db.Uuid
-  contact            Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  address            String?  @map("address")
+  id                 String    @id @default(uuid()) @db.Uuid
+  contactId          String    @map("contact_id") @db.Uuid
+  contact            Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  address            String?   @map("address")
   city               String?
   state              String?
-  county             String?  @map("county")
-  llcName            String?  @map("llc_name")
-  propertyType       String?  @map("property_type")
+  zipCode            String?   @map("zip_code")
+  county             String?   @map("county")
+  llcName            String?   @map("llc_name")
+  propertyType       String?   @map("property_type")
   bedrooms           Int?
-  totalBathrooms     Int?     @map("total_bathrooms")
-  buildingSqft       Int?     @map("building_sqft")
-  effectiveYearBuilt Int?     @map("effective_year_built")
-  estValue           Int?     @map("est_value")
-  estEquity          Int?     @map("est_equity")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  totalBathrooms     Int?      @map("total_bathrooms")
+  buildingSqft       Int?      @map("building_sqft")
+  lotSizeSqft        Int?      @map("lot_size_sqft")
+  effectiveYearBuilt Int?      @map("effective_year_built")
+  lastSaleDate       DateTime? @map("last_sale_date") @db.Date
+  lastSaleAmount     Int?      @map("last_sale_amount")
+  estValue           Int?      @map("est_value")
+  estEquity          Int?      @map("est_equity")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([contactId], name: "idx_contact_properties_contact_id")
   @@map("contact_properties")
@@ -757,7 +798,27 @@ model TelnyxPhoneNumber {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  // Relations for user permissions
+  allowedUsers       UserAllowedPhoneNumber[]
+  defaultForUsers    User[]                    @relation("DefaultPhoneNumber")
+
   @@map("telnyx_phone_numbers")
+}
+
+// Join table for many-to-many relationship between User and TelnyxPhoneNumber
+model UserAllowedPhoneNumber {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  phoneNumberId String   @map("phone_number_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user        User             @relation("UserAllowedNumbers", fields: [userId], references: [id], onDelete: Cascade)
+  phoneNumber TelnyxPhoneNumber @relation(fields: [phoneNumberId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, phoneNumberId])
+  @@index([userId])
+  @@index([phoneNumberId])
+  @@map("user_allowed_phone_numbers")
 }
 
 model TelnyxMessage {
@@ -893,7 +954,7 @@ model TextBlast {
   sentCount        Int             @default(0) @map("sent_count")
   deliveredCount   Int             @default(0) @map("delivered_count")
   failedCount      Int             @default(0) @map("failed_count")
-  status           TextBlastStatus @default(pending)
+  status           TextBlastStatus @default(draft)
   senderNumbers    Json            @map("sender_numbers") // Array of phone numbers
   delaySeconds     Int             @default(1) @map("delay_seconds")
   contactFilters   Json?           @map("contact_filters") // Store filter criteria
@@ -906,9 +967,16 @@ model TextBlast {
   resumedAt        DateTime?       @map("resumed_at")
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  createdBy        String?         @map("created_by") @db.Uuid
+  createdByUser    User?           @relation("UserTextBlasts", fields: [createdBy], references: [id], onDelete: SetNull)
   Pipeline         Pipeline?       @relation(fields: [pipelineId], references: [id])
   pipelineId       String?         @db.Uuid
 
+  @@index([status])
+  @@index([createdBy])
+  @@index([createdAt(sort: Desc)])
   @@map("text_blasts")
 }
 
@@ -1418,6 +1486,10 @@ model User {
   assignedEmailId     String?       @map("assigned_email_id") @db.Uuid
   assignedEmail       EmailAccount? @relation(fields: [assignedEmailId], references: [id], onDelete: SetNull)
 
+  // Telnyx phone number permissions
+  defaultPhoneNumberId String?            @map("default_phone_number_id") @db.Uuid
+  defaultPhoneNumber   TelnyxPhoneNumber? @relation("DefaultPhoneNumber", fields: [defaultPhoneNumberId], references: [id], onDelete: SetNull)
+
   // Profile settings
   avatar      String?
   timezone    String?   @default("UTC")
@@ -1454,6 +1526,19 @@ model User {
   // Pipeline-related relations
   pipelineSettings UserPipelineSettings[] @relation("UserPipelineSettings")
   activePipeline   UserActivePipeline?    @relation("UserActivePipeline")
+
+  // Telnyx phone number permissions
+  allowedPhoneNumbers UserAllowedPhoneNumber[] @relation("UserAllowedNumbers")
+
+  // Text blast relations
+  textBlasts TextBlast[] @relation("UserTextBlasts")
+
+  // Sequence relations
+  sequences            Sequence[]           @relation("UserSequences")
+  enrolledSequences    SequenceEnrollment[] @relation("UserEnrolledSequences")
+
+  // Scheduled messages
+  scheduledMessages    ScheduledMessage[]   @relation("UserScheduledMessages")
 
   @@map("users")
 }
@@ -1728,6 +1813,10 @@ model PowerDialerList {
   lastWorkedOn DateTime? @map("last_worked_on") // Last time dialing was done on this list
   completedAt  DateTime? @map("completed_at") // When list was marked complete
 
+  // Optional call script for this list
+  scriptId String?     @map("script_id") @db.Uuid
+  script   CallScript? @relation("PowerDialerListScript", fields: [scriptId], references: [id], onDelete: SetNull)
+
   // Relations
   contacts   PowerDialerListContact[]
   sessions   PowerDialerSession[]
@@ -1761,6 +1850,127 @@ model PowerDialerListContact {
   @@index([listId, status])
   @@index([listId, lastCalledAt(sort: Desc)])
   @@map("power_dialer_list_contacts")
+}
+
+// Call Scripts for Autodialer Campaigns
+model CallScript {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  content     String  @db.Text // The script content with variable placeholders like {firstName}
+  variables   Json    @default("[]") // Array of variable names used in the script
+  isActive    Boolean @default(true) @map("is_active")
+  usageCount  Int     @default(0) @map("usage_count")
+
+  // Pipeline association
+  pipelineId String?   @map("pipeline_id") @db.Uuid
+  pipeline   Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  campaigns        CallCampaign[]
+  powerDialerLists PowerDialerList[] @relation("PowerDialerListScript")
+
+  @@index([pipelineId])
+  @@index([isActive])
+  @@map("call_scripts")
+}
+
+// Call Campaign - Organizes contacts for autodialer with script and dispositions
+model CallCampaign {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+
+  // Script association
+  scriptId String?     @map("script_id") @db.Uuid
+  script   CallScript? @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+
+  // Campaign configuration
+  dispositions Json @default("[]") // Array of disposition options like ["Interested", "Not Interested", "Callback", "Wrong Number"]
+
+  // Phone numbers to use
+  senderNumbers Json @map("sender_numbers") // Array of phone number objects
+
+  // Campaign status
+  status CallCampaignStatus @default(draft)
+
+  // Statistics
+  totalContacts    Int @default(0) @map("total_contacts")
+  contactsCalled   Int @default(0) @map("contacts_called")
+  contactsAnswered Int @default(0) @map("contacts_answered")
+  contactsNoAnswer Int @default(0) @map("contacts_no_answer")
+  totalTalkTime    Int @default(0) @map("total_talk_time") // in seconds
+
+  // Pipeline association
+  pipelineId String?   @map("pipeline_id") @db.Uuid
+  pipeline   Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+
+  // Timestamps
+  startedAt   DateTime? @map("started_at")
+  pausedAt    DateTime? @map("paused_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  contacts CallCampaignContact[]
+
+  @@index([pipelineId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("call_campaigns")
+}
+
+// Call Campaign Contact - Tracks each contact in a campaign
+model CallCampaignContact {
+  id         String       @id @default(uuid()) @db.Uuid
+  campaignId String       @map("campaign_id") @db.Uuid
+  campaign   CallCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  contactId String  @map("contact_id") @db.Uuid
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Contact status in campaign
+  status       CallCampaignContactStatus @default(pending)
+  attemptCount Int                       @default(0) @map("attempt_count")
+  maxAttempts  Int                       @default(3) @map("max_attempts")
+
+  // Call outcome
+  disposition String? // The selected disposition
+  notes       String? @db.Text
+  callDuration Int?   @map("call_duration") // in seconds
+
+  // Timestamps
+  lastCalledAt DateTime? @map("last_called_at")
+  completedAt  DateTime? @map("completed_at")
+  addedAt      DateTime  @default(now()) @map("added_at")
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+  @@index([campaignId, lastCalledAt(sort: Desc)])
+  @@map("call_campaign_contacts")
+}
+
+enum CallCampaignStatus {
+  draft
+  pending
+  running
+  paused
+  completed
+  cancelled
+}
+
+enum CallCampaignContactStatus {
+  pending
+  calling
+  completed
+  failed
+  skipped
+  callback
 }
 
 model Funder {
@@ -1810,6 +2020,7 @@ model Pipeline {
   icon         String?  @default("briefcase") @db.VarChar(50)
   isActive     Boolean  @default(true) @map("is_active")
   isDefault    Boolean  @default(false) @map("is_default")
+  isLoanPipeline Boolean @default(false) @map("is_loan_pipeline") // Flag for loan processing pipelines
   displayOrder Int      @default(0) @map("display_order")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1828,6 +2039,10 @@ model Pipeline {
   powerDialerLists     PowerDialerList[]
   userPipelineSettings UserPipelineSettings[]
   userActivePipelines  UserActivePipeline[]
+  callScripts          CallScript[]
+  callCampaigns        CallCampaign[]
+  stages               DealPipelineStage[]    @relation("PipelineStages") // Pipeline stages with probabilities
+  sequences            Sequence[]
 
   @@map("pipelines")
 }
@@ -1863,4 +2078,246 @@ model UserActivePipeline {
 
   @@index([userId])
   @@map("user_active_pipeline")
+}
+
+// Lender model - represents funders/lenders for loan deals
+model Lender {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(255)
+  type      String?  @db.VarChar(100) // e.g. "Private Lender", "DSCR Lender", "Hard Money"
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  deals Deal[] @relation("DealLender")
+
+  @@map("lenders")
+}
+
+// ============================================================================
+// SEQUENCE MODELS - Sales/Marketing Cadence Automation (like Salesloft/Outreach)
+// ============================================================================
+
+enum SequenceStepType {
+  EMAIL
+  SMS
+  TASK
+  WAIT           // Wait for condition (reply, open, etc.)
+  VOICEMAIL_DROP // Future
+  AI_CALL        // Future
+}
+
+enum SequenceStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELED
+}
+
+// Sequence - A reusable cadence of steps (emails, SMS, tasks, etc.)
+model Sequence {
+  id          String   @id @default(uuid()) @db.Uuid
+  pipelineId  String?  @map("pipeline_id") @db.Uuid
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdBy   User     @relation("UserSequences", fields: [createdById], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  pipeline    Pipeline?            @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+
+  @@index([pipelineId])
+  @@index([createdById])
+  @@index([isActive])
+  @@map("sequences")
+}
+
+// SequenceStep - Individual step in a sequence (email, SMS, task, etc.)
+model SequenceStep {
+  id          String           @id @default(uuid()) @db.Uuid
+  sequenceId  String           @map("sequence_id") @db.Uuid
+  sequence    Sequence         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  orderIndex  Int              @map("order_index") // 0,1,2,... for step order
+  type        SequenceStepType
+  name        String?          // e.g. "Intro email", "Follow-up text"
+
+  // How long after previous step or enrollment (for first step)
+  delayMinutes Int             @map("delay_minutes") // number of minutes after previous step
+
+  // Channel-specific config stored as JSON
+  // For EMAIL: { templateId, fromEmailAccountId, subjectOverride }
+  // For SMS: { templateId, fromNumberId, useContactOwnerDefault }
+  // For TASK: { title, description, assigneeType, dueDateOffset }
+  config      Json             @default("{}")
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  logs        SequenceLog[]
+
+  @@index([sequenceId, orderIndex])
+  @@map("sequence_steps")
+}
+
+// SequenceEnrollment - Tracks a contact's progress through a sequence
+model SequenceEnrollment {
+  id            String         @id @default(uuid()) @db.Uuid
+  sequenceId    String         @map("sequence_id") @db.Uuid
+  sequence      Sequence       @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+
+  contactId     String         @map("contact_id") @db.Uuid
+  contact       Contact        @relation("ContactSequenceEnrollments", fields: [contactId], references: [id], onDelete: Cascade)
+
+  status        SequenceStatus @default(ACTIVE)
+
+  // When enrollment started
+  enrolledAt    DateTime       @default(now()) @map("enrolled_at") @db.Timestamptz(6)
+
+  // For progress tracking
+  currentStepIndex Int         @default(0) @map("current_step_index")
+  nextStepAt       DateTime?   @map("next_step_at") @db.Timestamptz(6) // When the next step should execute
+  lastExecutedAt   DateTime?   @map("last_executed_at") @db.Timestamptz(6)
+  completedAt      DateTime?   @map("completed_at") @db.Timestamptz(6)
+
+  // Enrollment metadata
+  enrolledById String?        @map("enrolled_by_id") @db.Uuid
+  enrolledBy   User?          @relation("UserEnrolledSequences", fields: [enrolledById], references: [id], onDelete: SetNull)
+
+  // Reason for pause/cancel if applicable
+  pauseReason  String?        @map("pause_reason")
+  cancelReason String?        @map("cancel_reason")
+
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  logs         SequenceLog[]
+
+  @@unique([sequenceId, contactId, status]) // Only one ACTIVE enrollment per contact per sequence
+  @@index([sequenceId, status])
+  @@index([contactId])
+  @@index([status, nextStepAt])
+  @@index([enrolledById])
+  @@map("sequence_enrollments")
+}
+
+// SequenceLog - Log of each step execution in an enrollment
+model SequenceLog {
+  id            String             @id @default(uuid()) @db.Uuid
+  enrollmentId  String             @map("enrollment_id") @db.Uuid
+  enrollment    SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  stepId        String             @map("step_id") @db.Uuid
+  step          SequenceStep       @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  executedAt    DateTime           @default(now()) @map("executed_at") @db.Timestamptz(6)
+
+  // Result of step execution
+  // SENT, SKIPPED_NO_PHONE, SKIPPED_NO_EMAIL, SKIPPED_DNC, SKIPPED_UNSUBSCRIBED,
+  // SKIPPED_NOT_IMPLEMENTED, FAILED, TASK_CREATED
+  result        String
+  errorMessage  String?            @map("error_message")
+
+  // ID of the created record (email message, SMS message, or activity/task)
+  channelId     String?            @map("channel_id") @db.Uuid
+
+  @@index([enrollmentId])
+  @@index([stepId])
+  @@index([executedAt(sort: Desc)])
+  @@map("sequence_logs")
+}
+
+// DealPipelineStage model - represents stages within a pipeline with probabilities
+model DealPipelineStage {
+  id                 String   @id @default(uuid()) @db.Uuid
+  pipelineId         String   @map("pipeline_id") @db.Uuid
+  key                String   @db.VarChar(100) // e.g. "new_lead", "qualified", etc.
+  label              String   @db.VarChar(255)
+  orderIndex         Int      @map("order_index")
+  defaultProbability Int      @default(0) @map("default_probability") // 0-100
+  isClosedStage      Boolean  @default(false) @map("is_closed_stage")
+  isLostStage        Boolean  @default(false) @map("is_lost_stage")
+  color              String?  @default("#e5e7eb") @db.VarChar(50)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  pipeline Pipeline @relation("PipelineStages", fields: [pipelineId], references: [id], onDelete: Cascade)
+  deals    Deal[]   @relation("DealPipelineStage")
+
+  @@unique([pipelineId, key])
+  @@index([pipelineId, orderIndex])
+  @@map("deal_pipeline_stages")
+}
+
+// Scheduled Messages - For scheduling SMS/Email sends (manual + sequences)
+enum ScheduledChannel {
+  SMS
+  EMAIL
+}
+
+enum ScheduledStatus {
+  PENDING
+  SENDING
+  SENT
+  CANCELED
+  FAILED
+}
+
+model ScheduledMessage {
+  id          String           @id @default(uuid()) @db.Uuid
+  channel     ScheduledChannel
+  status      ScheduledStatus  @default(PENDING)
+
+  // Contact relationship
+  contactId   String           @map("contact_id") @db.Uuid
+  contact     Contact          @relation("ContactScheduledMessages", fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Who created it (manual user, sequence, etc.)
+  createdById String?          @map("created_by_id") @db.Uuid
+  createdBy   User?            @relation("UserScheduledMessages", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // When the message should be sent
+  scheduledAt DateTime         @map("scheduled_at") @db.Timestamptz(6)
+
+  // When it was actually sent / failed
+  sentAt      DateTime?        @map("sent_at") @db.Timestamptz(6)
+  failedAt    DateTime?        @map("failed_at") @db.Timestamptz(6)
+
+  // SMS-specific fields
+  fromNumber  String?          @map("from_number")
+  toNumber    String?          @map("to_number")
+
+  // Email-specific fields
+  fromEmail   String?          @map("from_email")
+  toEmail     String?          @map("to_email")
+  subject     String?
+
+  // Body content (SMS text or Email HTML content)
+  body        String           @db.Text
+
+  // Optional metadata: template IDs, sequence step, source info, etc.
+  metadata    Json?            @default("{}")
+
+  // Error information if failed
+  errorMessage String?         @map("error_message")
+
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, scheduledAt])
+  @@index([contactId])
+  @@index([createdById])
+  @@index([channel, status])
+  @@map("scheduled_messages")
 }

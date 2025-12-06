@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import {
   Users,
   MessageSquare,
@@ -14,7 +15,8 @@ import {
   Target,
   FileText,
   Zap,
-  CheckSquare
+  CheckSquare,
+  LucideIcon
 } from "lucide-react"
 
 interface SidebarProps {
@@ -24,8 +26,33 @@ interface SidebarProps {
   onClose?: () => void
 }
 
+type UserRole = 'ADMIN' | 'TEAM_USER'
+
+interface MenuItem {
+  id: string
+  label: string
+  icon: LucideIcon
+  /** If set, only users with this role can see this menu item */
+  requiredRole?: UserRole
+}
+
+/**
+ * Filter menu items based on user role
+ */
+function filterMenuItemsByRole(items: MenuItem[], userRole?: string): MenuItem[] {
+  return items.filter(item => {
+    // If no requiredRole, show to everyone
+    if (!item.requiredRole) return true
+    // If requiredRole is set, only show to users with that role
+    return item.requiredRole === userRole
+  })
+}
+
 export default function Sidebar({ activeTab = "contacts", setActiveTab, isOpen = true, onClose }: SidebarProps) {
-  const menuItems = [
+  const { data: session } = useSession()
+  const userRole = session?.user?.role
+
+  const allMenuItems: MenuItem[] = [
     { id: "contacts", label: "Contacts", icon: Users },
     { id: "tasks", label: "Tasks", icon: CheckSquare },
     { id: "deals", label: "Deals", icon: Target },
@@ -34,11 +61,15 @@ export default function Sidebar({ activeTab = "contacts", setActiveTab, isOpen =
     { id: "messaging", label: "Text Center", icon: MessageSquare },
     { id: "email", label: "Email Center", icon: Mail },
     { id: "calls", label: "Calls", icon: Phone },
-    { id: "billing", label: "Billing", icon: DollarSign },
-    { id: "import", label: "Import", icon: Upload },
-    { id: "team-overview", label: "Team", icon: UserCheck },
-    { id: "settings", label: "Settings", icon: Settings },
+    // Admin-only items below
+    { id: "billing", label: "Billing", icon: DollarSign, requiredRole: 'ADMIN' },
+    { id: "import", label: "Import", icon: Upload, requiredRole: 'ADMIN' },
+    { id: "team-overview", label: "Team", icon: UserCheck, requiredRole: 'ADMIN' },
+    { id: "settings", label: "Settings", icon: Settings, requiredRole: 'ADMIN' },
   ]
+
+  // Filter menu items based on user role
+  const menuItems = filterMenuItemsByRole(allMenuItems, userRole)
 
   const router = useRouter()
 
@@ -94,6 +125,16 @@ export default function Sidebar({ activeTab = "contacts", setActiveTab, isOpen =
 
     if (tabId === "calls") {
       router.push("/calls")
+      if (onClose) {
+        onClose()
+      }
+      return
+    }
+
+
+
+    if (tabId === "sequences") {
+      router.push("/sequences")
       if (onClose) {
         onClose()
       }

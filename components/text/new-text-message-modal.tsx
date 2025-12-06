@@ -93,41 +93,40 @@ export default function NewTextMessageModal({
 
   const loadAvailableNumbers = async () => {
     try {
-      console.log('Loading phone numbers...') // Debug log
-      const response = await fetch('/api/telnyx/phone-numbers')
+      // Use user-specific phone numbers endpoint (respects permissions)
+      const response = await fetch('/api/user/phone-numbers')
       if (response.ok) {
         const data = await response.json()
-        console.log('Phone numbers response:', data) // Debug log
-
-        // The API returns phone numbers directly as an array, not nested in phoneNumbers
-        const phoneNumbers = Array.isArray(data) ? data : (data.phoneNumbers || [])
-        console.log('Processed phone numbers:', phoneNumbers) // Debug log
+        const phoneNumbers = data.phoneNumbers || []
 
         // Transform the data to match our interface
         const formattedNumbers = phoneNumbers.map((num: any) => ({
           id: num.id,
           phoneNumber: num.phoneNumber || num.number,
+          friendlyName: num.friendlyName,
           state: num.state,
-          isActive: num.isActive !== false, // Default to true if not specified
+          isActive: num.isActive !== false,
         }))
 
         setAvailableNumbers(formattedNumbers)
 
-        // Auto-select sender number based on user role
-        if (formattedNumbers.length > 0) {
-          if (isAdmin) {
-            // Admin can use any number - select first active one
-            const activeNumber = formattedNumbers.find((num: TelnyxPhoneNumber) => num.isActive)
-            if (activeNumber) {
-              setSelectedSenderNumber(activeNumber.phoneNumber)
-            }
-          } else {
-            // Team member - auto-select assigned number
-            const assignedNumber = session?.user?.assignedPhoneNumber
-            if (assignedNumber && formattedNumbers.find((num: TelnyxPhoneNumber) => num.phoneNumber === assignedNumber)) {
-              setSelectedSenderNumber(assignedNumber)
-            }
+        // Use default phone number if set, otherwise first available
+        if (data.defaultPhoneNumber) {
+          setSelectedSenderNumber(data.defaultPhoneNumber.phoneNumber)
+        } else if (formattedNumbers.length > 0) {
+          const activeNumber = formattedNumbers.find((num: TelnyxPhoneNumber) => num.isActive)
+          if (activeNumber) {
+            setSelectedSenderNumber(activeNumber.phoneNumber)
           }
+        }
+
+        // Show warning if no numbers available
+        if (formattedNumbers.length === 0) {
+          toast({
+            title: 'No Phone Numbers',
+            description: 'You have no phone numbers assigned. Contact your admin.',
+            variant: 'destructive',
+          })
         }
       } else {
         console.error('Failed to load phone numbers:', response.status, response.statusText)

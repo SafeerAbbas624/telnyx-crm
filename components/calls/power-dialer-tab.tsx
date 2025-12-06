@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Phone, Search, X, Filter, ChevronLeft, ChevronRight, Play, Pause, Square } from "lucide-react"
+import { Phone, Search, X, Filter, ChevronLeft, ChevronRight, Play, Pause, Square, LayoutGrid, List } from "lucide-react"
 import { useCallUI } from "@/lib/context/call-ui-context"
 import { formatPhoneNumberForDisplay, formatPhoneNumberForTelnyx, getBestPhoneNumber } from "@/lib/phone-utils"
 import { format } from "date-fns"
@@ -27,6 +27,7 @@ import { LocalFilterWrapper } from "@/components/calls/local-filter-wrapper"
 import AdvancedFiltersRedesign from "@/components/contacts/advanced-filters-redesign"
 import ContactName from "@/components/contacts/contact-name"
 import { PowerDialerListsManager } from "@/components/calls/power-dialer-lists-manager"
+import MultiLineDialer from "@/components/calls/multi-line-dialer"
 
 interface TelnyxPhoneNumber {
   id: string
@@ -100,6 +101,9 @@ export default function PowerDialerTab() {
   // List management state
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [showListsManager, setShowListsManager] = useState(false)
+
+  // View mode: 'classic' or 'multiline'
+  const [viewMode, setViewMode] = useState<'classic' | 'multiline'>('multiline')
 
   // Pagination for contacts
   const [contactsPage, setContactsPage] = useState(1)
@@ -451,6 +455,83 @@ export default function PowerDialerTab() {
     }
   }
 
+  // If multiline view mode, render the new MultiLineDialer
+  if (viewMode === 'multiline') {
+    return (
+      <div className="h-full flex flex-col">
+        {/* View Mode Toggle */}
+        <div className="flex items-center justify-between p-4 border-b bg-white dark:bg-gray-800">
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-semibold">Power Dialer</h2>
+            <Badge variant="outline" className="text-xs">Multi-Line Mode</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowListsManager(true)}
+            >
+              Manage Lists
+            </Button>
+            <div className="flex items-center border rounded-lg p-1">
+              <Button
+                variant={viewMode === 'multiline' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('multiline')}
+                className="h-7 px-2"
+              >
+                <LayoutGrid className="h-4 w-4 mr-1" />
+                Multi-Line
+              </Button>
+              <Button
+                variant={viewMode === 'classic' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('classic')}
+                className="h-7 px-2"
+              >
+                <List className="h-4 w-4 mr-1" />
+                Classic
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Lists Manager Modal */}
+        {showListsManager && (
+          <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4">
+            <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto relative z-40">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Call Lists</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowListsManager(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <PowerDialerListsManager
+                  onSelectList={(listId) => {
+                    setSelectedListId(listId)
+                    setShowListsManager(false)
+                    toast({ title: 'List Selected', description: 'Ready to start dialing from this list' })
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Multi-Line Dialer Component */}
+        <div className="flex-1 min-h-0">
+          <MultiLineDialer />
+        </div>
+      </div>
+    )
+  }
+
+  // Classic view mode
   return (
     <LocalFilterWrapper
       instanceId="power-dialer"
@@ -460,10 +541,47 @@ export default function PowerDialerTab() {
         setHasActiveFilters(hasFilters)
       }}
     >
+      {/* View Mode Toggle Header */}
+      <div className="flex items-center justify-between p-4 border-b bg-white dark:bg-gray-800 shrink-0">
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-semibold">Power Dialer</h2>
+          <Badge variant="outline" className="text-xs">Classic Mode</Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowListsManager(true)}
+          >
+            Manage Lists
+          </Button>
+          <div className="flex items-center border rounded-lg p-1">
+            <Button
+              variant={viewMode === 'multiline' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('multiline')}
+              className="h-7 px-2"
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" />
+              Multi-Line
+            </Button>
+            <Button
+              variant={viewMode === 'classic' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('classic')}
+              className="h-7 px-2"
+            >
+              <List className="h-4 w-4 mr-1" />
+              Classic
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* Lists Manager Modal */}
       {showListsManager && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto relative z-40">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Call Lists</CardTitle>
               <Button

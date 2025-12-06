@@ -6,9 +6,12 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { X, Minimize2, Send, Mail, FileText, ChevronDown } from "lucide-react"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { X, Minimize2, Send, Mail, FileText, ChevronDown, Clock, RefreshCw } from "lucide-react"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { toast } from "sonner"
+import { format } from "date-fns"
+import { ScheduleSendModal } from "@/components/ui/schedule-send-modal"
 
 interface EmailAccount {
   id: string
@@ -35,6 +38,7 @@ export default function InlineEmailPanel() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
   const [showTemplates, setShowTemplates] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
 
   useEffect(() => {
     if (emailSession) {
@@ -151,6 +155,56 @@ export default function InlineEmailPanel() {
     }
   }
 
+  // Schedule send handler
+  const handleScheduleSend = async (scheduledAt: Date) => {
+    if (!selectedAccountId) {
+      throw new Error('Please select an email account')
+    }
+    if (!emailSession?.email) {
+      throw new Error('No recipient email')
+    }
+    if (!subject.trim()) {
+      throw new Error('Please enter a subject')
+    }
+    if (!body.trim()) {
+      throw new Error('Please enter a message')
+    }
+    if (!emailSession.contact?.id) {
+      throw new Error('No contact selected')
+    }
+
+    // Get the selected email account to get fromEmail
+    const selectedAccount = accounts.find(a => a.id === selectedAccountId)
+    if (!selectedAccount) {
+      throw new Error('Selected email account not found')
+    }
+
+    const response = await fetch('/api/scheduled-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: 'EMAIL',
+        contactId: emailSession.contact.id,
+        scheduledAt: scheduledAt.toISOString(),
+        fromEmail: selectedAccount.emailAddress,
+        toEmail: emailSession.email,
+        subject: subject,
+        body: `<p>${body.replace(/\n/g, '</p><p>')}</p>`,
+        metadata: { source: 'manual_email' },
+      }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to schedule email')
+    }
+
+    toast.success(`Email scheduled for ${format(scheduledAt, "MMM d 'at' h:mm a")}`)
+    setSubject("")
+    setBody("")
+  }
+
   if (!emailSession) return null
 
   const contactName = emailSession.contact
@@ -261,18 +315,56 @@ export default function InlineEmailPanel() {
           className="min-h-[120px] text-sm resize-none"
         />
 
-        {/* Send Button */}
-        <div className="flex justify-end">
+        {/* Send Button with Schedule Option */}
+        <div className="flex justify-end gap-1">
           <Button
             onClick={handleSend}
             disabled={isSending || !subject.trim() || !body.trim()}
-            className="bg-green-600 hover:bg-green-700"
+            className="bg-green-600 hover:bg-green-700 rounded-r-none"
           >
-            {isSending ? 'Sending...' : 'Send'}
-            <Send className="h-4 w-4 ml-2" />
+            {isSending ? (
+              <>
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                Send
+                <Send className="h-4 w-4 ml-2" />
+              </>
+            )}
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                disabled={isSending || !subject.trim() || !body.trim()}
+                className="bg-green-600 hover:bg-green-700 rounded-l-none border-l border-green-500 px-2"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setShowScheduleModal(true)}>
+                <Clock className="h-4 w-4 mr-2" />
+                Schedule send...
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      {/* Schedule Send Modal */}
+      <ScheduleSendModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        onSchedule={handleScheduleSend}
+        channel="EMAIL"
+        preview={{
+          to: emailSession.email,
+          subject: subject,
+          bodyPreview: body.substring(0, 100),
+        }}
+      />
     </div>
   )
 }

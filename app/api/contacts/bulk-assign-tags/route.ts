@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,81 +20,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tag IDs are required' }, { status: 400 });
     }
 
-    // Verify all contacts belong to the user
+    // Verify all contacts exist
     const contacts = await prisma.contact.findMany({
       where: {
         id: { in: contactIds },
-        userId: session.user.id,
       },
       select: { id: true },
     });
 
     if (contacts.length !== contactIds.length) {
       return NextResponse.json(
-        { error: 'Some contacts not found or unauthorized' },
+        { error: 'Some contacts not found' },
         { status: 404 }
       );
     }
 
-    // Verify all tags belong to the user
+    // Verify all tags exist
     const tags = await prisma.tag.findMany({
       where: {
         id: { in: tagIds },
-        userId: session.user.id,
       },
       select: { id: true },
     });
 
     if (tags.length !== tagIds.length) {
       return NextResponse.json(
-        { error: 'Some tags not found or unauthorized' },
+        { error: 'Some tags not found' },
         { status: 404 }
       );
     }
 
-    // Get existing contact-tag relationships
-    const existingRelations = await prisma.contactTag.findMany({
-      where: {
-        contactId: { in: contactIds },
-        tagId: { in: tagIds },
-      },
-      select: {
-        contactId: true,
-        tagId: true,
-      },
-    });
-
-    // Create a Set of existing relationships for quick lookup
-    const existingSet = new Set(
-      existingRelations.map((rel) => `${rel.contactId}-${rel.tagId}`)
-    );
-
-    // Prepare new relationships to create (only those that don't exist)
-    const newRelations = [];
+    // Create contact-tag relationships using correct field names
+    const associations = [];
     for (const contactId of contactIds) {
       for (const tagId of tagIds) {
-        const key = `${contactId}-${tagId}`;
-        if (!existingSet.has(key)) {
-          newRelations.push({
-            contactId,
-            tagId,
-          });
-        }
+        associations.push({
+          contact_id: contactId,
+          tag_id: tagId,
+          created_by: session.user.id,
+        });
       }
     }
 
-    // Bulk create new contact-tag relationships
-    if (newRelations.length > 0) {
-      await prisma.contactTag.createMany({
-        data: newRelations,
-        skipDuplicates: true,
-      });
-    }
+    // Bulk create contact-tag relationships
+    await prisma.contactTag.createMany({
+      data: associations,
+      skipDuplicates: true,
+    });
 
     return NextResponse.json({
       success: true,
       message: `Tags assigned to ${contactIds.length} contacts`,
-      newRelationsCreated: newRelations.length,
+      affectedContacts: contactIds.length,
+      processedTags: tagIds.length,
     });
   } catch (error) {
     console.error('Bulk tag assignment error:', error);

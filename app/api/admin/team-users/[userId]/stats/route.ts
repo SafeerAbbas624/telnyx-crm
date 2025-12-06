@@ -64,7 +64,7 @@ export async function GET(
         // Count messages sent from this user's assigned phone number
         prisma.message.count({
           where: {
-            phoneNumber: teamUser.assignedPhoneNumber || undefined,
+            phone_number: teamUser.assignedPhoneNumber || undefined,
             direction: 'outbound',
             ...(days ? { timestamp: dateFilter } : {})
           }

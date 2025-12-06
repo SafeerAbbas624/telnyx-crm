@@ -14,6 +14,7 @@ import ContactCalls from "./contact-calls"
 import ContactMessages from "./contact-messages"
 import ContactEmails from "./contact-emails"
 import ContactTimeline from "./contact-timeline"
+import ContactScheduledMessages from "./contact-scheduled-messages"
 import EditContactDialog from "./edit-contact-dialog"
 import TaskDashboard from "@/components/tasks/task-dashboard"
 import CustomFieldsDisplay from "./custom-fields-display"
@@ -401,7 +402,7 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
           <Card className="shadow-sm">
             <Tabs defaultValue="timeline" className="w-full">
               <CardHeader className="pb-2">
-                <TabsList className="grid w-full grid-cols-7 h-9">
+                <TabsList className="grid w-full grid-cols-8 h-9">
                   <TabsTrigger value="timeline" className="text-xs">Timeline</TabsTrigger>
                   <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
                   <TabsTrigger value="activities" className="text-xs">Activities</TabsTrigger>
@@ -409,6 +410,7 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
                   <TabsTrigger value="calls" className="text-xs">Calls</TabsTrigger>
                   <TabsTrigger value="messages" className="text-xs">Messages</TabsTrigger>
                   <TabsTrigger value="emails" className="text-xs">Emails</TabsTrigger>
+                  <TabsTrigger value="scheduled" className="text-xs">Scheduled</TabsTrigger>
                 </TabsList>
               </CardHeader>
 
@@ -440,6 +442,10 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
 
                   <TabsContent value="emails" className="mt-0 p-4">
                     <ContactEmails contactId={contact.id} />
+                  </TabsContent>
+
+                  <TabsContent value="scheduled" className="mt-0 p-4">
+                    <ContactScheduledMessages contactId={contact.id} />
                   </TabsContent>
                 </div>
               </CardContent>

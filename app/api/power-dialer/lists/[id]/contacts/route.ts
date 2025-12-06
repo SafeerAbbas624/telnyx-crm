@@ -47,7 +47,11 @@ export async function GET(
               phone1: true,
               phone2: true,
               phone3: true,
-              email: true,
+              email1: true,
+              propertyAddress: true,
+              city: true,
+              state: true,
+              dnc: true,
             }
           }
         },

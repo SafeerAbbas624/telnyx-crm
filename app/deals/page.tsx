@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Sidebar from '@/components/sidebar';
 import Header from '@/components/header';
 import Footer from '@/components/footer';
-import DealsKanbanBoard from '@/components/deals/deals-kanban-board';
+import DealsPageV2 from '@/components/deals/deals-page-v2';
 
 export default function DealsPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -25,8 +25,8 @@ export default function DealsPage() {
 
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <main className="flex-1 overflow-auto bg-background">
-            <DealsKanbanBoard />
+          <main className="flex-1 overflow-hidden bg-background">
+            <DealsPageV2 />
           </main>
 
           {/* Footer */}

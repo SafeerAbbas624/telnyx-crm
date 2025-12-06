@@ -50,13 +50,27 @@ export default function QuickSmsModal({
 
   const loadAvailableNumbers = async () => {
     try {
-      const response = await fetch('/api/telnyx/phone-numbers')
+      // Use user-specific phone numbers endpoint (respects permissions)
+      const response = await fetch('/api/user/phone-numbers')
       if (response.ok) {
         const data = await response.json()
-        const numbers = Array.isArray(data) ? data : data.phoneNumbers || []
+        const numbers = data.phoneNumbers || []
         setAvailableNumbers(numbers.filter((n: TelnyxPhoneNumber) => n.isActive))
-        if (numbers.length > 0) {
+
+        // Use default phone number if set, otherwise first available
+        if (data.defaultPhoneNumber) {
+          setSelectedSenderNumber(data.defaultPhoneNumber.phoneNumber)
+        } else if (numbers.length > 0) {
           setSelectedSenderNumber(numbers[0].phoneNumber)
+        }
+
+        // Show warning if no numbers available
+        if (numbers.length === 0) {
+          toast({
+            title: 'No Phone Numbers',
+            description: 'You have no phone numbers assigned. Contact your admin.',
+            variant: 'destructive'
+          })
         }
       }
     } catch (error) {

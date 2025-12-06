@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       include: {
         contact: true,
         createdBy: true,
-        assignedToUser: true,
+        assignedUser: true,
       },
     })
 
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
       include: {
         contact: true,
         createdBy: true,
-        assignedToUser: true,
+        assignedUser: true,
       },
     })
 
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       include: {
         contact: true,
         createdBy: true,
-        assignedToUser: true,
+        assignedUser: true,
       },
     })
 

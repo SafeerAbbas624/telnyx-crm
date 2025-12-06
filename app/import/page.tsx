@@ -15,17 +15,37 @@ type CSVRow = Record<string, string>;
 type ImportHistory = {
   id: string;
   fileName: string;
+  fileUrl?: string;
   importedAt: string;
   totalRecords: number;
   importedCount: number;
   duplicateCount: number;
   missingPhoneCount: number;
+  noPhoneEnriched?: number;
+  ambiguousMatches?: number;
   errors: Array<{ row: number; error: string }>;
   firstFewErrors?: Array<{ row: number; error: string }>;
   errorCount?: number;
   duplicates?: number;
   missingPhones?: number;
   imported?: number;
+};
+
+type ImportPreview = {
+  totalRows: number;
+  newContacts: number;
+  existingContactsWithNewProperty: Array<{
+    rowNumber: number;
+    existingContact: { id: string; name: string; phone: string };
+    newPropertyAddress: string;
+  }>;
+  trueDuplicates: Array<{
+    rowNumber: number;
+    existingContact: { id: string; name: string; phone: string };
+    reason: string;
+  }>;
+  missingPhone: number;
+  errors: Array<{ row: number; error: string }>;
 };
 
 type FieldCategory = {
@@ -69,6 +89,7 @@ const FIELD_CATEGORIES: FieldCategory[] = [
       { id: 'propertyStreet', label: 'Street Address', required: false },
       { id: 'propertyCity', label: 'City', required: false },
       { id: 'propertyState', label: 'State', required: false },
+      { id: 'propertyZipCode', label: 'Zip Code', required: false },
       { id: 'propertyCounty', label: 'County', required: false },
     ],
   },
@@ -80,6 +101,7 @@ const FIELD_CATEGORIES: FieldCategory[] = [
       { id: 'bedrooms', label: 'Bedrooms', required: false },
       { id: 'bathrooms', label: 'Bathrooms', required: false },
       { id: 'buildingSqft', label: 'Square Footage', required: false },
+      { id: 'lotSizeSqft', label: 'Lot Size (sqft)', required: false },
       { id: 'yearBuilt', label: 'Year Built', required: false },
     ],
   },
@@ -89,6 +111,8 @@ const FIELD_CATEGORIES: FieldCategory[] = [
     fields: [
       { id: 'estimatedValue', label: 'Estimated Value', required: false },
       { id: 'estimatedEquity', label: 'Estimated Equity', required: false },
+      { id: 'lastSaleDate', label: 'Last Sale Date', required: false },
+      { id: 'lastSaleAmount', label: 'Last Sale Amount', required: false },
       { id: 'llcName', label: 'LLC Name', required: false },
     ],
   },
@@ -110,6 +134,8 @@ export default function ImportPage() {
   const [previewData, setPreviewData] = useState<CSVRow[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [isUploading, setIsUploading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [activeTab, setActiveTab] = useState('import');
   const [importHistory, setImportHistory] = useState<ImportHistory[]>([]);
   const [bulkTags, setBulkTags] = useState<string[]>([]);
@@ -188,6 +214,34 @@ export default function ImportPage() {
     reader.readAsText(file);
   };
 
+  const handlePreview = async () => {
+    if (!file || !hasRequiredFields()) return;
+
+    setIsPreviewing(true);
+    setImportPreview(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mapping', JSON.stringify(mapping));
+
+    try {
+      const response = await fetch('/api/import/preview', { method: 'POST', body: formData });
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(`Error: ${result.error || 'Failed to preview import'}`);
+        return;
+      }
+
+      setImportPreview(result.preview);
+    } catch (error) {
+      console.error('Error during preview:', error);
+      alert('An unexpected error occurred during preview.');
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
   const handleImport = async () => {
     if (!file || !hasRequiredFields()) return;
 
@@ -206,18 +260,19 @@ export default function ImportPage() {
         alert(`Error: ${result.error || 'An unknown error occurred.'}`);
         return;
       }
-      
+
       let message = `Successfully imported ${result.imported || 0} of ${result.total || 0} records.`;
       if (result.duplicates > 0) message += `\n- ${result.duplicates} duplicate records skipped`;
       if (result.missingPhones > 0) message += `\n- ${result.missingPhones} records skipped due to missing phone numbers`;
       if (result.errors > 0) message += `\n- ${result.errors} records had errors`;
       alert(message);
-      
+
       setFile(null);
       setHeaders([]);
       setPreviewData([]);
       setMapping({});
       setBulkTags([]);
+      setImportPreview(null);
 
       setActiveTab('history');
     } catch (error) {
@@ -372,7 +427,73 @@ export default function ImportPage() {
                   />
                 </div>
 
-                <div className="flex justify-end pt-4">
+                {/* Step 4: Duplicate Preview */}
+                {importPreview && (
+                  <div>
+                    <h3 className="text-lg font-medium">Step 4: Import Preview</h3>
+                    <p className="text-sm text-muted-foreground mb-4">Review what will happen when you import</p>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <Card className="p-4">
+                        <p className="text-sm text-muted-foreground">Total Rows</p>
+                        <p className="text-2xl font-bold">{importPreview.totalRows}</p>
+                      </Card>
+                      <Card className="p-4 border-green-200 bg-green-50/50">
+                        <p className="text-sm text-green-700">New Contacts</p>
+                        <p className="text-2xl font-bold text-green-700">{importPreview.newContacts}</p>
+                      </Card>
+                      <Card className="p-4 border-blue-200 bg-blue-50/50">
+                        <p className="text-sm text-blue-700">New Properties (Existing Contacts)</p>
+                        <p className="text-2xl font-bold text-blue-700">{importPreview.existingContactsWithNewProperty.length}</p>
+                      </Card>
+                      <Card className="p-4 border-orange-200 bg-orange-50/50">
+                        <p className="text-sm text-orange-700">Duplicates (Skipped)</p>
+                        <p className="text-2xl font-bold text-orange-700">{importPreview.trueDuplicates.length}</p>
+                      </Card>
+                    </div>
+
+                    {importPreview.existingContactsWithNewProperty.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium mb-2 text-blue-700">New Properties for Existing Contacts:</h4>
+                        <div className="bg-blue-50/50 rounded-md p-3 max-h-32 overflow-y-auto text-sm">
+                          {importPreview.existingContactsWithNewProperty.slice(0, 10).map((item, i) => (
+                            <p key={i}>Row {item.rowNumber}: {item.existingContact.name} ({item.existingContact.phone}) will get property: {item.newPropertyAddress}</p>
+                          ))}
+                          {importPreview.existingContactsWithNewProperty.length > 10 && (
+                            <p className="text-muted-foreground text-xs mt-1">...and {importPreview.existingContactsWithNewProperty.length - 10} more</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {importPreview.trueDuplicates.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium mb-2 text-orange-700">Duplicates (will be skipped):</h4>
+                        <div className="bg-orange-50/50 rounded-md p-3 max-h-32 overflow-y-auto text-sm">
+                          {importPreview.trueDuplicates.slice(0, 10).map((item, i) => (
+                            <p key={i}>Row {item.rowNumber}: {item.existingContact.name} - {item.reason}</p>
+                          ))}
+                          {importPreview.trueDuplicates.length > 10 && (
+                            <p className="text-muted-foreground text-xs mt-1">...and {importPreview.trueDuplicates.length - 10} more</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {importPreview.missingPhone > 0 && (
+                      <p className="text-sm text-muted-foreground">{importPreview.missingPhone} rows missing phone number will be skipped</p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-4 gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handlePreview}
+                    disabled={isPreviewing || isUploading || !hasRequiredFields()}
+                    className="min-w-[150px]"
+                  >
+                    {isPreviewing ? 'Analyzing...' : 'Preview Import'}
+                  </Button>
                   <Button onClick={handleImport} disabled={isUploading || !hasRequiredFields()} className="min-w-[150px]">
                     {isUploading ? 'Importing...' : 'Import'}
                   </Button>
@@ -400,13 +521,31 @@ export default function ImportPage() {
                               <CardTitle className="text-lg">{item.fileName}</CardTitle>
                               <p className="text-sm text-muted-foreground">{format(new Date(item.importedAt), 'MMM d, yyyy h:mm a')}</p>
                             </div>
-                            <Badge variant={(item.imported || 0) > 0 ? 'secondary' : 'destructive'}>{(item.imported || 0)} / {item.totalRecords} imported</Badge>
+                            <div className="flex items-center gap-2">
+                              {item.fileUrl && (
+                                <a
+                                  href={item.fileUrl}
+                                  download={item.fileName}
+                                  className="text-sm text-primary hover:underline flex items-center gap-1"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="7 10 12 15 17 10" />
+                                    <line x1="12" y1="15" x2="12" y2="3" />
+                                  </svg>
+                                  Download
+                                </a>
+                              )}
+                              <Badge variant={(item.imported || 0) > 0 ? 'secondary' : 'destructive'}>{(item.imported || 0)} / {item.totalRecords} imported</Badge>
+                            </div>
                           </div>
                         </CardHeader>
                         <CardContent>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div><p className="font-medium">Duplicates</p><p>{(item.duplicates || 0)} found</p></div>
-                            <div><p className="font-medium">Missing Phones</p><p>{(item.missingPhones || 0)} rows</p></div>
+                            <div><p className="font-medium">No Phone (No Match)</p><p>{(item.missingPhones || 0)} rows</p></div>
+                            <div><p className="font-medium text-teal-600">Enriched (Name+City)</p><p className="text-teal-600">{(item.noPhoneEnriched || 0)} rows</p></div>
+                            <div><p className="font-medium text-amber-600">Ambiguous</p><p className="text-amber-600">{(item.ambiguousMatches || 0)} rows</p></div>
                           </div>
                           {item.firstFewErrors && item.firstFewErrors.length > 0 && (
                             <div className="mt-4 pt-4 border-t">

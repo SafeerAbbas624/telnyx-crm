@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { Plus, Edit, Trash2, FileText, Eye, Save, Copy } from "lucide-react"
+import { TemplateVariableSelector } from "@/components/ui/template-variable-selector"
 
 interface MessageTemplate {
   id: string
@@ -61,6 +62,31 @@ export default function TemplateManager({
     description: "",
   })
   const [activeTab, setActiveTab] = useState<"select" | "create">("select")
+
+  // Refs for cursor position insertion
+  const createContentRef = useRef<HTMLTextAreaElement>(null)
+  const editContentRef = useRef<HTMLTextAreaElement>(null)
+
+  // Helper function to insert variable at cursor position
+  const insertVariableAtCursor = (
+    variable: string,
+    ref: React.RefObject<HTMLTextAreaElement | null>
+  ) => {
+    const element = ref.current
+    if (element) {
+      const start = element.selectionStart || 0
+      const end = element.selectionEnd || 0
+      const newValue = formData.content.substring(0, start) + variable + formData.content.substring(end)
+      setFormData({ ...formData, content: newValue })
+      // Set cursor position after inserted variable
+      setTimeout(() => {
+        element.focus()
+        element.setSelectionRange(start + variable.length, start + variable.length)
+      }, 0)
+    } else {
+      setFormData({ ...formData, content: formData.content + variable })
+    }
+  }
 
   useEffect(() => {
     loadTemplates()
@@ -429,8 +455,14 @@ export default function TemplateManager({
                 </div>
 
                 <div>
-                  <Label htmlFor="content">Message Content</Label>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label htmlFor="content">Message Content</Label>
+                    <TemplateVariableSelector
+                      onSelect={(variable) => insertVariableAtCursor(variable, createContentRef)}
+                    />
+                  </div>
                   <Textarea
+                    ref={createContentRef}
                     id="content"
                     value={formData.content}
                     onChange={(e) => setFormData({ ...formData, content: e.target.value })}
@@ -439,44 +471,8 @@ export default function TemplateManager({
                     className="min-h-[200px]"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Use curly braces to add variables: {`{firstName}`}, {`{propertyAddress}`}, {`{city}`}, {`{state}`}, etc.
+                    Click &quot;Insert Variable&quot; to add dynamic content at cursor position
                   </p>
-                </div>
-
-                <div>
-                  <Label className="text-sm font-medium">Available Variables</Label>
-                  <div className="grid grid-cols-3 gap-2 mt-2 text-sm">
-                    <div className="space-y-1">
-                      <div className="text-gray-700">{`{firstName}`}</div>
-                      <div className="text-gray-700">{`{lastName}`}</div>
-                      <div className="text-gray-700">{`{fullName}`}</div>
-                      <div className="text-gray-700">{`{llcName}`}</div>
-                      <div className="text-gray-700">{`{phone1}`}</div>
-                      <div className="text-gray-700">{`{phone2}`}</div>
-                      <div className="text-gray-700">{`{phone3}`}</div>
-                      <div className="text-gray-700">{`{phone}`}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-gray-700">{`{email1}`}</div>
-                      <div className="text-gray-700">{`{email2}`}</div>
-                      <div className="text-gray-700">{`{email3}`}</div>
-                      <div className="text-gray-700">{`{email}`}</div>
-                      <div className="text-gray-700">{`{propertyAddress}`}</div>
-                      <div className="text-gray-700">{`{contactAddress}`}</div>
-                      <div className="text-gray-700">{`{city}`}</div>
-                      <div className="text-gray-700">{`{state}`}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-gray-700">{`{propertyType}`}</div>
-                      <div className="text-gray-700">{`{propertyCounty}`}</div>
-                      <div className="text-gray-700">{`{bedrooms}`}</div>
-                      <div className="text-gray-700">{`{totalBathrooms}`}</div>
-                      <div className="text-gray-700">{`{buildingSqft}`}</div>
-                      <div className="text-gray-700">{`{effectiveYearBuilt}`}</div>
-                      <div className="text-gray-700">{`{estValue}`}</div>
-                      <div className="text-gray-700">{`{estEquity}`}</div>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -500,17 +496,10 @@ export default function TemplateManager({
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit Template</DialogTitle>
+              <DialogDescription>
+                Click &quot;Insert Variable&quot; to add dynamic content at cursor position
+              </DialogDescription>
             </DialogHeader>
-
-            {/* Tabs */}
-            <div className="flex border-b">
-              <button className="px-4 py-2 text-sm text-gray-500 border-b-2 border-transparent">
-                Select Template
-              </button>
-              <button className="px-4 py-2 text-sm font-medium text-gray-900 border-b-2 border-gray-900">
-                Create/Edit Template
-              </button>
-            </div>
 
             <div className="space-y-4 mt-4">
               <div>
@@ -524,8 +513,14 @@ export default function TemplateManager({
               </div>
 
               <div>
-                <Label htmlFor="edit-content">Message Content</Label>
+                <div className="flex items-center justify-between mb-1">
+                  <Label htmlFor="edit-content">Message Content</Label>
+                  <TemplateVariableSelector
+                    onSelect={(variable) => insertVariableAtCursor(variable, editContentRef)}
+                  />
+                </div>
                 <Textarea
+                  ref={editContentRef}
                   id="edit-content"
                   value={formData.content}
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
@@ -534,44 +529,8 @@ export default function TemplateManager({
                   className="min-h-[200px]"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Use curly braces to add variables: {`{firstName}`}, {`{propertyAddress}`}, {`{city}`}, {`{state}`}, etc.
+                  Click &quot;Insert Variable&quot; to add dynamic content at cursor position
                 </p>
-              </div>
-
-              <div>
-                <Label className="text-sm font-medium">Available Variables</Label>
-                <div className="grid grid-cols-3 gap-2 mt-2 text-sm">
-                  <div className="space-y-1">
-                    <div className="text-gray-700">{`{firstName}`}</div>
-                    <div className="text-gray-700">{`{lastName}`}</div>
-                    <div className="text-gray-700">{`{fullName}`}</div>
-                    <div className="text-gray-700">{`{llcName}`}</div>
-                    <div className="text-gray-700">{`{phone1}`}</div>
-                    <div className="text-gray-700">{`{phone2}`}</div>
-                    <div className="text-gray-700">{`{phone3}`}</div>
-                    <div className="text-gray-700">{`{phone}`}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-gray-700">{`{email1}`}</div>
-                    <div className="text-gray-700">{`{email2}`}</div>
-                    <div className="text-gray-700">{`{email3}`}</div>
-                    <div className="text-gray-700">{`{email}`}</div>
-                    <div className="text-gray-700">{`{propertyAddress}`}</div>
-                    <div className="text-gray-700">{`{contactAddress}`}</div>
-                    <div className="text-gray-700">{`{city}`}</div>
-                    <div className="text-gray-700">{`{state}`}</div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-gray-700">{`{propertyType}`}</div>
-                    <div className="text-gray-700">{`{propertyCounty}`}</div>
-                    <div className="text-gray-700">{`{bedrooms}`}</div>
-                    <div className="text-gray-700">{`{totalBathrooms}`}</div>
-                    <div className="text-gray-700">{`{buildingSqft}`}</div>
-                    <div className="text-gray-700">{`{effectiveYearBuilt}`}</div>
-                    <div className="text-gray-700">{`{estValue}`}</div>
-                    <div className="text-gray-700">{`{estEquity}`}</div>
-                  </div>
-                </div>
               </div>
             </div>
 

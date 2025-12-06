@@ -7,6 +7,9 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
 import { redisClient } from '@/lib/cache/redis-client';
 import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { findContactByNameAndCityState, normalizeFullName } from '@/lib/import/contactMatching';
 
 interface CsvRecord {
   [key: string]: string | undefined;
@@ -20,6 +23,8 @@ interface ImportResult {
   importedCount: number;
   duplicateCount: number;
   missingPhoneCount: number;
+  noPhoneEnrichedCount: number;
+  ambiguousMatchCount: number;
   errors: Array<{ row: number; error: string }>;
 }
 
@@ -140,6 +145,22 @@ export async function POST(request: Request) {
     const buffer = await file.arrayBuffer();
     const content = new TextDecoder().decode(buffer);
 
+    // Save the uploaded CSV file for later download
+    const timestamp = Date.now();
+    const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const savedFileName = `${timestamp}_${safeFileName}`;
+    const uploadsDir = join(process.cwd(), 'public', 'uploads', 'imports');
+    const filePath = join(uploadsDir, savedFileName);
+    const fileUrl = `/uploads/imports/${savedFileName}`;
+
+    try {
+      await mkdir(uploadsDir, { recursive: true });
+      await writeFile(filePath, Buffer.from(buffer));
+    } catch (fileError) {
+      console.error('Failed to save uploaded file:', fileError);
+      // Continue with import even if file save fails
+    }
+
     const records = parse(content, {
       columns: true,
       skip_empty_lines: true,
@@ -190,6 +211,8 @@ export async function POST(request: Request) {
       importedCount: 0,
       duplicateCount: 0,
       missingPhoneCount: 0,
+      noPhoneEnrichedCount: 0,
+      ambiguousMatchCount: 0,
       errors: [],
     };
 
@@ -201,6 +224,8 @@ export async function POST(request: Request) {
 
       try {
         const { firstName, lastName } = splitFullName(record[invertedMapping.fullName]);
+        const fullName = record[invertedMapping.fullName] || '';
+        const contactCityStateZip = record[invertedMapping.contactCityStateZip] || '';
 
         const rawPhones = [
           record[invertedMapping.phone1] || '',
@@ -215,14 +240,161 @@ export async function POST(request: Request) {
         const phone2 = uniquePhones[1] || null;
         const phone3 = uniquePhones[2] || null;
 
-        if (!phone1) {
-          result.missingPhoneCount++;
-          skippedRecords.push({ row: rowNumber, reason: 'Missing phone number' });
-          continue;
-        }
+        const hasPhone = !!phone1 && phone1.length >= 7;
 
+        // Get property address for later use
         const propertyAddress = record[invertedMapping.propertyStreet] || record[invertedMapping.propertyAddress] || null;
 
+        // ==========================================
+        // NO-PHONE FALLBACK MATCHING LOGIC
+        // ==========================================
+        if (!hasPhone) {
+          // Try to match by name + city/state if we have those fields
+          const hasMatchingFields = !!fullName && !!contactCityStateZip;
+
+          if (!hasMatchingFields) {
+            // Cannot match - no phone and no name+city/state fields
+            result.missingPhoneCount++;
+            skippedRecords.push({ row: rowNumber, reason: 'No phone and no name/city-state to match' });
+            continue;
+          }
+
+          // Try to find existing contact by name + city/state
+          const match = await findContactByNameAndCityState(fullName, contactCityStateZip);
+
+          if (match === null) {
+            // No known person with this name + city/state - still No Phone
+            result.missingPhoneCount++;
+            skippedRecords.push({ row: rowNumber, reason: 'No phone and no matching contact found' });
+            continue;
+          }
+
+          if (match === 'AMBIGUOUS') {
+            // Multiple possible matches - be conservative
+            result.ambiguousMatchCount++;
+            skippedRecords.push({ row: rowNumber, reason: `Ambiguous match: multiple contacts with name "${fullName}" in ${contactCityStateZip}` });
+            continue;
+          }
+
+          // Single confident match - enrich this contact with the property from this row
+          const matchedContact = match;
+
+          if (!propertyAddress) {
+            // No property to add - count as duplicate/already exists
+            result.duplicateCount++;
+            skippedRecords.push({ row: rowNumber, reason: 'No-phone match but no property address to add' });
+            continue;
+          }
+
+          // Check if property already exists for this contact
+          const existingProperty = await prisma.contactProperty.findFirst({
+            where: { contactId: matchedContact.id, address: propertyAddress },
+          });
+
+          if (existingProperty) {
+            // Property already exists - duplicate
+            result.duplicateCount++;
+            skippedRecords.push({ row: rowNumber, reason: 'No-phone match: property already exists for contact' });
+            continue;
+          }
+
+          // Create the new property for this matched contact
+          // Parse property details
+          const parsedBedrooms = record[invertedMapping.bedrooms] ? parseInt(record[invertedMapping.bedrooms]!.replace(/[^0-9.]/g, ''), 10) : null;
+          const parsedBathroomsInt = record[invertedMapping.bathrooms]
+            ? Math.round(parseFloat(record[invertedMapping.bathrooms]!.replace(/[^0-9.]/g, '') || '0'))
+            : null;
+          const parsedBuildingSqft = record[invertedMapping.buildingSqft] ? parseInt(record[invertedMapping.buildingSqft]!.replace(/[^0-9.]/g, ''), 10) : null;
+          const parsedLotSizeSqft = record[invertedMapping.lotSizeSqft] ? parseInt(record[invertedMapping.lotSizeSqft]!.replace(/[^0-9.]/g, ''), 10) : null;
+          const parsedYearBuilt = record[invertedMapping.yearBuilt] ? parseInt(record[invertedMapping.yearBuilt]!.replace(/[^0-9]/g, ''), 10) : null;
+          const parsedEstValueInt = record[invertedMapping.estimatedValue]
+            ? Math.round(parseFloat(record[invertedMapping.estimatedValue]!.replace(/[^0-9.]/g, '') || '0'))
+            : null;
+          const parsedEstEquityInt = record[invertedMapping.estimatedEquity]
+            ? Math.round(parseFloat(record[invertedMapping.estimatedEquity]!.replace(/[^0-9.]/g, '') || '0'))
+            : null;
+          const parsedLastSaleAmount = record[invertedMapping.lastSaleAmount]
+            ? Math.round(parseFloat(record[invertedMapping.lastSaleAmount]!.replace(/[^0-9.]/g, '') || '0'))
+            : null;
+          let parsedLastSaleDate: Date | null = null;
+          if (record[invertedMapping.lastSaleDate]) {
+            const dateStr = record[invertedMapping.lastSaleDate]!.trim();
+            const parsedDate = new Date(dateStr);
+            if (!isNaN(parsedDate.getTime())) {
+              parsedLastSaleDate = parsedDate;
+            }
+          }
+          const parsedZipCode = record[invertedMapping.propertyZipCode] || null;
+          const normalizedPropType = normalizePropertyTypeStrict(record[invertedMapping.propertyType] || undefined);
+          const rowLlcName = record[invertedMapping.llcName] || null;
+
+          await prisma.contactProperty.create({
+            data: {
+              contactId: matchedContact.id,
+              address: propertyAddress,
+              city: record[invertedMapping.propertyCity] || null,
+              state: record[invertedMapping.propertyState] || null,
+              zipCode: parsedZipCode,
+              county: record[invertedMapping.propertyCounty] || null,
+              llcName: rowLlcName,
+              propertyType: normalizedPropType,
+              bedrooms: parsedBedrooms,
+              totalBathrooms: parsedBathroomsInt,
+              buildingSqft: parsedBuildingSqft,
+              lotSizeSqft: parsedLotSizeSqft,
+              effectiveYearBuilt: parsedYearBuilt,
+              lastSaleDate: parsedLastSaleDate,
+              lastSaleAmount: parsedLastSaleAmount,
+              estValue: parsedEstValueInt,
+              estEquity: parsedEstEquityInt,
+            },
+          });
+
+          // Check if this contact now has multiple properties and add tag
+          const propertyCount = await prisma.contactProperty.count({
+            where: { contactId: matchedContact.id },
+          });
+
+          if (propertyCount > 1) {
+            const multiPropTag = await prisma.tag.upsert({
+              where: { name: 'Multiple property' },
+              update: {},
+              create: { name: 'Multiple property' },
+            });
+
+            await prisma.contactTag.upsert({
+              where: {
+                contact_id_tag_id: {
+                  contact_id: matchedContact.id,
+                  tag_id: multiPropTag.id,
+                }
+              },
+              update: {},
+              create: {
+                contact_id: matchedContact.id,
+                tag_id: multiPropTag.id,
+              },
+            });
+          }
+
+          // Apply bulk tags to matched contact
+          if (tagRecords.length > 0) {
+            await prisma.contactTag.createMany({
+              data: tagRecords.map(t => ({ contact_id: matchedContact.id, tag_id: t.id })),
+              skipDuplicates: true,
+            });
+          }
+
+          result.noPhoneEnrichedCount++;
+          result.importedCount++;
+          processedIds.add(matchedContact.id);
+          continue;
+        }
+        // ==========================================
+        // END NO-PHONE FALLBACK MATCHING LOGIC
+        // ==========================================
+
+        // PHONE-BASED MATCHING (original logic)
         // Try cache first, then DB
         let existingContact = contactCache.get(phone1) || null;
         if (existingContact === undefined || existingContact === null) {
@@ -236,6 +408,7 @@ export async function POST(request: Request) {
           ? Math.round(parseFloat(record[invertedMapping.bathrooms]!.replace(/[^0-9.]/g, '') || '0'))
           : null;
         const parsedBuildingSqft = record[invertedMapping.buildingSqft] ? parseInt(record[invertedMapping.buildingSqft]!.replace(/[^0-9.]/g, ''), 10) : null;
+        const parsedLotSizeSqft = record[invertedMapping.lotSizeSqft] ? parseInt(record[invertedMapping.lotSizeSqft]!.replace(/[^0-9.]/g, ''), 10) : null;
         const parsedYearBuilt = record[invertedMapping.yearBuilt] ? parseInt(record[invertedMapping.yearBuilt]!.replace(/[^0-9]/g, ''), 10) : null;
         const parsedEstValueInt = record[invertedMapping.estimatedValue]
           ? Math.round(parseFloat(record[invertedMapping.estimatedValue]!.replace(/[^0-9.]/g, '') || '0'))
@@ -243,6 +416,19 @@ export async function POST(request: Request) {
         const parsedEstEquityInt = record[invertedMapping.estimatedEquity]
           ? Math.round(parseFloat(record[invertedMapping.estimatedEquity]!.replace(/[^0-9.]/g, '') || '0'))
           : null;
+        const parsedLastSaleAmount = record[invertedMapping.lastSaleAmount]
+          ? Math.round(parseFloat(record[invertedMapping.lastSaleAmount]!.replace(/[^0-9.]/g, '') || '0'))
+          : null;
+        // Parse last sale date - try to create a valid Date
+        let parsedLastSaleDate: Date | null = null;
+        if (record[invertedMapping.lastSaleDate]) {
+          const dateStr = record[invertedMapping.lastSaleDate]!.trim();
+          const parsedDate = new Date(dateStr);
+          if (!isNaN(parsedDate.getTime())) {
+            parsedLastSaleDate = parsedDate;
+          }
+        }
+        const parsedZipCode = record[invertedMapping.propertyZipCode] || null;
         const normalizedPropType = normalizePropertyTypeStrict(record[invertedMapping.propertyType] || undefined);
 
         if (existingContact) {
@@ -316,13 +502,17 @@ export async function POST(request: Request) {
                   address: propertyAddress,
                   city: record[invertedMapping.propertyCity] || null,
                   state: record[invertedMapping.propertyState] || null,
+                  zipCode: parsedZipCode,
                   county: record[invertedMapping.propertyCounty] || null,
                   llcName: rowLlcName,
                   propertyType: normalizedPropType,
                   bedrooms: parsedBedrooms,
                   totalBathrooms: parsedBathroomsInt,
                   buildingSqft: parsedBuildingSqft,
+                  lotSizeSqft: parsedLotSizeSqft,
                   effectiveYearBuilt: parsedYearBuilt,
+                  lastSaleDate: parsedLastSaleDate,
+                  lastSaleAmount: parsedLastSaleAmount,
                   estValue: parsedEstValueInt,
                   estEquity: parsedEstEquityInt,
                 },
@@ -341,12 +531,18 @@ export async function POST(request: Request) {
                   create: { name: 'Multiple property' },
                 });
 
-                await prisma.contactTag.create({
-                  data: {
+                await prisma.contactTag.upsert({
+                  where: {
+                    contact_id_tag_id: {
+                      contact_id: existingContact.id,
+                      tag_id: multiPropTag.id,
+                    }
+                  },
+                  update: {},
+                  create: {
                     contact_id: existingContact.id,
                     tag_id: multiPropTag.id,
                   },
-                  skipDuplicates: true,
                 });
               }
 
@@ -451,13 +647,17 @@ export async function POST(request: Request) {
                 address: propertyAddress,
                 city: record[invertedMapping.propertyCity] || null,
                 state: record[invertedMapping.propertyState] || null,
+                zipCode: parsedZipCode,
                 county: record[invertedMapping.propertyCounty] || null,
                 llcName: newContactLlcName,
                 propertyType: normalizedPropType,
                 bedrooms: parsedBedrooms,
                 totalBathrooms: parsedBathroomsInt,
                 buildingSqft: parsedBuildingSqft,
+                lotSizeSqft: parsedLotSizeSqft,
                 effectiveYearBuilt: parsedYearBuilt,
+                lastSaleDate: parsedLastSaleDate,
+                lastSaleAmount: parsedLastSaleAmount,
                 estValue: parsedEstValueInt,
                 estEquity: parsedEstEquityInt,
               },
@@ -486,11 +686,14 @@ export async function POST(request: Request) {
       data: {
         id: result.id,
         fileName: result.fileName,
+        fileUrl: fileUrl,
         importedAt: result.importedAt,
         totalRecords: result.totalRecords,
         importedCount: result.importedCount,
         duplicateCount: result.duplicateCount,
         missingPhoneCount: result.missingPhoneCount,
+        noPhoneEnrichedCount: result.noPhoneEnrichedCount,
+        ambiguousMatchCount: result.ambiguousMatchCount,
         errors: JSON.stringify(result.errors),
       },
     });
@@ -569,6 +772,8 @@ export async function POST(request: Request) {
       total: result.totalRecords,
       duplicates: result.duplicateCount,
       missingPhones: result.missingPhoneCount,
+      noPhoneEnriched: result.noPhoneEnrichedCount,
+      ambiguousMatches: result.ambiguousMatchCount,
       errors: result.errors.length,
       skipped: skippedRecords.length,
       importId,
@@ -615,12 +820,15 @@ export async function GET() {
       return {
         id: record.id,
         fileName: record.fileName,
+        fileUrl: record.fileUrl,
         importedAt: record.importedAt,
         totalRecords: record.totalRecords,
         imported: record.importedCount,
         duplicates: record.duplicateCount,
         missingPhones: record.missingPhoneCount,
-        skipped: record.totalRecords - record.importedCount,
+        noPhoneEnriched: record.noPhoneEnrichedCount || 0,
+        ambiguousMatches: record.ambiguousMatchCount || 0,
+        skipped: (record.totalRecords || 0) - (record.importedCount || 0),
         errorCount: errors.length,
         firstFewErrors: errors.slice(0, 5),
       };

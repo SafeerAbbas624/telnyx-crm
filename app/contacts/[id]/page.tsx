@@ -60,12 +60,8 @@ export default function ContactPage() {
   }, [session, contactId, toast])
 
   const handleBack = () => {
-    // Determine where to go back based on user role
-    if (session?.user?.role === 'TEAM_MEMBER') {
-      router.push('/team-dashboard')
-    } else {
-      router.push('/dashboard?tab=contacts')
-    }
+    // All users go back to the unified contacts page
+    router.push('/contacts')
   }
 
   if (!session?.user) {

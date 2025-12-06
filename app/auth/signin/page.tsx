@@ -38,13 +38,12 @@ export default function SignInPage() {
         return
       }
 
-      // Get the session to check user role
+      // Get the session to verify login was successful
       const session = await getSession()
-      
-      if (session?.user?.role === "ADMIN") {
-        router.push("/dashboard")
-      } else if (session?.user?.role === "TEAM_USER") {
-        router.push("/team-dashboard")
+
+      if (session?.user?.role === "ADMIN" || session?.user?.role === "TEAM_USER") {
+        // All users go to the unified dashboard (contacts page)
+        router.push("/contacts")
       } else {
         setError("Invalid user role")
         setIsLoading(false)

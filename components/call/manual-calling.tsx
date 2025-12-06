@@ -47,17 +47,22 @@ export default function ManualCalling() {
   const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [selectedCallerId, setSelectedCallerId] = useState<string>("")
 
-  // Load available phone numbers on mount
+  // Load available phone numbers on mount (respects user permissions)
   useEffect(() => {
     const loadAvailableNumbers = async () => {
       try {
-        const response = await fetch('/api/telnyx/phone-numbers')
+        // Use user-specific phone numbers endpoint (respects permissions)
+        const response = await fetch('/api/user/phone-numbers')
         if (response.ok) {
           const data = await response.json()
-          const numbers = Array.isArray(data) ? data : data.phoneNumbers || []
+          const numbers = data.phoneNumbers || []
           const activeNumbers = numbers.filter((n: TelnyxPhoneNumber) => n.isActive)
           setAvailableNumbers(activeNumbers)
-          if (activeNumbers.length > 0 && !selectedCallerId) {
+
+          // Use default phone number if set, otherwise first available
+          if (data.defaultPhoneNumber && !selectedCallerId) {
+            setSelectedCallerId(data.defaultPhoneNumber.phoneNumber)
+          } else if (activeNumbers.length > 0 && !selectedCallerId) {
             setSelectedCallerId(activeNumbers[0].phoneNumber)
           }
         }

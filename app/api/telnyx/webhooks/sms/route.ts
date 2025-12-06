@@ -398,6 +398,58 @@ async function handleMessageReceived(data: any) {
       }
     }
 
+    // Auto-stop active sequence enrollments when contact replies
+    if (contact?.id) {
+      try {
+        const activeEnrollments = await prisma.sequenceEnrollment.findMany({
+          where: {
+            contactId: contact.id,
+            status: 'ACTIVE',
+          },
+          include: {
+            sequence: {
+              select: { name: true },
+            },
+          },
+        })
+
+        if (activeEnrollments.length > 0) {
+          console.log(`[Sequence Auto-Stop] Contact ${contact.id} replied, pausing ${activeEnrollments.length} active enrollments`)
+
+          for (const enrollment of activeEnrollments) {
+            await prisma.sequenceEnrollment.update({
+              where: { id: enrollment.id },
+              data: {
+                status: 'PAUSED',
+                pauseReason: `Auto-paused: Contact replied via SMS at ${new Date().toISOString()}`,
+              },
+            })
+
+            // Log the auto-pause
+            const currentStep = await prisma.sequenceStep.findFirst({
+              where: {
+                sequenceId: enrollment.sequenceId,
+                orderIndex: enrollment.currentStepIndex,
+              },
+            })
+
+            if (currentStep) {
+              await prisma.sequenceLog.create({
+                data: {
+                  enrollmentId: enrollment.id,
+                  stepId: currentStep.id,
+                  result: 'AUTO_PAUSED_REPLY',
+                  errorMessage: `Contact replied via SMS: "${(data.text || '').substring(0, 100)}"`,
+                },
+              })
+            }
+          }
+        }
+      } catch (seqError) {
+        console.error('Error auto-stopping sequence enrollments:', seqError)
+      }
+    }
+
     // Emit real-time event via SSE for live updates
     try {
       broadcast('inbound_sms', {

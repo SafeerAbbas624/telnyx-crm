@@ -23,21 +23,21 @@ export default function ImportV2Layout({
     if (tab === "dashboard") {
       router.push("/dashboard")
     } else if (tab === "contacts") {
-      router.push("/dashboard?section=contacts")
+      router.push("/contacts")
     } else if (tab === "import") {
       router.push("/import-v2")
     } else if (tab === "tasks") {
-      router.push("/dashboard?section=tasks")
+      router.push("/tasks")
     } else if (tab === "deals") {
-      router.push("/dashboard?section=deals")
+      router.push("/deals")
     } else if (tab === "text") {
       router.push("/dashboard?section=text")
     } else if (tab === "email") {
       router.push("/dashboard?section=email")
     } else if (tab === "calls") {
-      router.push("/dashboard?section=calls")
-    } else if (tab === "team") {
-      router.push("/team-dashboard")
+      router.push("/calls")
+    } else if (tab === "team-overview") {
+      router.push("/dashboard?section=team-overview")
     } else if (tab === "admin") {
       router.push("/dashboard?section=admin")
     }

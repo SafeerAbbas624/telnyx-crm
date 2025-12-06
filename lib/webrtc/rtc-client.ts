@@ -44,6 +44,8 @@ class TelnyxWebRTCClient {
   private audioContextUnlocked = false
   // Track outbound call IDs to distinguish from inbound
   private outboundCallIds = new Set<string>()
+  // Flag to prevent false inbound detection during outbound call initiation
+  private isInitiatingOutbound = false
 
   constructor() {
     console.log('[RTC] 🔧 WebRTC Client Version: 2024-12-03-16:40 - WITH FALLBACK RINGTONE')
@@ -412,15 +414,18 @@ class TelnyxWebRTCClient {
         const direction = call.direction
         const callId = call.callId || call.id
 
-        console.log("[RTC] callUpdate:", { state, direction, callId })
+        console.log("[RTC] callUpdate:", { state, direction, callId, isInitiatingOutbound: this.isInitiatingOutbound })
 
         // Check if this is an inbound call:
-        // 1. direction === 'inbound' (when available)
-        // 2. OR state is 'new'/'ringing' and we didn't initiate it (not in outboundCallIds)
-        // 3. OR we have a pending inbound from invite message
-        const isInbound = direction === 'inbound' ||
-                         (state === 'ringing' && !this.outboundCallIds.has(callId)) ||
-                         (state === 'new' && !this.outboundCallIds.has(callId) && !this.currentCall)
+        // 1. We're NOT currently initiating an outbound call
+        // 2. direction === 'inbound' (when explicitly provided by SDK)
+        // 3. OR state is 'new'/'ringing' and we didn't initiate it (not in outboundCallIds, no currentCall)
+        // IMPORTANT: If isInitiatingOutbound is true, NEVER treat as inbound
+        const isInbound = !this.isInitiatingOutbound && (
+          direction === 'inbound' ||
+          (state === 'ringing' && !this.outboundCallIds.has(callId) && !this.currentCall) ||
+          (state === 'new' && !this.outboundCallIds.has(callId) && !this.currentCall)
+        )
 
         if (isInbound && (state === 'new' || state === 'ringing') && !this.inboundCall) {
           // Get caller info from call object or pending invite
@@ -589,6 +594,14 @@ class TelnyxWebRTCClient {
       else if (digits.length === 11 && digits.startsWith('1')) destination = `+${digits}`
     }
 
+    // Generate a temporary ID to track this as outbound BEFORE the call is created
+    // This prevents the callUpdate event from triggering inbound call flow
+    const tempOutboundId = `outbound-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    this.outboundCallIds.add(tempOutboundId)
+
+    // Mark that we're initiating an outbound call - prevents false inbound detection
+    this.isInitiatingOutbound = true
+
     const call = await this.client.newCall({
       destinationNumber: destination,
       callerNumber: opts.fromNumber,
@@ -603,12 +616,18 @@ class TelnyxWebRTCClient {
     }
     this.currentCall = call
 
+    // Clear the initiating flag after a short delay
+    setTimeout(() => { this.isInitiatingOutbound = false }, 2000)
+
     // Track this as an outbound call so we don't mistake it for inbound
     const callId = call?.callId || call?.id
     if (callId) {
       this.outboundCallIds.add(callId)
-      // Clean up after call ends (30 minutes max)
-      setTimeout(() => this.outboundCallIds.delete(callId), 30 * 60 * 1000)
+      // Clean up temp ID and real ID after call ends (30 minutes max)
+      setTimeout(() => {
+        this.outboundCallIds.delete(callId)
+        this.outboundCallIds.delete(tempOutboundId)
+      }, 30 * 60 * 1000)
     }
 
     return { sessionId: callId || Math.random().toString(36).slice(2) }

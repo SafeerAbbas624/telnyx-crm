@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
           sentimentScore: true,
           duration: true,
           createdAt: true,
-          initiatedByUser: { select: { id: true, name: true } },
+          initiatedByUser: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
       prisma.vapiCall.findMany({
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
         where: whereClause,
         select: {
           id: true,
-          session: { select: { userId: true, user: { select: { id: true, name: true } } } },
+          sessionId: true,
           status: true,
           callOutcome: true,
           sentiment: true,
@@ -79,7 +79,8 @@ export async function GET(req: NextRequest) {
     // Process Telnyx calls
     telnyxCalls.forEach((call) => {
       const agentId = call.initiatedBy || 'unknown'
-      const agentName = call.initiatedByUser?.name || 'Unknown Agent'
+      const user = call.initiatedByUser
+      const agentName = user ? `${user.firstName} ${user.lastName}` : 'Unknown Agent'
 
       if (!agentStats[agentId]) {
         agentStats[agentId] = {
@@ -94,7 +95,7 @@ export async function GET(req: NextRequest) {
       }
 
       agentStats[agentId].totalCalls++
-      if (call.status === 'answered' || call.status === 'completed') {
+      if (call.status === 'bridged' || call.status === 'hangup') {
         agentStats[agentId].answeredCalls++
       }
       if (call.callOutcome === 'interested') {
@@ -108,8 +109,8 @@ export async function GET(req: NextRequest) {
 
     // Process Power Dialer calls
     powerDialerCalls.forEach((call) => {
-      const agentId = call.session?.userId || 'unknown'
-      const agentName = call.session?.user?.name || 'Unknown Agent'
+      const agentId = call.sessionId || 'unknown'
+      const agentName = 'Power Dialer Agent'
 
       if (!agentStats[agentId]) {
         agentStats[agentId] = {

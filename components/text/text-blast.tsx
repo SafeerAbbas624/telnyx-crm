@@ -55,18 +55,28 @@ export default function TextBlast() {
   const { toast } = useToast();
   const { addProcess, updateProcess, pauseProcess, resumeProcess } = useProcesses();
 
-  // Fetch tags and Telnyx phone numbers from the database
+  // Fetch user's allowed phone numbers (respects permissions)
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
 
-        // Fetch phone numbers separately with error handling
+        // Fetch user's allowed phone numbers (respects permissions)
         try {
-          const phoneNumbersResponse = await fetch('/api/telnyx/phone-numbers');
+          const phoneNumbersResponse = await fetch('/api/user/phone-numbers');
           if (phoneNumbersResponse.ok) {
             const phoneNumbersData = await phoneNumbersResponse.json();
-            setSenderNumbers(Array.isArray(phoneNumbersData) ? phoneNumbersData : []);
+            const numbers = phoneNumbersData.phoneNumbers || [];
+            setSenderNumbers(numbers.filter((n: any) => n.isActive));
+
+            // Show warning if no numbers available
+            if (numbers.length === 0) {
+              toast({
+                title: 'No Phone Numbers',
+                description: 'You have no phone numbers assigned. Contact your admin.',
+                variant: 'destructive',
+              });
+            }
           } else {
             console.warn('Failed to fetch phone numbers, using empty array');
             setSenderNumbers([]);

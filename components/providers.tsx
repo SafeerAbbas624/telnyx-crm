@@ -7,10 +7,11 @@ import { CallUIProvider, useCallUI } from "@/lib/context/call-ui-context"
 import { SmsUIProvider } from "@/lib/context/sms-ui-context"
 import { EmailUIProvider } from "@/lib/context/email-ui-context"
 import { TaskUIProvider } from "@/lib/context/task-ui-context"
+import { PhoneNumberProvider } from "@/lib/context/phone-number-context"
 import RedesignedCallPopup from "@/components/call/redesigned-call-popup"
 import InlineSmsPanel from "@/components/sms/inline-sms-panel"
 import InlineEmailPanel from "@/components/email/inline-email-panel"
-import InlineTaskPanel from "@/components/tasks/inline-task-panel"
+import GlobalTaskModal from "@/components/tasks/global-task-modal"
 import InboundCallNotification from "@/components/call/inbound-call-notification"
 import WebRTCAutoRegister from "@/components/call/webrtc-auto-register"
 import InboundMessageToast from "@/components/notifications/inbound-message-toast"
@@ -103,37 +104,39 @@ function InboundCallHandler() {
 export default function Providers({ children }: ProvidersProps) {
   return (
     <SessionProvider>
-      <ContactsProvider>
-        <ActivitiesProvider>
-          <NotificationsProvider>
-            <CallUIProvider>
-              <SmsUIProvider>
-                <EmailUIProvider>
-                  <TaskUIProvider>
-                    {children}
-                    {/* Auto-register WebRTC for inbound calls */}
-                    <WebRTCAutoRegister />
-                    {/* Global events listener for toasts/notifications */}
-                    <GlobalEventsListener />
-                    {/* Global call popup */}
-                    <RedesignedCallPopup />
-                    {/* Inbound call notification */}
-                    <InboundCallHandler />
-                    {/* Global SMS panel */}
-                    <InlineSmsPanel />
-                    {/* Global Email panel */}
-                    <InlineEmailPanel />
-                    {/* Global Task panel */}
-                    <InlineTaskPanel />
-                    {/* Inbound message notifications (SMS/Email) */}
-                    <InboundMessageToast />
-                  </TaskUIProvider>
-                </EmailUIProvider>
-              </SmsUIProvider>
-            </CallUIProvider>
-          </NotificationsProvider>
-        </ActivitiesProvider>
-      </ContactsProvider>
+      <PhoneNumberProvider>
+        <ContactsProvider>
+          <ActivitiesProvider>
+            <NotificationsProvider>
+              <CallUIProvider>
+                <SmsUIProvider>
+                  <EmailUIProvider>
+                    <TaskUIProvider>
+                      {children}
+                      {/* Auto-register WebRTC for inbound calls */}
+                      <WebRTCAutoRegister />
+                      {/* Global events listener for toasts/notifications */}
+                      <GlobalEventsListener />
+                      {/* Global call popup */}
+                      <RedesignedCallPopup />
+                      {/* Inbound call notification */}
+                      <InboundCallHandler />
+                      {/* Global SMS panel */}
+                      <InlineSmsPanel />
+                      {/* Global Email panel */}
+                      <InlineEmailPanel />
+                      {/* Global Task Modal */}
+                      <GlobalTaskModal />
+                      {/* Inbound message notifications (SMS/Email) */}
+                      <InboundMessageToast />
+                    </TaskUIProvider>
+                  </EmailUIProvider>
+                </SmsUIProvider>
+              </CallUIProvider>
+            </NotificationsProvider>
+          </ActivitiesProvider>
+        </ContactsProvider>
+      </PhoneNumberProvider>
     </SessionProvider>
   )
 }

@@ -63,6 +63,29 @@ module.exports = {
       out_file: '/var/www/adlercapitalcrm.com/logs/email-idle-out.log',
       log_file: '/var/www/adlercapitalcrm.com/logs/email-idle-combined.log',
       time: true
+    },
+    {
+      name: 'sequence-worker',
+      script: 'npx',
+      args: 'tsx workers/sequence-worker.ts',
+      cwd: '/var/www/adlercapitalcrm.com',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '256M',
+      min_uptime: '10s',
+      max_restarts: 5,
+      restart_delay: 4000,
+      env: {
+        NODE_ENV: 'production',
+        SEQUENCE_PROCESS_INTERVAL_MS: '60000',
+        APP_URL: 'http://localhost:3000',
+      },
+      error_file: '/var/www/adlercapitalcrm.com/logs/sequence-worker-error.log',
+      out_file: '/var/www/adlercapitalcrm.com/logs/sequence-worker-out.log',
+      log_file: '/var/www/adlercapitalcrm.com/logs/sequence-worker-combined.log',
+      time: true
     }
   ]
 }

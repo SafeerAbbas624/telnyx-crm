@@ -45,19 +45,14 @@ export default function GlobalEventsListener() {
         className: 'cursor-pointer',
         onClick: () => {
           if (contactId) {
-            if (isTeam) {
-              try { localStorage.setItem('openConvContactId', contactId) } catch {}
-              try { localStorage.setItem('openTeamTab', 'conversations') } catch {}
-              try { window.location.assign('/team-dashboard') } catch {}
-            } else {
-              try {
-                const url = new URL(window.location.href)
-                url.pathname = '/dashboard'
-                url.searchParams.set('section', 'messaging')
-                url.searchParams.set('contactId', contactId)
-                window.location.assign(url.toString())
-              } catch {}
-            }
+            // Unified navigation - all users go to the same dashboard
+            try {
+              const url = new URL(window.location.href)
+              url.pathname = '/dashboard'
+              url.searchParams.set('section', 'messaging')
+              url.searchParams.set('contactId', contactId)
+              window.location.assign(url.toString())
+            } catch {}
           }
         }
       })
@@ -79,19 +74,14 @@ export default function GlobalEventsListener() {
         className: 'cursor-pointer',
         onClick: () => {
           if (contactId) {
-            if (isTeam) {
-              try { localStorage.setItem('openEmailContactId', contactId) } catch {}
-              try { localStorage.setItem('openTeamTab', 'emails') } catch {}
-              try { window.location.assign('/team-dashboard') } catch {}
-            } else {
-              try {
-                const url = new URL(window.location.href)
-                url.pathname = '/dashboard'
-                url.searchParams.set('section', 'email')
-                url.searchParams.set('contactId', contactId)
-                window.location.assign(url.toString())
-              } catch {}
-            }
+            // Unified navigation - all users go to the same dashboard
+            try {
+              const url = new URL(window.location.href)
+              url.pathname = '/dashboard'
+              url.searchParams.set('section', 'email')
+              url.searchParams.set('contactId', contactId)
+              window.location.assign(url.toString())
+            } catch {}
           }
         }
       })

@@ -21,6 +21,24 @@ export async function GET(request: NextRequest) {
               displayName: true
             }
           },
+          defaultPhoneNumber: {
+            select: {
+              id: true,
+              phoneNumber: true,
+              friendlyName: true
+            }
+          },
+          allowedPhoneNumbers: {
+            include: {
+              phoneNumber: {
+                select: {
+                  id: true,
+                  phoneNumber: true,
+                  friendlyName: true
+                }
+              }
+            }
+          },
           _count: {
             select: {
               assignedContacts: true
@@ -41,6 +59,10 @@ export async function GET(request: NextRequest) {
         assignedPhoneNumber: user.assignedPhoneNumber,
         assignedEmailId: user.assignedEmailId,
         assignedEmail: user.assignedEmail,
+        defaultPhoneNumberId: user.defaultPhoneNumber?.id,
+        defaultPhoneNumber: user.defaultPhoneNumber,
+        allowedPhoneNumbers: user.allowedPhoneNumbers.map(ap => ap.phoneNumber),
+        allowedPhoneNumbersCount: user.allowedPhoneNumbers.length,
         assignedContactsCount: user._count.assignedContacts,
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt?.toISOString()

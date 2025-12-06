@@ -11,7 +11,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Slider } from "@/components/ui/slider"
 import {
   X, Filter, ChevronDown, Check, MapPin, Building2, DollarSign,
-  Ruler, BedDouble, Bath, Tag, Home
+  Ruler, BedDouble, Bath, Tag, Home, Calendar
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -46,6 +46,9 @@ interface ActiveFilters {
   maxBaths?: number
   minProperties?: number
   maxProperties?: number
+  dateAddedPreset?: string  // 'today' | 'yesterday' | 'thisWeek' | 'thisMonth' | 'last7Days' | 'last30Days' | 'custom'
+  createdAfter?: string
+  createdBefore?: string
 }
 
 interface SmartFilterPanelProps {
@@ -86,9 +89,47 @@ export default function SmartFilterPanel({
         maxBaths: currentFilters.maxBathrooms ? Number(currentFilters.maxBathrooms) : undefined,
         minProperties: currentFilters.minProperties ? Number(currentFilters.minProperties) : undefined,
         maxProperties: currentFilters.maxProperties ? Number(currentFilters.maxProperties) : undefined,
+        dateAddedPreset: currentFilters.dateAddedPreset || undefined,
+        createdAfter: currentFilters.createdAfter || undefined,
+        createdBefore: currentFilters.createdBefore || undefined,
       })
     }
   }, [])
+
+  // Helper to get date range from preset
+  const getDateRangeFromPreset = (preset: string): { createdAfter?: string; createdBefore?: string } => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    switch (preset) {
+      case 'today':
+        return { createdAfter: today.toISOString().split('T')[0] }
+      case 'yesterday':
+        const yesterday = new Date(today)
+        yesterday.setDate(yesterday.getDate() - 1)
+        return {
+          createdAfter: yesterday.toISOString().split('T')[0],
+          createdBefore: yesterday.toISOString().split('T')[0]
+        }
+      case 'thisWeek':
+        const weekStart = new Date(today)
+        weekStart.setDate(today.getDate() - today.getDay())
+        return { createdAfter: weekStart.toISOString().split('T')[0] }
+      case 'last7Days':
+        const sevenDaysAgo = new Date(today)
+        sevenDaysAgo.setDate(today.getDate() - 7)
+        return { createdAfter: sevenDaysAgo.toISOString().split('T')[0] }
+      case 'thisMonth':
+        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+        return { createdAfter: monthStart.toISOString().split('T')[0] }
+      case 'last30Days':
+        const thirtyDaysAgo = new Date(today)
+        thirtyDaysAgo.setDate(today.getDate() - 30)
+        return { createdAfter: thirtyDaysAgo.toISOString().split('T')[0] }
+      default:
+        return {}
+    }
+  }
 
   const applyFilters = useCallback(() => {
     const apiFilters: Record<string, string> = {}
@@ -108,6 +149,17 @@ export default function SmartFilterPanel({
     if (filters.maxBaths !== undefined) apiFilters.maxBathrooms = String(filters.maxBaths)
     if (filters.minProperties !== undefined) apiFilters.minProperties = String(filters.minProperties)
     if (filters.maxProperties !== undefined) apiFilters.maxProperties = String(filters.maxProperties)
+
+    // Handle date added filter
+    if (filters.dateAddedPreset && filters.dateAddedPreset !== 'custom') {
+      const dateRange = getDateRangeFromPreset(filters.dateAddedPreset)
+      if (dateRange.createdAfter) apiFilters.createdAfter = dateRange.createdAfter
+      if (dateRange.createdBefore) apiFilters.createdBefore = dateRange.createdBefore
+    } else if (filters.createdAfter || filters.createdBefore) {
+      if (filters.createdAfter) apiFilters.createdAfter = filters.createdAfter
+      if (filters.createdBefore) apiFilters.createdBefore = filters.createdBefore
+    }
+
     onFiltersChange(apiFilters)
   }, [filters, onFiltersChange])
 
@@ -117,6 +169,9 @@ export default function SmartFilterPanel({
       counties: [],
       propertyTypes: [],
       tags: [],
+      dateAddedPreset: undefined,
+      createdAfter: undefined,
+      createdBefore: undefined,
     })
     onFiltersChange({})
   }
@@ -137,7 +192,8 @@ export default function SmartFilterPanel({
     (filters.minBaths !== undefined ? 1 : 0) +
     (filters.maxBaths !== undefined ? 1 : 0) +
     (filters.minProperties !== undefined ? 1 : 0) +
-    (filters.maxProperties !== undefined ? 1 : 0)
+    (filters.maxProperties !== undefined ? 1 : 0) +
+    (filters.dateAddedPreset || filters.createdAfter || filters.createdBefore ? 1 : 0)
 
   // Format currency for display
   const formatCurrency = (val: number) => {
@@ -269,6 +325,108 @@ export default function SmartFilterPanel({
           onChange={(min, max) => setFilters(f => ({ ...f, minProperties: min, maxProperties: max }))}
         />
 
+        {/* Date Added Filter */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-8 border-dashed text-xs gap-1",
+                (filters.dateAddedPreset || filters.createdAfter) && "border-orange-300 bg-orange-50 text-orange-700"
+              )}
+            >
+              <Calendar className="h-3.5 w-3.5" />
+              Date Added
+              {filters.dateAddedPreset && (
+                <span className="ml-1 font-medium">
+                  {filters.dateAddedPreset === 'today' && 'Today'}
+                  {filters.dateAddedPreset === 'yesterday' && 'Yesterday'}
+                  {filters.dateAddedPreset === 'thisWeek' && 'This Week'}
+                  {filters.dateAddedPreset === 'last7Days' && 'Last 7 Days'}
+                  {filters.dateAddedPreset === 'thisMonth' && 'This Month'}
+                  {filters.dateAddedPreset === 'last30Days' && 'Last 30 Days'}
+                  {filters.dateAddedPreset === 'custom' && 'Custom'}
+                </span>
+              )}
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-3" align="start">
+            <div className="space-y-3">
+              <div className="text-sm font-medium text-gray-700">Filter by Date Added</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: 'today', label: 'Today' },
+                  { value: 'yesterday', label: 'Yesterday' },
+                  { value: 'thisWeek', label: 'This Week' },
+                  { value: 'last7Days', label: 'Last 7 Days' },
+                  { value: 'thisMonth', label: 'This Month' },
+                  { value: 'last30Days', label: 'Last 30 Days' },
+                ].map(option => (
+                  <Button
+                    key={option.value}
+                    variant={filters.dateAddedPreset === option.value ? "default" : "outline"}
+                    size="sm"
+                    className="h-8 text-xs justify-start"
+                    onClick={() => setFilters(f => ({
+                      ...f,
+                      dateAddedPreset: option.value,
+                      createdAfter: undefined,
+                      createdBefore: undefined
+                    }))}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="border-t pt-3">
+                <div className="text-xs text-gray-500 mb-2">Custom Range</div>
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    className="h-8 text-xs"
+                    value={filters.createdAfter || ''}
+                    onChange={(e) => setFilters(f => ({
+                      ...f,
+                      createdAfter: e.target.value || undefined,
+                      dateAddedPreset: e.target.value ? 'custom' : undefined
+                    }))}
+                    placeholder="From"
+                  />
+                  <Input
+                    type="date"
+                    className="h-8 text-xs"
+                    value={filters.createdBefore || ''}
+                    onChange={(e) => setFilters(f => ({
+                      ...f,
+                      createdBefore: e.target.value || undefined,
+                      dateAddedPreset: f.createdAfter || e.target.value ? 'custom' : undefined
+                    }))}
+                    placeholder="To"
+                  />
+                </div>
+              </div>
+              {(filters.dateAddedPreset || filters.createdAfter || filters.createdBefore) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-7 text-xs text-gray-500"
+                  onClick={() => setFilters(f => ({
+                    ...f,
+                    dateAddedPreset: undefined,
+                    createdAfter: undefined,
+                    createdBefore: undefined
+                  }))}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Clear Date Filter
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+
         {/* Apply / Clear Buttons */}
         <div className="flex items-center gap-1 ml-auto">
           {activeFilterCount > 0 && (
@@ -338,6 +496,24 @@ export default function SmartFilterPanel({
             <Badge variant="secondary" className="text-xs py-0.5 px-2 bg-cyan-50 text-cyan-700">
               Baths: {filters.minBaths ?? 0} - {filters.maxBaths ?? 'Max'}
               <X className="h-3 w-3 ml-1 cursor-pointer" onClick={() => setFilters(f => ({ ...f, minBaths: undefined, maxBaths: undefined }))} />
+            </Badge>
+          )}
+          {(filters.dateAddedPreset || filters.createdAfter || filters.createdBefore) && (
+            <Badge variant="secondary" className="text-xs py-0.5 px-2 bg-orange-50 text-orange-700">
+              <Calendar className="h-3 w-3 mr-1" />
+              {filters.dateAddedPreset === 'today' && 'Added Today'}
+              {filters.dateAddedPreset === 'yesterday' && 'Added Yesterday'}
+              {filters.dateAddedPreset === 'thisWeek' && 'Added This Week'}
+              {filters.dateAddedPreset === 'last7Days' && 'Added Last 7 Days'}
+              {filters.dateAddedPreset === 'thisMonth' && 'Added This Month'}
+              {filters.dateAddedPreset === 'last30Days' && 'Added Last 30 Days'}
+              {filters.dateAddedPreset === 'custom' && `${filters.createdAfter || ''} - ${filters.createdBefore || ''}`}
+              <X className="h-3 w-3 ml-1 cursor-pointer" onClick={() => setFilters(f => ({
+                ...f,
+                dateAddedPreset: undefined,
+                createdAfter: undefined,
+                createdBefore: undefined
+              }))} />
             </Badge>
           )}
         </div>

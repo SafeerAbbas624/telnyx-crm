@@ -5,9 +5,10 @@ import { useContacts } from "@/lib/context/contacts-context"
 import EnhancedConversationsList from "@/components/text/enhanced-conversations-list"
 import EnhancedConversation from "@/components/text/enhanced-conversation"
 import TextBlastQueue from "@/components/text/text-blast-queue"
+import TextBlastOperations from "@/components/text/text-blast-operations"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useMediaQuery } from "@/hooks/use-media-query"
-import { MessageSquare, Send } from "lucide-react"
+import { MessageSquare, Send, Settings } from "lucide-react"
 import type { Contact } from "@/lib/types"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
@@ -98,7 +99,7 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
             <h1 className="text-3xl font-bold tracking-tight">Text Center</h1>
             <p className="text-muted-foreground">Manage SMS conversations and campaigns</p>
           </div>
-          <TabsList className="grid grid-cols-2 w-full max-w-md">
+          <TabsList className="grid grid-cols-3 w-full max-w-xl">
             <TabsTrigger value="conversations" className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4" />
               <span>Conversations</span>
@@ -106,6 +107,10 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
             <TabsTrigger value="blast" className="flex items-center gap-2">
               <Send className="h-4 w-4" />
               <span>Text Blast</span>
+            </TabsTrigger>
+            <TabsTrigger value="operations" className="flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              <span>Operations</span>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -136,6 +141,9 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
           </TabsContent>
           <TabsContent value="blast" className="m-0 h-full p-6 overflow-auto">
             <TextBlastQueue />
+          </TabsContent>
+          <TabsContent value="operations" className="m-0 h-full overflow-auto">
+            <TextBlastOperations />
           </TabsContent>
         </div>
       </Tabs>

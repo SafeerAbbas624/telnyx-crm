@@ -37,6 +37,13 @@ export async function GET(request: NextRequest) {
             contacts: true,
             sessions: true,
           }
+        },
+        script: {
+          select: {
+            id: true,
+            name: true,
+            content: true,
+          }
         }
       }
     })
@@ -61,9 +68,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, description, contactIds } = body
+    const { name, description, contactIds, scriptId } = body
 
-    console.log('[POWER DIALER LIST] Creating list:', { name, contactCount: contactIds?.length })
+    console.log('[POWER DIALER LIST] Creating list:', { name, contactCount: contactIds?.length, scriptId })
 
     if (!name || !Array.isArray(contactIds)) {
       console.error('[POWER DIALER LIST] Validation failed:', { name, isArray: Array.isArray(contactIds) })
@@ -88,6 +95,7 @@ export async function POST(request: NextRequest) {
         userId: session.user.id,
         name,
         description,
+        scriptId: scriptId || null,
         totalContacts: contactIds.length,
         status: 'ACTIVE',
       }

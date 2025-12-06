@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { parse } from 'csv-parse/sync';
 import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
@@ -7,10 +9,14 @@ import { redisClient } from '@/lib/cache/redis-client';
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { normalizePropertyType } from '@/lib/property-type-mapper';
+import { normalizeLlcName, normalizePhoneForImport, isNoPhone } from '@/lib/import/llcNormalization';
 
 // Increase timeout for large file imports (5 minutes)
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
+
+// Row classification types for better statistics
+type RowClassification = 'new_contact' | 'existing_new_property' | 'duplicate' | 'no_phone' | 'skipped_other' | 'error';
 
 // Helper function to find existing contact by phone
 async function findExistingContactByPhone(phone: string) {
@@ -41,8 +47,46 @@ function splitFullName(fullName: string | undefined) {
   return { firstName, lastName };
 }
 
+// Helper to check if property address matches (case-insensitive, normalized)
+function normalizeAddress(address: string | null | undefined): string {
+  if (!address) return '';
+  return address.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+function propertyAddressMatches(
+  existingAddress: string | null | undefined,
+  existingCity: string | null | undefined,
+  existingState: string | null | undefined,
+  existingZip: string | null | undefined,
+  newAddress: string | null | undefined,
+  newCity: string | null | undefined,
+  newState: string | null | undefined,
+  newZip: string | null | undefined
+): boolean {
+  // If both addresses are empty, consider them matching (true duplicate)
+  if (!existingAddress && !newAddress) return true;
+
+  // If one has address and other doesn't, they don't match
+  if (!existingAddress || !newAddress) return false;
+
+  // Compare full address (address + city + state + zip)
+  const existingFull = `${normalizeAddress(existingAddress)}|${normalizeAddress(existingCity)}|${normalizeAddress(existingState)}|${normalizeAddress(existingZip)}`;
+  const newFull = `${normalizeAddress(newAddress)}|${normalizeAddress(newCity)}|${normalizeAddress(newState)}|${normalizeAddress(newZip)}`;
+
+  return existingFull === newFull;
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // Admin-only route protection
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (session.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const mappingStr = formData.get('mapping') as string;
@@ -75,9 +119,12 @@ export async function POST(request: NextRequest) {
       trim: true
     });
 
-    let duplicates = 0;
-    let skippedNoPhone = 0;
-    let skippedOther = 0;
+    // Import statistics - now tracking more categories
+    let newContactsCount = 0;       // Brand new contacts created
+    let existingNewProperties = 0;  // Existing contacts with new properties added
+    let duplicates = 0;             // True duplicates (same phone + same property)
+    let skippedNoPhone = 0;         // No valid phone number
+    let skippedOther = 0;           // Skipped for other reasons
     const validationErrors: Array<{ row: number; error: string }> = [];
 
     // Build inverted mapping (fieldKey -> CSV column)
@@ -243,11 +290,21 @@ export async function POST(request: NextRequest) {
       }
 
       const fullName = cleanedFullName || `${firstName} ${lastName}`.trim();
-      const phone1 = record[invertedMapping.phone1];
+      const rawPhone1 = record[invertedMapping.phone1];
       const propertyAddress = record[invertedMapping.propertyAddress];
+      const city = record[invertedMapping.city];
+      const state = record[invertedMapping.state];
+      const zipCode = record[invertedMapping.zipCode];
 
-      // Skip if no phone number
-      if (!phone1 || phone1.trim() === '' || phone1.toLowerCase() === 'none' || phone1.toLowerCase() === 'nan') {
+      // Use improved phone validation from llcNormalization utility
+      if (isNoPhone(rawPhone1)) {
+        skippedNoPhone++;
+        continue;
+      }
+
+      // Normalize phone number (handles CSV floats like "1234567890.0")
+      const phone1 = normalizePhoneForImport(rawPhone1);
+      if (!phone1) {
         skippedNoPhone++;
         continue;
       }
@@ -258,75 +315,94 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Check for duplicates by phone AND property address in database
+      // Check for existing contact by phone in database
       const existing = await findExistingContactByPhone(phone1);
       if (existing) {
-        // If phone matches but property address is different, this is a new property for the same contact
-        // Add it to ContactProperty table instead of marking as duplicate
-        const existingAddress = existing.propertyAddress?.toLowerCase().trim();
-        const newAddress = propertyAddress?.toLowerCase().trim();
+        // Check if this is a true duplicate (same phone + same property address)
+        // or a new property for an existing contact
+        const hasMatchingProperty = existing.properties?.some(prop =>
+          propertyAddressMatches(prop.address, prop.city, prop.state, prop.zipCode, propertyAddress, city, state, zipCode)
+        );
 
-        if (existingAddress && newAddress && existingAddress !== newAddress) {
-          // This is a different property for the same contact
-          // Extract property-specific fields to add to ContactProperty table
-          const propertyData: Record<string, any> = {};
+        // Also check the main contact's property address
+        const mainAddressMatches = propertyAddressMatches(
+          existing.propertyAddress, existing.city, existing.state, existing.zipCode,
+          propertyAddress, city, state, zipCode
+        );
 
-          // Get property fields from the record
-          if (propertyAddress) propertyData.address = propertyAddress;
-          if (record[invertedMapping.city]) propertyData.city = record[invertedMapping.city];
-          if (record[invertedMapping.state]) propertyData.state = record[invertedMapping.state];
-          if (record[invertedMapping.propertyCounty]) propertyData.county = record[invertedMapping.propertyCounty];
-          if (record[invertedMapping.propertyType]) propertyData.propertyType = normalizePropertyType(record[invertedMapping.propertyType]);
-
-          // Convert numeric fields
-          try {
-            if (record[invertedMapping.bedrooms]) {
-              const val = convertValue('bedrooms', record[invertedMapping.bedrooms], i + 2);
-              if (val !== null) propertyData.bedrooms = val;
-            }
-            if (record[invertedMapping.totalBathrooms]) {
-              const val = convertValue('totalBathrooms', record[invertedMapping.totalBathrooms], i + 2);
-              if (val !== null) propertyData.totalBathrooms = Math.floor(val); // ContactProperty expects Int
-            }
-            if (record[invertedMapping.buildingSqft]) {
-              const val = convertValue('buildingSqft', record[invertedMapping.buildingSqft], i + 2);
-              if (val !== null) propertyData.buildingSqft = val;
-            }
-            if (record[invertedMapping.effectiveYearBuilt]) {
-              const val = convertValue('effectiveYearBuilt', record[invertedMapping.effectiveYearBuilt], i + 2);
-              if (val !== null) propertyData.effectiveYearBuilt = val;
-            }
-            if (record[invertedMapping.estValue]) {
-              const val = convertValue('estValue', record[invertedMapping.estValue], i + 2);
-              if (val !== null) propertyData.estValue = val;
-            }
-            if (record[invertedMapping.estEquity]) {
-              const val = convertValue('estEquity', record[invertedMapping.estEquity], i + 2);
-              if (val !== null) propertyData.estEquity = val;
-            }
-          } catch (error) {
-            // Skip this property if conversion fails
-            validationErrors.push({
-              row: i + 2,
-              error: `Property field conversion error: ${error instanceof Error ? error.message : String(error)}`
-            });
-            skippedOther++;
-            continue;
-          }
-
-          propertiesToAdd.push({
-            rowIndex: i + 2,
-            existingContactId: existing.id,
-            propertyData
-          });
-
-          // Don't mark as duplicate - we're adding a new property
-          continue;
-        } else {
-          // Same phone and same (or no) property address = true duplicate
+        if (hasMatchingProperty || mainAddressMatches) {
+          // True duplicate - same phone AND same property address
           duplicates++;
           continue;
         }
+
+        // Different property for the same contact - add to ContactProperty table
+        const propertyData: Record<string, any> = {};
+
+        // Get property fields from the record
+        if (propertyAddress) propertyData.address = propertyAddress;
+        if (city) propertyData.city = city;
+        if (state) propertyData.state = state;
+        if (zipCode) propertyData.zipCode = zipCode;
+        if (record[invertedMapping.propertyCounty]) propertyData.county = record[invertedMapping.propertyCounty];
+        if (record[invertedMapping.propertyType]) propertyData.propertyType = normalizePropertyType(record[invertedMapping.propertyType]);
+
+        // Normalize LLC name
+        const llcName = record[invertedMapping.llcName];
+        if (llcName) propertyData.llcName = normalizeLlcName(llcName);
+
+        // Convert numeric fields
+        try {
+          if (record[invertedMapping.bedrooms]) {
+            const val = convertValue('bedrooms', record[invertedMapping.bedrooms], i + 2);
+            if (val !== null) propertyData.bedrooms = val;
+          }
+          if (record[invertedMapping.totalBathrooms]) {
+            const val = convertValue('totalBathrooms', record[invertedMapping.totalBathrooms], i + 2);
+            if (val !== null) propertyData.totalBathrooms = Math.floor(val); // ContactProperty expects Int
+          }
+          if (record[invertedMapping.buildingSqft]) {
+            const val = convertValue('buildingSqft', record[invertedMapping.buildingSqft], i + 2);
+            if (val !== null) propertyData.buildingSqft = val;
+          }
+          if (record[invertedMapping.effectiveYearBuilt]) {
+            const val = convertValue('effectiveYearBuilt', record[invertedMapping.effectiveYearBuilt], i + 2);
+            if (val !== null) propertyData.effectiveYearBuilt = val;
+          }
+          if (record[invertedMapping.estValue]) {
+            const val = convertValue('estValue', record[invertedMapping.estValue], i + 2);
+            if (val !== null) propertyData.estValue = val;
+          }
+          if (record[invertedMapping.estEquity]) {
+            const val = convertValue('estEquity', record[invertedMapping.estEquity], i + 2);
+            if (val !== null) propertyData.estEquity = val;
+          }
+          if (record[invertedMapping.lastSaleDate]) {
+            const val = convertValue('lastSaleDate', record[invertedMapping.lastSaleDate], i + 2);
+            if (val !== null) propertyData.lastSaleDate = new Date(val);
+          }
+          if (record[invertedMapping.lastSaleAmount]) {
+            const val = convertValue('lastSaleAmount', record[invertedMapping.lastSaleAmount], i + 2);
+            if (val !== null) propertyData.lastSaleAmount = val;
+          }
+        } catch (error) {
+          // Skip this property if conversion fails
+          validationErrors.push({
+            row: i + 2,
+            error: `Property field conversion error: ${error instanceof Error ? error.message : String(error)}`
+          });
+          skippedOther++;
+          continue;
+        }
+
+        propertiesToAdd.push({
+          rowIndex: i + 2,
+          existingContactId: existing.id,
+          propertyData
+        });
+
+        // Don't mark as duplicate - we're adding a new property
+        continue;
       }
 
       // REMOVED: Check for duplicates within the file
@@ -363,8 +439,13 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Normalize phone number
-      if (systemData.phone1) systemData.phone1 = formatPhoneNumberForTelnyx(systemData.phone1);
+      // Use the already-normalized phone number
+      systemData.phone1 = phone1;
+
+      // Normalize LLC name
+      if (systemData.llcName) {
+        systemData.llcName = normalizeLlcName(systemData.llcName);
+      }
 
       // Generate Full Property Address from components
       const addressParts: string[] = [];
@@ -449,7 +530,7 @@ export async function POST(request: NextRequest) {
               lastName: contact.lastName || undefined,
               phone1: contact.phone1 || undefined
             });
-            imported++;
+            newContactsCount++;
           }
         }, {
           timeout: 300000 // 5 minute timeout for large imports
@@ -461,7 +542,8 @@ export async function POST(request: NextRequest) {
           row: 0,
           error: `Import failed: ${txError instanceof Error ? txError.message : 'Unknown error'}. No contacts were imported.`
         });
-        imported = 0;
+        newContactsCount = 0;
+        createdContacts.length = 0; // Clear any partially tracked contacts
       }
     }
 
@@ -507,7 +589,7 @@ export async function POST(request: NextRequest) {
               data: { contact_id: existingContactId, tag_id: multiPropTag.id }
             }).catch(() => {}); // Ignore duplicate tag errors
 
-            imported++; // Count as imported since we added a new property
+            existingNewProperties++; // Count as existing contact with new property
           } else {
             duplicates++; // Same contact, same property = duplicate
           }
@@ -554,7 +636,10 @@ export async function POST(request: NextRequest) {
       console.error('Redis error:', redisError);
     }
 
-    // Save import history
+    // Calculate total imported (new contacts + new properties)
+    const totalImported = newContactsCount + existingNewProperties;
+
+    // Save import history with detailed statistics
     try {
       await prisma.importHistory.create({
         data: {
@@ -563,9 +648,12 @@ export async function POST(request: NextRequest) {
           tags: tags,
           importedAt: new Date(),
           totalRecords: records.length,
-          importedCount: imported,
+          importedCount: totalImported,
+          newContactsCount: newContactsCount,
+          existingContactsNewProperties: existingNewProperties,
           duplicateCount: duplicates,
           missingPhoneCount: skippedNoPhone,
+          skippedOtherCount: skippedOther,
           errors: validationErrors.length > 0 ? validationErrors : undefined
         }
       });
@@ -574,8 +662,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      success: imported > 0,
-      imported,
+      success: totalImported > 0,
+      imported: totalImported,
+      newContacts: newContactsCount,
+      existingContactsWithNewProperties: existingNewProperties,
       duplicates,
       skippedNoPhone,
       skippedOther,

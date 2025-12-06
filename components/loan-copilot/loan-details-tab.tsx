@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Edit2, Save, X, Plus } from "lucide-react"
 import { Deal } from "@/types/deals"
-import { formatCurrency } from "@/currency"
+import { formatCurrency } from "@/lib/stores/currency"
 import CreateTaskDialog from "./create-task-dialog"
 
 interface LoanDetailsTabProps {

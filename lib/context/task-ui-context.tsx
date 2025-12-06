@@ -11,132 +11,99 @@ interface Contact {
   propertyAddress?: string
 }
 
-export interface TaskSession {
-  sessionId: string
-  contact?: Contact | null
+// Props for opening the task modal
+export interface TaskModalProps {
   contactId?: string
-  isMinimized: boolean
-  // Pre-fill values
-  title?: string
+  contactName?: string
+  subject?: string
   description?: string
-  dueDate?: string
-  priority?: string
   taskType?: string
-  // Edit mode
-  taskId?: string
-  isEditMode?: boolean
+  dueDate?: Date
+  priority?: 'low' | 'medium' | 'high'
 }
 
 interface TaskUIContextType {
-  // Support for multiple sessions
-  taskSessions: TaskSession[]
-  // Legacy single-session support (returns first non-minimized or last session)
-  taskSession: TaskSession | null
+  // Modal state
+  isOpen: boolean
+  modalProps: TaskModalProps
+  // Open modal with optional pre-filled values
   openTask: (opts?: {
     contact?: Contact | null
     contactId?: string
     title?: string
+    subject?: string
     description?: string
-    dueDate?: string
+    dueDate?: string | Date
     priority?: string
     taskType?: string
-    taskId?: string
-    isEditMode?: boolean
   }) => void
-  minimizeSession: (sessionId: string) => void
-  maximizeSession: (sessionId: string) => void
-  closeSession: (sessionId: string) => void
-  // Legacy methods (operate on first session)
-  minimize: () => void
-  maximize: () => void
-  close: () => void
+  // Close modal
+  closeTask: () => void
+  // Callback when task is created (for refreshing lists)
+  onTaskCreated?: () => void
+  setOnTaskCreated: (callback: (() => void) | undefined) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextType | null>(null)
 
 export function TaskUIProvider({ children }: { children: ReactNode }) {
-  const [taskSessions, setTaskSessions] = useState<TaskSession[]>([])
+  const [isOpen, setIsOpen] = useState(false)
+  const [modalProps, setModalProps] = useState<TaskModalProps>({})
+  const [onTaskCreatedCallback, setOnTaskCreatedCallback] = useState<(() => void) | undefined>(undefined)
 
   const openTask = useCallback((opts?: {
     contact?: Contact | null
     contactId?: string
     title?: string
+    subject?: string
     description?: string
-    dueDate?: string
+    dueDate?: string | Date
     priority?: string
     taskType?: string
-    taskId?: string
-    isEditMode?: boolean
   }) => {
-    const newSession: TaskSession = {
-      sessionId: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      contact: opts?.contact || null,
-      contactId: opts?.contactId || opts?.contact?.id,
-      isMinimized: false,
-      title: opts?.title || '',
-      description: opts?.description || '',
-      dueDate: opts?.dueDate || '',
-      priority: opts?.priority || 'medium',
-      taskType: opts?.taskType || 'Follow Up',
-      taskId: opts?.taskId,
-      isEditMode: opts?.isEditMode || false,
+    // Build contact name from contact object if provided
+    const contactName = opts?.contact
+      ? `${opts.contact.firstName || ''} ${opts.contact.lastName || ''}`.trim()
+      : undefined
+
+    // Parse due date
+    let parsedDueDate: Date | undefined
+    if (opts?.dueDate) {
+      parsedDueDate = opts.dueDate instanceof Date
+        ? opts.dueDate
+        : new Date(opts.dueDate)
     }
-    setTaskSessions(prev => [...prev, newSession])
-  }, [])
 
-  const minimizeSession = useCallback((sessionId: string) => {
-    setTaskSessions(prev => prev.map(s =>
-      s.sessionId === sessionId ? { ...s, isMinimized: true } : s
-    ))
-  }, [])
-
-  const maximizeSession = useCallback((sessionId: string) => {
-    setTaskSessions(prev => prev.map(s =>
-      s.sessionId === sessionId ? { ...s, isMinimized: false } : s
-    ))
-  }, [])
-
-  const closeSession = useCallback((sessionId: string) => {
-    setTaskSessions(prev => prev.filter(s => s.sessionId !== sessionId))
-  }, [])
-
-  // Legacy single-session methods
-  const minimize = useCallback(() => {
-    setTaskSessions(prev => {
-      if (prev.length === 0) return prev
-      const updated = [...prev]
-      updated[updated.length - 1] = { ...updated[updated.length - 1], isMinimized: true }
-      return updated
+    setModalProps({
+      contactId: opts?.contactId || opts?.contact?.id,
+      contactName,
+      subject: opts?.subject || opts?.title || '',
+      description: opts?.description || '',
+      taskType: opts?.taskType || 'Follow Up',
+      dueDate: parsedDueDate,
+      priority: (opts?.priority as 'low' | 'medium' | 'high') || 'low',
     })
+    setIsOpen(true)
   }, [])
 
-  const maximize = useCallback(() => {
-    setTaskSessions(prev => {
-      if (prev.length === 0) return prev
-      const updated = [...prev]
-      updated[updated.length - 1] = { ...updated[updated.length - 1], isMinimized: false }
-      return updated
-    })
+  const closeTask = useCallback(() => {
+    setIsOpen(false)
+    // Reset props after a short delay (for animation)
+    setTimeout(() => setModalProps({}), 200)
   }, [])
 
-  const close = useCallback(() => {
-    setTaskSessions(prev => prev.slice(0, -1))
+  const setOnTaskCreated = useCallback((callback: (() => void) | undefined) => {
+    setOnTaskCreatedCallback(() => callback)
   }, [])
-
-  // Legacy taskSession - return last session or null
-  const taskSession = taskSessions.length > 0 ? taskSessions[taskSessions.length - 1] : null
 
   return (
     <TaskUIContext.Provider value={{
-      taskSessions,
-      taskSession,
+      isOpen,
+      modalProps,
       openTask,
-      minimizeSession,
-      maximizeSession,
-      closeSession,
-      minimize,
-      maximize,
-      close
+      closeTask,
+      onTaskCreated: onTaskCreatedCallback,
+      setOnTaskCreated,
     }}>
       {children}
     </TaskUIContext.Provider>

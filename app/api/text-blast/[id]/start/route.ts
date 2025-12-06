@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getBestPhoneNumber } from '@/lib/phone-utils'
+import { formatMessageTemplate } from '@/lib/message-template'
+import { sendTextBlastSms } from '@/lib/text-blast-service'
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    // Parse request body for force start option
+    let forceStart = false
+    try {
+      const body = await request.json()
+      forceStart = body?.forceStart === true
+    } catch {
+      // No body or invalid JSON, use defaults
+    }
+
     const blast = await prisma.textBlast.findUnique({
       where: { id: params.id },
     })
@@ -25,12 +36,31 @@ export async function POST(
       )
     }
 
+    // Check if another blast is running (unless forceStart is true)
+    if (!forceStart) {
+      const runningBlast = await prisma.textBlast.findFirst({
+        where: {
+          status: 'running',
+          id: { not: params.id } // Exclude current blast
+        },
+        select: { id: true, name: true, sentCount: true, totalContacts: true },
+      })
+
+      if (runningBlast) {
+        return NextResponse.json({
+          error: 'Another text blast is already running',
+          runningBlast,
+          requiresConfirmation: true,
+        }, { status: 409 }) // 409 Conflict
+      }
+    }
+
     // Update blast status to running
     const updatedBlast = await prisma.textBlast.update({
       where: { id: params.id },
       data: {
         status: 'running',
-        startedAt: new Date(),
+        startedAt: blast.startedAt || new Date(), // Keep original start time if resuming
         isPaused: false,
         resumedAt: blast.status === 'paused' ? new Date() : null,
       },
@@ -49,7 +79,15 @@ export async function POST(
   }
 }
 
+// Batch size for processing and status check interval
+const BATCH_SIZE = 5 // Update DB every 5 messages
+const STATUS_CHECK_INTERVAL = 1 // Check pause/cancel status every message for responsive control
+
 async function processTextBlast(blastId: string) {
+  let localSentCount = 0
+  let localFailedCount = 0
+  let lastDbUpdate = 0
+
   try {
     const blast = await prisma.textBlast.findUnique({
       where: { id: blastId },
@@ -61,136 +99,152 @@ async function processTextBlast(blastId: string) {
 
     const selectedContactIds = JSON.parse(blast.selectedContacts as string)
     const senderNumbers = JSON.parse(blast.senderNumbers as string)
-    
-    // Get contacts from database
+
+    // Get contacts from database in proper order (include properties for template variables)
     const contacts = await prisma.contact.findMany({
       where: {
         id: { in: selectedContactIds },
       },
+      include: {
+        properties: true,
+      },
     })
 
+    // Create a map for O(1) lookup and maintain order from selectedContactIds
+    const contactMap = new Map(contacts.map(c => [c.id, c]))
+    const orderedContacts = selectedContactIds
+      .map((id: string) => contactMap.get(id))
+      .filter(Boolean) // Filter out any missing contacts
+
+    const totalContacts = orderedContacts.length
+    console.log(`[TextBlast ${blastId}] Starting from index ${blast.currentIndex}, total: ${totalContacts}`)
+
     // Start from current index (for resume functionality)
-    for (let i = blast.currentIndex; i < contacts.length; i++) {
-      // Check if blast is still running and not paused
-      const currentBlast = await prisma.textBlast.findUnique({
-        where: { id: blastId },
-      })
-
-      if (!currentBlast || currentBlast.status !== 'running' || currentBlast.isPaused) {
-        break
-      }
-
-      const contact = contacts[i]
-      const senderNumber = senderNumbers[i % senderNumbers.length]
-      
-      try {
-        // Send SMS via Telnyx API
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/telnyx/sms/send`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            fromNumber: senderNumber.phoneNumber,
-            toNumber: getBestPhoneNumber(contact),
-            message: formatMessage(blast.message, contact),
-            contactId: contact.id,
-            blastId: blastId,
-          }),
+    for (let i = blast.currentIndex; i < totalContacts; i++) {
+      // Periodic status check - don't query DB on every message
+      if ((i - blast.currentIndex) % STATUS_CHECK_INTERVAL === 0 && i !== blast.currentIndex) {
+        const currentBlast = await prisma.textBlast.findUnique({
+          where: { id: blastId },
+          select: { status: true, isPaused: true }
         })
 
-        if (response.ok) {
-          // Update sent count
-          await prisma.textBlast.update({
-            where: { id: blastId },
-            data: {
-              sentCount: { increment: 1 },
-              currentIndex: i + 1,
-            },
-          })
+        if (!currentBlast || currentBlast.status !== 'running' || currentBlast.isPaused) {
+          // Flush any pending updates before stopping
+          if (localSentCount > 0 || localFailedCount > 0) {
+            await prisma.textBlast.update({
+              where: { id: blastId },
+              data: {
+                sentCount: { increment: localSentCount },
+                failedCount: { increment: localFailedCount },
+                currentIndex: i,
+              },
+            })
+          }
+          console.log(`[TextBlast ${blastId}] Stopped at index ${i}`)
+          return
+        }
+      }
+
+      const contact = orderedContacts[i]
+      const senderNumber = senderNumbers[i % senderNumbers.length]
+      const toNumber = getBestPhoneNumber(contact)
+
+      // Skip contacts without phone numbers
+      if (!toNumber) {
+        localFailedCount++
+        continue
+      }
+
+      try {
+        // Send SMS directly via Telnyx API (no session required)
+        const result = await sendTextBlastSms(
+          senderNumber.phoneNumber,
+          toNumber,
+          formatMessageTemplate(blast.message, contact),
+          contact.id,
+          blastId
+        )
+
+        if (result.success) {
+          localSentCount++
         } else {
-          // Update failed count
-          await prisma.textBlast.update({
-            where: { id: blastId },
-            data: {
-              failedCount: { increment: 1 },
-              currentIndex: i + 1,
-            },
-          })
+          localFailedCount++
+          console.error(`[TextBlast ${blastId}] Failed to send to ${contact.phone1}: ${result.error}`)
         }
       } catch (error) {
-        console.error(`Error sending message to ${contact.phone1}:`, error)
+        localFailedCount++
+        console.error(`[TextBlast ${blastId}] Error sending to ${contact.phone1}:`, error)
+      }
+
+      // Batch update to database every BATCH_SIZE messages
+      if ((localSentCount + localFailedCount) >= BATCH_SIZE) {
         await prisma.textBlast.update({
           where: { id: blastId },
           data: {
-            failedCount: { increment: 1 },
+            sentCount: { increment: localSentCount },
+            failedCount: { increment: localFailedCount },
             currentIndex: i + 1,
           },
         })
+        lastDbUpdate = i + 1
+        localSentCount = 0
+        localFailedCount = 0
       }
 
       // Apply delay between messages
-      if (blast.delaySeconds > 0 && i < contacts.length - 1) {
+      if (blast.delaySeconds > 0 && i < totalContacts - 1) {
         await new Promise(resolve => setTimeout(resolve, blast.delaySeconds * 1000))
       }
     }
 
-    // After loop, only mark as completed if we've actually finished and not paused/stopped
+    // Flush any remaining updates
+    if (localSentCount > 0 || localFailedCount > 0) {
+      await prisma.textBlast.update({
+        where: { id: blastId },
+        data: {
+          sentCount: { increment: localSentCount },
+          failedCount: { increment: localFailedCount },
+          currentIndex: totalContacts,
+        },
+      })
+    }
+
+    // Mark as completed
     const finalBlast = await prisma.textBlast.findUnique({
       where: { id: blastId },
+      select: { status: true, currentIndex: true }
     })
-    if (finalBlast && finalBlast.status === 'running' && (finalBlast.currentIndex >= contacts.length)) {
+
+    if (finalBlast && finalBlast.status === 'running') {
       await prisma.textBlast.update({
         where: { id: blastId },
         data: {
           status: 'completed',
           completedAt: new Date(),
+          currentIndex: totalContacts,
         },
       })
+      console.log(`[TextBlast ${blastId}] Completed successfully`)
     }
 
   } catch (error) {
-    console.error('Error processing text blast:', error)
-    await prisma.textBlast.update({
-      where: { id: blastId },
-      data: {
-        status: 'failed',
-        completedAt: new Date(),
-      },
-    })
+    console.error(`[TextBlast ${blastId}] Fatal error:`, error)
+
+    // Try to save any pending progress before marking as failed
+    try {
+      await prisma.textBlast.update({
+        where: { id: blastId },
+        data: {
+          status: 'failed',
+          completedAt: new Date(),
+          sentCount: { increment: localSentCount },
+          failedCount: { increment: localFailedCount },
+        },
+      })
+    } catch (updateError) {
+      console.error(`[TextBlast ${blastId}] Failed to update status:`, updateError)
+    }
   }
 }
 
-function formatMessage(template: string, contact: any): string {
-  return template
-    // Name fields
-    .replace(/\{firstName\}/g, contact.firstName || '')
-    .replace(/\{lastName\}/g, contact.lastName || '')
-    .replace(/\{fullName\}/g, `${contact.firstName || ''} ${contact.lastName || ''}`.trim())
-    .replace(/\{llcName\}/g, contact.llcName || '')
-    // Phone fields
-    .replace(/\{phone1\}/g, contact.phone1 || '')
-    .replace(/\{phone2\}/g, contact.phone2 || '')
-    .replace(/\{phone3\}/g, contact.phone3 || '')
-    .replace(/\{phone\}/g, contact.phone1 || contact.phone2 || contact.phone3 || '')
-    // Email fields
-    .replace(/\{email1\}/g, contact.email1 || '')
-    .replace(/\{email2\}/g, contact.email2 || '')
-    .replace(/\{email3\}/g, contact.email3 || '')
-    .replace(/\{email\}/g, contact.email1 || contact.email2 || contact.email3 || '')
-    // Address fields
-    .replace(/\{propertyAddress\}/g, contact.propertyAddress || '')
-    .replace(/\{contactAddress\}/g, contact.contactAddress || '')
-    .replace(/\{city\}/g, contact.city || '')
-    .replace(/\{state\}/g, contact.state || '')
-    // Property fields
-    .replace(/\{propertyType\}/g, contact.propertyType || '')
-    .replace(/\{propertyCounty\}/g, contact.propertyCounty || '')
-    .replace(/\{bedrooms\}/g, contact.bedrooms ? contact.bedrooms.toString() : '')
-    .replace(/\{totalBathrooms\}/g, contact.totalBathrooms ? contact.totalBathrooms.toString() : '')
-    .replace(/\{buildingSqft\}/g, contact.buildingSqft ? contact.buildingSqft.toString() : '')
-    .replace(/\{effectiveYearBuilt\}/g, contact.effectiveYearBuilt ? contact.effectiveYearBuilt.toString() : '')
-    // Financial fields
-    .replace(/\{estValue\}/g, contact.estValue ? contact.estValue.toString() : '')
-    .replace(/\{estEquity\}/g, contact.estEquity ? contact.estEquity.toString() : '')
-}
+
