@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { ArrowLeft, Phone, Mail, Info, Send, User, Building, MapPin, Calendar, MessageSquare, UserPlus } from "lucide-react"
+import { ArrowLeft, Phone, Mail, Info, Send, User, Building, MapPin, Calendar, MessageSquare, UserPlus, AlertTriangle } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { formatDistanceToNow } from "date-fns"
 import { useSession } from "next-auth/react"
@@ -56,6 +56,7 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
   const [newMessage, setNewMessage] = useState("")
   const [selectedSenderNumber, setSelectedSenderNumber] = useState<string>("")
   const [conversationOurNumber, setConversationOurNumber] = useState<string | null>(null) // The Telnyx line bound to this conversation
+  const [selectionReason, setSelectionReason] = useState<string>('') // Why this number was selected
   const [availableNumbers, setAvailableNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [isSending, setIsSending] = useState(false)
@@ -202,10 +203,20 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
           setConversationOurNumber(data.conversationOurNumber)
         }
 
-        // Use suggested sender number from API (prioritizes conversation.our_number)
+        // Track why this number was selected
+        if (data.selectionReason) {
+          setSelectionReason(data.selectionReason)
+        }
+
+        // Use suggested sender number from API (smart selection logic)
         if (data.suggestedSenderNumber) {
           setSelectedSenderNumber(data.suggestedSenderNumber)
-          console.log(`Auto-selected sender number: ${data.suggestedSenderNumber} for contact ${contact.firstName} ${contact.lastName}`)
+          const reasonText = data.selectionReason === 'inbound_response'
+            ? '(they responded to this number)'
+            : data.selectionReason === 'last_outbound'
+            ? '(last number you texted from)'
+            : '(from conversation record)'
+          console.log(`Auto-selected sender number: ${data.suggestedSenderNumber} for contact ${contact.firstName} ${contact.lastName} ${reasonText}`)
         }
 
         // FIX: Trigger callback to refresh conversations list after marking as read
@@ -584,33 +595,72 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
         </div>
       </div>
 
-      {/* Sender Number Selection */}
+      {/* Sender Number Selection - Enhanced with warnings */}
       <div className="p-4 border-b" style={{backgroundColor: '#FFFFFF'}}>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium" style={{color: '#333333'}}>Sending from:</span>
-          {availableNumbers.length > 0 ? (
-            <Select value={selectedSenderNumber} onValueChange={setSelectedSenderNumber}>
-              <SelectTrigger className="w-auto min-w-[200px] bg-white">
-                <SelectValue placeholder="Select sender number" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableNumbers.map(number => (
-                  <SelectItem key={number.id || number.phoneNumber} value={number.phoneNumber}>
-                    <div className="flex items-center gap-2">
-                      <span>{number.phoneNumber}</span>
-                      {number.friendlyName && (
-                        <Badge variant="outline" className="text-xs">
-                          {number.friendlyName}
-                        </Badge>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <div className="text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded">
-              Loading phone numbers...
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium" style={{color: '#333333'}}>Sending from:</span>
+            {availableNumbers.length > 0 ? (
+              <Select
+                value={selectedSenderNumber}
+                onValueChange={(newNumber) => {
+                  // Warn if changing from the conversation's original number
+                  if (conversationOurNumber && newNumber !== conversationOurNumber) {
+                    toast({
+                      title: "⚠️ Changing Sender Number",
+                      description: `You're switching from ${conversationOurNumber} to ${newNumber}. The contact may receive messages from a different number.`,
+                      variant: "default",
+                      duration: 5000,
+                    })
+                  }
+                  setSelectedSenderNumber(newNumber)
+                }}
+              >
+                <SelectTrigger className="w-auto min-w-[200px] bg-white border-2">
+                  <SelectValue placeholder="Select sender number" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableNumbers.map(number => (
+                    <SelectItem key={number.id || number.phoneNumber} value={number.phoneNumber}>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{number.phoneNumber}</span>
+                        {number.friendlyName && (
+                          <Badge variant="outline" className="text-xs">
+                            {number.friendlyName}
+                          </Badge>
+                        )}
+                        {conversationOurNumber === number.phoneNumber && (
+                          <Badge className="text-xs bg-green-100 text-green-800 border-green-300">
+                            {selectionReason === 'inbound_response'
+                              ? 'They Replied To'
+                              : selectionReason === 'last_outbound'
+                              ? 'Last Sent'
+                              : 'Original'}
+                          </Badge>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded">
+                Loading phone numbers...
+              </div>
+            )}
+          </div>
+
+          {/* Warning if using different number than the recommended one */}
+          {conversationOurNumber && selectedSenderNumber && selectedSenderNumber !== conversationOurNumber && (
+            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-amber-800">
+                <strong>Warning:</strong> {selectionReason === 'inbound_response'
+                  ? `They last responded to ${conversationOurNumber}`
+                  : `Last message sent from ${conversationOurNumber}`}.
+                You're now sending from <strong>{selectedSenderNumber}</strong>.
+                They may be confused receiving messages from multiple numbers.
+              </div>
             </div>
           )}
         </div>

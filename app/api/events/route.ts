@@ -11,31 +11,46 @@ export async function GET(request: NextRequest) {
   const writer = stream.writable.getWriter()
 
   const clientId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const encoder = new TextEncoder()
 
   // Helper to write to the stream
   const write = async (chunk: Uint8Array) => {
-    await writer.write(chunk)
+    try {
+      await writer.write(chunk)
+    } catch (error) {
+      // Stream closed, ignore
+    }
   }
 
   addClient({ id: clientId, write })
 
   // Remove on connection close/abort
   const abort = () => {
-    try { removeClient(clientId) } catch {}
-    // Do not close writer here; the Response will be closed by the runtime
+    try {
+      clearInterval(keepAliveInterval)
+      removeClient(clientId)
+    } catch {}
   }
   request.signal.addEventListener('abort', abort)
 
-  // Initial comment to open the stream (optional)
-  const encoder = new TextEncoder()
+  // Initial comment to open the stream
   await writer.write(encoder.encode(': connected\n\n'))
+
+  // Send keepalive ping every 30 seconds to prevent timeout
+  const keepAliveInterval = setInterval(async () => {
+    try {
+      await writer.write(encoder.encode(': ping\n\n'))
+    } catch {
+      clearInterval(keepAliveInterval)
+    }
+  }, 30000)
 
   return new Response(stream.readable, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
-      // Allow CORS for dev/local if needed
+      'X-Accel-Buffering': 'no', // Disable nginx buffering
       'Access-Control-Allow-Origin': '*',
     },
   })

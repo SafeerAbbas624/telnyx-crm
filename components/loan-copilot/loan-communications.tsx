@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useCallUI } from '@/lib/context/call-ui-context';
 import { useSmsUI } from '@/lib/context/sms-ui-context';
 import { useEmailUI } from '@/lib/context/email-ui-context';
+import { usePhoneNumber } from '@/lib/context/phone-number-context';
 
 interface LoanCommunicationsProps {
   dealId: string;
@@ -29,17 +30,46 @@ interface Communication {
   duration?: number;
 }
 
+interface ContactInfo {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  phone1?: string;
+  email1?: string;
+}
+
 export default function LoanCommunications({ dealId, contactId }: LoanCommunicationsProps) {
   const [communications, setCommunications] = useState<Communication[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
+  const [contact, setContact] = useState<ContactInfo | null>(null);
   const { openCall } = useCallUI();
   const { openSms } = useSmsUI();
   const { openEmail } = useEmailUI();
+  const { selectedPhoneNumber } = usePhoneNumber();
 
   useEffect(() => {
     loadCommunications();
+    loadContact();
   }, [contactId]);
+
+  const loadContact = async () => {
+    try {
+      const res = await fetch(`/api/contacts/${contactId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setContact({
+          id: data.id,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          phone1: data.phone1,
+          email1: data.email1,
+        });
+      }
+    } catch (error) {
+      console.error('Error loading contact:', error);
+    }
+  };
 
   const loadCommunications = async () => {
     try {
@@ -64,6 +94,73 @@ export default function LoanCommunications({ dealId, contactId }: LoanCommunicat
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCall = async () => {
+    if (!contact?.phone1) {
+      toast.error('No phone number available for this contact');
+      return;
+    }
+    if (!selectedPhoneNumber) {
+      toast.error('No phone number selected. Please select a calling number from the header.');
+      return;
+    }
+    const fromNumber = selectedPhoneNumber.phoneNumber;
+
+    try {
+      const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils');
+      const toNumber = formatPhoneNumberForTelnyx(contact.phone1) || contact.phone1;
+
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client');
+      await rtcClient.ensureRegistered();
+      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber });
+
+      fetch('/api/telnyx/webrtc-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webrtcSessionId: sessionId,
+          contactId: contact.id,
+          fromNumber,
+          toNumber,
+        })
+      }).catch(err => console.error('Failed to log call:', err));
+
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber,
+        toNumber,
+        mode: 'webrtc',
+        webrtcSessionId: sessionId,
+      });
+
+      toast.success(`Calling ${contact.firstName || ''} ${contact.lastName || ''}`.trim());
+    } catch (error: any) {
+      console.error('Error initiating call:', error);
+      toast.error(error.message || 'Failed to initiate call');
+    }
+  };
+
+  const handleSms = () => {
+    if (!contact?.phone1) {
+      toast.error('No phone number available for this contact');
+      return;
+    }
+    openSms({
+      phoneNumber: contact.phone1,
+      contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+    });
+  };
+
+  const handleEmail = () => {
+    if (!contact?.email1) {
+      toast.error('No email address available for this contact');
+      return;
+    }
+    openEmail({
+      email: contact.email1,
+      contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+    });
   };
 
   const filteredCommunications = communications.filter(c => {
@@ -110,15 +207,15 @@ export default function LoanCommunications({ dealId, contactId }: LoanCommunicat
 
       {/* Quick Actions */}
       <div className="flex items-center gap-2">
-        <Button variant="outline" className="gap-2" onClick={() => openCall({})}>
+        <Button variant="outline" className="gap-2" onClick={handleCall} disabled={!contact?.phone1}>
           <Phone className="h-4 w-4" />
           Call
         </Button>
-        <Button variant="outline" className="gap-2" onClick={() => openSms({})}>
+        <Button variant="outline" className="gap-2" onClick={handleSms} disabled={!contact?.phone1}>
           <MessageSquare className="h-4 w-4" />
           Text
         </Button>
-        <Button variant="outline" className="gap-2" onClick={() => openEmail({})}>
+        <Button variant="outline" className="gap-2" onClick={handleEmail} disabled={!contact?.email1}>
           <Mail className="h-4 w-4" />
           Email
         </Button>

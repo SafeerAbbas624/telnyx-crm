@@ -50,6 +50,7 @@ const CONTACT_FIELDS = [
   { label: "DNC Reason", value: "dncReason" },
   { label: "Notes", value: "notes" },
   { label: "Deal Status", value: "dealStatus" },
+  { label: "LinkedIn URL", value: "linkedinUrl" },
 ]
 
 const PROPERTY_TYPE_MAP: { [key: string]: Contact["propertyType"] } = {
@@ -210,6 +211,16 @@ export default function CsvPreview({ open, onOpenChange, csvData, fileName }: Cs
           newContact.dealStatus = normalizeDealStatus(value)
         } else if (mapping.dbField === "dnc") {
           newContact.dnc = value.toLowerCase() === "true" || value.toLowerCase() === "yes" || value === "1"
+        } else if (mapping.dbField === "linkedinUrl") {
+          // Normalize LinkedIn URL
+          let linkedinUrl = value.trim()
+          if (linkedinUrl && !linkedinUrl.startsWith('http://') && !linkedinUrl.startsWith('https://')) {
+            linkedinUrl = 'https://' + linkedinUrl
+          }
+          // Only store if it looks like a LinkedIn URL
+          if (linkedinUrl && linkedinUrl.toLowerCase().includes('linkedin.com')) {
+            newContact.linkedinUrl = linkedinUrl
+          }
         } else if (
           [
             "bedrooms",

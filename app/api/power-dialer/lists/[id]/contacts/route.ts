@@ -19,7 +19,9 @@ export async function GET(
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '50')
-    const status = searchParams.get('status')
+    const statusParam = searchParams.get('status')
+    // Normalize status to uppercase to match enum (PENDING, CALLED, etc.)
+    const status = statusParam ? statusParam.toUpperCase() : null
 
     // Verify ownership
     const list = await prisma.powerDialerList.findUnique({

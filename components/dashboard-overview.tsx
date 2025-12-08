@@ -21,6 +21,8 @@ import { useTaskUI } from "@/lib/context/task-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useCallUI } from "@/lib/context/call-ui-context"
+import { usePhoneNumber } from "@/lib/context/phone-number-context"
+import { toast } from "sonner"
 
 import ContactName from "@/components/contacts/contact-name"
 import { normalizePropertyType } from "@/lib/property-type-mapper"
@@ -117,6 +119,57 @@ export function DashboardOverview() {
   const { openEmail } = useEmailUI()
   const { openSms } = useSmsUI()
   const { openCall } = useCallUI()
+  const { selectedPhoneNumber } = usePhoneNumber()
+
+  // Handle initiating a call via WebRTC
+  const handleInitiateCall = async (contact: { id: string; firstName?: string; lastName?: string; phone1?: string }) => {
+    const phoneNumber = contact.phone1
+    if (!phoneNumber) {
+      toast.error('No phone number available for this contact')
+      return
+    }
+    if (!selectedPhoneNumber) {
+      toast.error('No phone number selected. Please select a calling number from the header.')
+      return
+    }
+    const fromNumber = selectedPhoneNumber.phoneNumber
+
+    try {
+      // Use WebRTC to make the call
+      const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils')
+      const toNumber = formatPhoneNumberForTelnyx(phoneNumber) || phoneNumber
+
+      // Get WebRTC client
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      await rtcClient.ensureRegistered()
+      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber })
+
+      // Log the call to database
+      fetch('/api/telnyx/webrtc-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webrtcSessionId: sessionId,
+          contactId: contact.id,
+          fromNumber,
+          toNumber,
+        })
+      }).catch(err => console.error('Failed to log call:', err))
+
+      openCall({
+        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
+        fromNumber,
+        toNumber,
+        mode: 'webrtc',
+        webrtcSessionId: sessionId,
+      })
+
+      toast.success(`Calling ${contact.firstName || ''} ${contact.lastName || ''}`.trim())
+    } catch (error: any) {
+      console.error('Error initiating call:', error)
+      toast.error(error.message || 'Failed to initiate call')
+    }
+  }
 
   const addActivity = async (activity: Omit<Activity, 'id' | 'createdAt' | 'status' | 'contactId'> & { contactId: string }) => {
     try {
@@ -766,7 +819,7 @@ export function DashboardOverview() {
                                           className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                           onClick={(e) => {
                                             e.stopPropagation()
-                                            openCall(contact.phone1!)
+                                            handleInitiateCall(contact)
                                           }}
                                           title="Call"
                                         >

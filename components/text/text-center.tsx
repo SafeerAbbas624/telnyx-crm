@@ -143,7 +143,7 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
             <TextBlastQueue />
           </TabsContent>
           <TabsContent value="operations" className="m-0 h-full overflow-auto">
-            <TextBlastOperations />
+            <TextBlastOperations onSwitchTab={handleSetActiveTab} />
           </TabsContent>
         </div>
       </Tabs>

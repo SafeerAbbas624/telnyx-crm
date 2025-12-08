@@ -80,6 +80,7 @@ const FIELD_CATEGORIES: FieldCategory[] = [
       { id: 'email2', label: 'Alternate Email 1', required: false },
       { id: 'email3', label: 'Alternate Email 2', required: false },
       { id: 'contactAddress', label: 'Contact Address', required: false, description: 'Where the person lives (different from property address)' },
+      { id: 'linkedinUrl', label: 'LinkedIn URL', required: false, description: 'LinkedIn profile URL' },
     ],
   },
   {

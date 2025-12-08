@@ -149,6 +149,11 @@ export const AUTO_FIELD_MAPPINGS: FieldMappingConfig[] = [
     csvNames: ['marketing lists', 'lists'],
     fieldKey: 'marketingLists',
   },
+  // Social links
+  {
+    csvNames: ['linkedin', 'linkedin url', 'linkedin profile', 'linked in', 'linked_in'],
+    fieldKey: 'linkedinUrl',
+  },
 ];
 
 /**

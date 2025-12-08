@@ -174,21 +174,48 @@ export async function GET(
       orderBy: { updated_at: 'desc' }
     })
 
-    // Find the most recent outbound message to suggest default sender number
-    const mostRecentOutboundMessage = messages
+    // Smart sender number selection:
+    // Priority 1: Most recent INBOUND message's toNumber (the number they responded to)
+    // Priority 2: Most recent OUTBOUND message's fromNumber (last number we texted from)
+    // Priority 3: conversation.our_number (fallback from conversation record)
+
+    // Find the most recent inbound message (they responded)
+    const mostRecentInboundMessage = allMessages
+      .filter(msg => msg.direction === 'inbound')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+
+    // Find the most recent outbound message (we texted them)
+    const mostRecentOutboundMessage = allMessages
       .filter(msg => msg.direction === 'outbound')
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
 
-    // Priority: conversation.our_number > most recent outbound > null
-    // This ensures replies go from the same line the prospect originally texted
-    const suggestedSenderNumber = conversation?.our_number || mostRecentOutboundMessage?.fromNumber || null
+    // Determine suggested number with smart priority
+    let suggestedSenderNumber: string | null = null
+    let selectionReason = ''
+
+    if (mostRecentInboundMessage?.toNumber) {
+      // They responded to this number - use it!
+      suggestedSenderNumber = mostRecentInboundMessage.toNumber
+      selectionReason = 'inbound_response'
+    } else if (mostRecentOutboundMessage?.fromNumber) {
+      // No response yet, use the last number we texted from
+      suggestedSenderNumber = mostRecentOutboundMessage.fromNumber
+      selectionReason = 'last_outbound'
+    } else if (conversation?.our_number) {
+      // Fallback to conversation record
+      suggestedSenderNumber = conversation.our_number
+      selectionReason = 'conversation_record'
+    }
+
+    console.log(`[SENDER-SELECT] Contact ${params.contactId}: ${suggestedSenderNumber} (${selectionReason})`)
 
     return NextResponse.json({
       messages,
       total: messages.length,
       hasMore: messages.length === limit,
       suggestedSenderNumber,
-      conversationOurNumber: conversation?.our_number || null // Expose for UI display
+      selectionReason, // Tell UI why this number was selected
+      conversationOurNumber: suggestedSenderNumber // Use the smart selection as the "original" number
     })
   } catch (error) {
     console.error('Error fetching messages:', error)

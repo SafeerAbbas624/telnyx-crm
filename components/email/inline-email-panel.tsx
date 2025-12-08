@@ -12,6 +12,7 @@ import { useEmailUI } from "@/lib/context/email-ui-context"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { ScheduleSendModal } from "@/components/ui/schedule-send-modal"
+import * as Portal from "@radix-ui/react-portal"
 
 interface EmailAccount {
   id: string
@@ -39,6 +40,15 @@ export default function InlineEmailPanel() {
   const [showTemplates, setShowTemplates] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+
+  // Helper to get display text for account dropdown
+  const getAccountDisplayText = (acct: EmailAccount) => {
+    if (acct.displayName && acct.displayName !== acct.emailAddress) {
+      return `${acct.displayName} (${acct.emailAddress})`
+    }
+    return acct.emailAddress
+  }
 
   useEffect(() => {
     if (emailSession) {
@@ -251,12 +261,23 @@ export default function InlineEmailPanel() {
           <span className="text-xs text-gray-500 w-12">From:</span>
           <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
             <SelectTrigger className="h-8 text-xs flex-1">
-              <SelectValue placeholder="Select account" />
+              <SelectValue placeholder="Select account">
+                {selectedAccountId && accounts.find(a => a.id === selectedAccountId) && (
+                  <span className="truncate">
+                    {getAccountDisplayText(accounts.find(a => a.id === selectedAccountId)!)}
+                  </span>
+                )}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {accounts.map((acct) => (
                 <SelectItem key={acct.id} value={acct.id} className="text-xs">
-                  {acct.displayName || acct.emailAddress}
+                  <div className="flex flex-col">
+                    <span className="font-medium">{acct.displayName || acct.emailAddress}</span>
+                    {acct.displayName && acct.displayName !== acct.emailAddress && (
+                      <span className="text-gray-500 text-[10px]">{acct.emailAddress}</span>
+                    )}
+                  </div>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -334,7 +355,7 @@ export default function InlineEmailPanel() {
               </>
             )}
           </Button>
-          <DropdownMenu>
+          <DropdownMenu open={scheduleMenuOpen} onOpenChange={setScheduleMenuOpen} modal={false}>
             <DropdownMenuTrigger asChild>
               <Button
                 disabled={isSending || !subject.trim() || !body.trim()}
@@ -344,7 +365,11 @@ export default function InlineEmailPanel() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setShowScheduleModal(true)}>
+              <DropdownMenuItem onClick={() => {
+                setScheduleMenuOpen(false) // Close dropdown first
+                // Use setTimeout to let dropdown close before modal opens
+                setTimeout(() => setShowScheduleModal(true), 100)
+              }}>
                 <Clock className="h-4 w-4 mr-2" />
                 Schedule send...
               </DropdownMenuItem>
@@ -353,18 +378,25 @@ export default function InlineEmailPanel() {
         </div>
       </div>
 
-      {/* Schedule Send Modal */}
-      <ScheduleSendModal
-        isOpen={showScheduleModal}
-        onClose={() => setShowScheduleModal(false)}
-        onSchedule={handleScheduleSend}
-        channel="EMAIL"
-        preview={{
-          to: emailSession.email,
-          subject: subject,
-          bodyPreview: body.substring(0, 100),
-        }}
-      />
+      {/* Schedule Send Modal - rendered in portal to avoid aria-hidden issues */}
+      {showScheduleModal && (
+        <Portal.Root>
+          <ScheduleSendModal
+            isOpen={showScheduleModal}
+            onClose={() => setShowScheduleModal(false)}
+            onSchedule={async (date) => {
+              await handleScheduleSend(date)
+              setShowScheduleModal(false)
+            }}
+            channel="EMAIL"
+            preview={{
+              to: emailSession.email,
+              subject: subject,
+              bodyPreview: body.substring(0, 100),
+            }}
+          />
+        </Portal.Root>
+      )}
     </div>
   )
 }

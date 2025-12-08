@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
     let emailAccountId, contactId, toEmails, ccEmails, bccEmails, subject, content, textContent, blastId;
     let inReplyTo, replyToMessageId;
     let attachments: File[] = [];
+    let skipSignature = false;
 
     if (contentType.includes('multipart/form-data')) {
       // Handle FormData (with attachments)
@@ -107,6 +108,7 @@ export async function POST(request: NextRequest) {
       blastId = formData.get('blastId') as string;
       inReplyTo = formData.get('inReplyTo') as string;
       replyToMessageId = formData.get('replyToMessageId') as string;
+      skipSignature = formData.get('skipSignature') === 'true';
 
       // Get attachments
       const attachmentFiles = formData.getAll('attachments');
@@ -125,6 +127,7 @@ export async function POST(request: NextRequest) {
       blastId = body.blastId;
       inReplyTo = body.inReplyTo;
       replyToMessageId = body.replyToMessageId;
+      skipSignature = body.skipSignature === true;
     }
 
     // Enforce team restriction: must send from assigned email account
@@ -268,10 +271,11 @@ export async function POST(request: NextRequest) {
 
     // Prepare email content
     let emailHtml = content;
-    
-    // Add signature if available
-    if (emailAccount.signature) {
-      emailHtml += `<br><br>---<br>${emailAccount.signature.replace(/\n/g, '<br>')}`;
+
+    // Add signature if available (skip if already included in content)
+    if (emailAccount.signature && !skipSignature) {
+      // Signature is already HTML from RichTextEditor - don't double-escape
+      emailHtml += `<br><br>---<br>${emailAccount.signature}`;
     }
 
     // Prepare attachments for nodemailer

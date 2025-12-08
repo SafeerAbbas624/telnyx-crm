@@ -10,15 +10,31 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status') // Optional status filter
     const checkRunning = searchParams.get('checkRunning') === 'true' // Check if any blast is running
 
-    // If checking for running blasts only
+    // If checking for running/paused blasts only
     if (checkRunning) {
-      const runningBlast = await prisma.textBlast.findFirst({
-        where: { status: 'running' },
-        select: { id: true, name: true, sentCount: true, totalContacts: true },
+      const activeBlast = await prisma.textBlast.findFirst({
+        where: {
+          status: { in: ['running', 'paused'] }
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          isPaused: true,
+          sentCount: true,
+          failedCount: true,
+          totalContacts: true,
+          currentIndex: true,
+          selectedContacts: true,
+          message: true,
+          senderNumbers: true,
+          delaySeconds: true,
+        },
       })
       return NextResponse.json({
-        hasRunning: !!runningBlast,
-        runningBlast
+        hasRunning: !!activeBlast,
+        runningBlast: activeBlast
       })
     }
 

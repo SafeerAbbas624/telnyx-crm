@@ -30,6 +30,7 @@ import {
   XCircle,
   Clock,
   Send,
+  Eye,
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatDistanceToNow } from "date-fns"
@@ -52,7 +53,11 @@ interface TextBlast {
   createdAt: string
 }
 
-export default function TextBlastOperations() {
+interface TextBlastOperationsProps {
+  onSwitchTab?: (tab: string) => void
+}
+
+export default function TextBlastOperations({ onSwitchTab }: TextBlastOperationsProps) {
   const [blasts, setBlasts] = useState<TextBlast[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -93,29 +98,75 @@ export default function TextBlastOperations() {
 
   useEffect(() => {
     loadData()
-    // Poll for updates every 5 seconds
+
+    // Set up SSE for real-time updates
+    const es = new EventSource('/api/events')
+
+    const onProgress = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data || '{}')
+        console.log('📡 Text blast progress update:', data)
+        // Refresh blast list when we get updates
+        fetchBlasts()
+      } catch (error) {
+        console.error('Error parsing SSE event:', error)
+      }
+    }
+
+    const onCompleted = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data || '{}')
+        console.log('✅ Text blast completed:', data)
+        // Refresh blast list and active count
+        fetchBlasts()
+        fetchActiveCount()
+      } catch (error) {
+        console.error('Error parsing SSE event:', error)
+      }
+    }
+
+    es.addEventListener('text-blast:progress', onProgress as any)
+    es.addEventListener('text-blast:completed', onCompleted as any)
+
+    // Poll for updates every 10 seconds (as fallback to SSE)
     const interval = setInterval(() => {
       fetchBlasts()
       fetchActiveCount()
-    }, 5000)
-    return () => clearInterval(interval)
+    }, 10000)
+
+    return () => {
+      clearInterval(interval)
+      try {
+        es.removeEventListener('text-blast:progress', onProgress as any)
+        es.removeEventListener('text-blast:completed', onCompleted as any)
+        es.close()
+      } catch (error) {
+        console.error('Error cleaning up SSE:', error)
+      }
+    }
   }, [fetchBlasts, fetchActiveCount])
 
   const killAllBlasts = async () => {
+    console.log('[KILL SWITCH] Initiating kill all blasts...')
     setKillingAll(true)
     try {
-      const res = await fetch('/api/text-blast/kill-all', { method: 'POST' })
-      if (res.ok) {
-        const data = await res.json()
-        toast.success(data.message || 'All blasts stopped')
-        loadData()
-      } else {
-        toast.error('Failed to stop blasts')
-      }
+      // Kill text blasts
+      const textRes = await fetch('/api/text-blast/kill-all', { method: 'POST' })
+      const textData = textRes.ok ? await textRes.json() : { count: 0 }
+
+      // Kill email blasts
+      const emailRes = await fetch('/api/email-blast/kill-all', { method: 'POST' })
+      const emailData = emailRes.ok ? await emailRes.json() : { count: 0 }
+
+      console.log('[KILL SWITCH] Success:', { textData, emailData })
+      toast.success(`Stopped ${textData.count || 0} text blasts and ${emailData.count || 0} email blasts`)
+      loadData()
     } catch (error) {
+      console.error('[KILL SWITCH] Error:', error)
       toast.error('Error stopping blasts')
     } finally {
       setKillingAll(false)
+      console.log('[KILL SWITCH] Completed')
     }
   }
 
@@ -344,6 +395,18 @@ export default function TextBlastOperations() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 ml-4">
+                        {/* View Queue Button */}
+                        {['running', 'paused', 'pending'].includes(blast.status) && onSwitchTab && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => onSwitchTab('blast')}
+                            title="View Live Queue"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        )}
+
                         {blast.status === 'running' && (
                           <Button variant="outline" size="icon" onClick={() => pauseBlast(blast.id)} title="Pause">
                             <Pause className="h-4 w-4" />

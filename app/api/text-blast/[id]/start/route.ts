@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { getBestPhoneNumber } from '@/lib/phone-utils'
 import { formatMessageTemplate } from '@/lib/message-template'
 import { sendTextBlastSms } from '@/lib/text-blast-service'
+import { broadcast } from '@/lib/server-events'
 
 export async function POST(
   request: NextRequest,
@@ -80,7 +81,7 @@ export async function POST(
 }
 
 // Batch size for processing and status check interval
-const BATCH_SIZE = 5 // Update DB every 5 messages
+const BATCH_SIZE = 1 // Update DB and broadcast every message for real-time updates
 const STATUS_CHECK_INTERVAL = 1 // Check pause/cancel status every message for responsive control
 
 async function processTextBlast(blastId: string) {
@@ -178,7 +179,7 @@ async function processTextBlast(blastId: string) {
 
       // Batch update to database every BATCH_SIZE messages
       if ((localSentCount + localFailedCount) >= BATCH_SIZE) {
-        await prisma.textBlast.update({
+        const updated = await prisma.textBlast.update({
           where: { id: blastId },
           data: {
             sentCount: { increment: localSentCount },
@@ -186,6 +187,17 @@ async function processTextBlast(blastId: string) {
             currentIndex: i + 1,
           },
         })
+
+        // Broadcast real-time update
+        broadcast('text-blast:progress', {
+          blastId,
+          sentCount: updated.sentCount,
+          failedCount: updated.failedCount,
+          currentIndex: updated.currentIndex,
+          totalContacts: updated.totalContacts,
+          status: updated.status,
+        })
+
         lastDbUpdate = i + 1
         localSentCount = 0
         localFailedCount = 0
@@ -199,13 +211,23 @@ async function processTextBlast(blastId: string) {
 
     // Flush any remaining updates
     if (localSentCount > 0 || localFailedCount > 0) {
-      await prisma.textBlast.update({
+      const updated = await prisma.textBlast.update({
         where: { id: blastId },
         data: {
           sentCount: { increment: localSentCount },
           failedCount: { increment: localFailedCount },
           currentIndex: totalContacts,
         },
+      })
+
+      // Broadcast final update before completion
+      broadcast('text-blast:progress', {
+        blastId,
+        sentCount: updated.sentCount,
+        failedCount: updated.failedCount,
+        currentIndex: updated.currentIndex,
+        totalContacts: updated.totalContacts,
+        status: updated.status,
       })
     }
 
@@ -216,7 +238,7 @@ async function processTextBlast(blastId: string) {
     })
 
     if (finalBlast && finalBlast.status === 'running') {
-      await prisma.textBlast.update({
+      const completedBlast = await prisma.textBlast.update({
         where: { id: blastId },
         data: {
           status: 'completed',
@@ -224,6 +246,16 @@ async function processTextBlast(blastId: string) {
           currentIndex: totalContacts,
         },
       })
+
+      // Broadcast completion
+      broadcast('text-blast:completed', {
+        blastId,
+        sentCount: completedBlast.sentCount,
+        failedCount: completedBlast.failedCount,
+        totalContacts: completedBlast.totalContacts,
+        status: 'completed',
+      })
+
       console.log(`[TextBlast ${blastId}] Completed successfully`)
     }
 

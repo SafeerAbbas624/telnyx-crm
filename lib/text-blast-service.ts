@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { formatPhoneNumberForTelnyx, isValidE164PhoneNumber, last10Digits } from '@/lib/phone-utils';
+import { formatPhoneNumberForTelnyx, isValidE164PhoneNumber } from '@/lib/phone-utils';
 
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY;
 const TELNYX_API_URL = 'https://api.telnyx.com/v2/messages';
@@ -142,29 +142,49 @@ async function updateConversation(
   message: string
 ) {
   try {
+    // Use E.164 format for phone numbers (consistent with conversations table)
+    // toNumber should already be in E.164 format from formatPhoneNumberForTelnyx
+    console.log(`[TextBlastSMS] Updating conversation for contactId=${contactId}, from=${fromNumber}, to=${toNumber}`);
+
     // Check for existing conversation with this contact
     const existing = await prisma.conversation.findFirst({
       where: { contact_id: contactId }
     });
 
     if (existing) {
+      console.log(`[TextBlastSMS] Updating existing conversation ${existing.id}`);
       await prisma.conversation.update({
         where: { id: existing.id },
         data: {
+          phone_number: toNumber, // Keep E.164 format
+          our_number: fromNumber,
+          last_message_content: message,
           last_message_at: new Date(),
-          last_message: message.substring(0, 160),
+          last_message_direction: 'outbound',
+          last_sender_number: fromNumber,
+          message_count: (existing.message_count ?? 0) + 1,
+          updated_at: new Date(),
         }
       });
     } else {
+      console.log(`[TextBlastSMS] Creating new conversation for contact ${contactId}`);
       await prisma.conversation.create({
         data: {
           contact_id: contactId,
-          phone_number: last10Digits(toNumber),
-          our_number: last10Digits(fromNumber),
+          phone_number: toNumber, // Keep E.164 format
+          our_number: fromNumber,
+          channel: 'sms',
+          last_message_content: message,
           last_message_at: new Date(),
-          last_message: message.substring(0, 160),
+          last_message_direction: 'outbound',
+          last_sender_number: fromNumber,
+          message_count: 1,
+          unread_count: 0,
+          status: 'active',
+          priority: 'normal',
         }
       });
+      console.log(`[TextBlastSMS] Created new conversation for contact ${contactId}`);
     }
   } catch (error) {
     console.error('[TextBlastSMS] Error updating conversation:', error);

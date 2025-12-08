@@ -1,16 +1,19 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from 'next/dynamic'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { Mail, Settings, TestTube, ArrowLeft, CheckCircle, XCircle, Eye, EyeOff } from "lucide-react"
+import { Mail, Settings, TestTube, ArrowLeft, CheckCircle, XCircle, Eye, EyeOff, Loader2 } from "lucide-react"
+
+// Dynamic import for rich text editor (client-only)
+const RichTextEditor = dynamic(() => import('./rich-text-editor'), { ssr: false })
 
 interface EmailAccountSetupProps {
   onSuccess: () => void
@@ -84,10 +87,12 @@ const EMAIL_PRESETS = {
 
 export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountSetupProps) {
   const { toast } = useToast()
-  const [selectedPreset, setSelectedPreset] = useState<keyof typeof EMAIL_PRESETS>('gmail')
+  const [selectedPreset, setSelectedPreset] = useState<keyof typeof EMAIL_PRESETS>('hostinger')
   const [isLoading, setIsLoading] = useState(false)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
+  const [smtpStatus, setSmtpStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [imapStatus, setImapStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [showSmtpPassword, setShowSmtpPassword] = useState(false)
   const [showImapPassword, setShowImapPassword] = useState(false)
 
@@ -122,17 +127,18 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
     }
   }
 
+  // Default to Hostinger settings
   const [formData, setFormData] = useState<EmailAccountForm>({
     emailAddress: '',
     displayName: '',
-    smtpHost: EMAIL_PRESETS.gmail.smtpHost,
-    smtpPort: EMAIL_PRESETS.gmail.smtpPort,
-    smtpEncryption: EMAIL_PRESETS.gmail.smtpEncryption,
+    smtpHost: EMAIL_PRESETS.hostinger.smtpHost,
+    smtpPort: EMAIL_PRESETS.hostinger.smtpPort,
+    smtpEncryption: EMAIL_PRESETS.hostinger.smtpEncryption,
     smtpUsername: '',
     smtpPassword: '',
-    imapHost: EMAIL_PRESETS.gmail.imapHost,
-    imapPort: EMAIL_PRESETS.gmail.imapPort,
-    imapEncryption: EMAIL_PRESETS.gmail.imapEncryption,
+    imapHost: EMAIL_PRESETS.hostinger.imapHost,
+    imapPort: EMAIL_PRESETS.hostinger.imapPort,
+    imapEncryption: EMAIL_PRESETS.hostinger.imapEncryption,
     imapUsername: '',
     imapPassword: '',
     signature: '',
@@ -188,6 +194,8 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
   const testConnection = async () => {
     setIsLoading(true)
     setTestStatus('testing')
+    setSmtpStatus('testing')
+    setImapStatus('testing')
     setTestMessage('')
 
     try {
@@ -210,6 +218,12 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
 
       const result = await response.json()
 
+      // Update individual statuses
+      if (result.results) {
+        setSmtpStatus(result.results.smtp?.success ? 'success' : 'error')
+        setImapStatus(result.results.imap?.success ? 'success' : 'error')
+      }
+
       if (response.ok && result.success) {
         setTestStatus('success')
         setTestMessage(result.message || 'Connection successful!')
@@ -231,6 +245,8 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
       }
     } catch (error) {
       setTestStatus('error')
+      setSmtpStatus('error')
+      setImapStatus('error')
       setTestMessage('Failed to test connection. Please try again.')
     } finally {
       setIsLoading(false)
@@ -562,16 +578,17 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="signature">Email Signature</Label>
-                <Textarea
-                  id="signature"
-                  value={formData.signature}
-                  onChange={(e) => handleInputChange('signature', e.target.value)}
+                <Label htmlFor="signature" className="mb-2 block">Email Signature</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Use the toolbar to add bold, italic, links, and more
+                </p>
+                <RichTextEditor
+                  content={formData.signature}
+                  onChange={(html) => handleInputChange('signature', html)}
                   placeholder="Best regards,&#10;Your Name&#10;Your Company"
-                  rows={3}
                 />
               </div>
-              
+
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="isDefault"
@@ -585,42 +602,84 @@ export default function EmailAccountSetup({ onSuccess, onCancel }: EmailAccountS
 
           {/* Test Connection */}
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={testConnection}
-                    disabled={isLoading || !formData.emailAddress || !formData.smtpHost}
-                    className="flex items-center gap-2"
-                  >
+            <CardHeader>
+              <CardTitle>Test Connection</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={testConnection}
+                  disabled={isLoading || !formData.emailAddress || !formData.smtpHost || !formData.smtpPassword}
+                  className="flex items-center gap-2"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
                     <TestTube className="h-4 w-4" />
-                    Test Connection
-                  </Button>
-                  
-                  {testStatus === 'testing' && (
-                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-primary"></div>
                   )}
-                  
-                  {testStatus === 'success' && (
-                    <div className="flex items-center gap-1 text-green-600">
-                      <CheckCircle className="h-4 w-4" />
-                      <span className="text-sm">Connected</span>
-                    </div>
-                  )}
-                  
-                  {testStatus === 'error' && (
-                    <div className="flex items-center gap-1 text-red-600">
-                      <XCircle className="h-4 w-4" />
-                      <span className="text-sm">Failed</span>
-                    </div>
-                  )}
-                </div>
+                  {isLoading ? 'Testing...' : 'Test Connection'}
+                </Button>
               </div>
-              
+
+              {/* Separate SMTP and IMAP status indicators */}
+              {testStatus !== 'idle' && (
+                <div className="grid grid-cols-2 gap-4">
+                  {/* SMTP Status */}
+                  <div className={`p-3 rounded-lg border ${
+                    smtpStatus === 'success' ? 'bg-green-50 border-green-200' :
+                    smtpStatus === 'error' ? 'bg-red-50 border-red-200' :
+                    smtpStatus === 'testing' ? 'bg-blue-50 border-blue-200' :
+                    'bg-gray-50 border-gray-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {smtpStatus === 'testing' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+                      {smtpStatus === 'success' && <CheckCircle className="h-4 w-4 text-green-600" />}
+                      {smtpStatus === 'error' && <XCircle className="h-4 w-4 text-red-600" />}
+                      <span className="font-medium text-sm">SMTP (Outgoing)</span>
+                    </div>
+                    <p className={`text-xs mt-1 ${
+                      smtpStatus === 'success' ? 'text-green-700' :
+                      smtpStatus === 'error' ? 'text-red-700' :
+                      smtpStatus === 'testing' ? 'text-blue-700' :
+                      'text-gray-600'
+                    }`}>
+                      {smtpStatus === 'testing' ? 'Testing send capability...' :
+                       smtpStatus === 'success' ? '✓ Can send emails' :
+                       smtpStatus === 'error' ? '✗ Cannot send emails' : 'Not tested'}
+                    </p>
+                  </div>
+
+                  {/* IMAP Status */}
+                  <div className={`p-3 rounded-lg border ${
+                    imapStatus === 'success' ? 'bg-green-50 border-green-200' :
+                    imapStatus === 'error' ? 'bg-yellow-50 border-yellow-200' :
+                    imapStatus === 'testing' ? 'bg-blue-50 border-blue-200' :
+                    'bg-gray-50 border-gray-200'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {imapStatus === 'testing' && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
+                      {imapStatus === 'success' && <CheckCircle className="h-4 w-4 text-green-600" />}
+                      {imapStatus === 'error' && <XCircle className="h-4 w-4 text-yellow-600" />}
+                      <span className="font-medium text-sm">IMAP (Incoming)</span>
+                    </div>
+                    <p className={`text-xs mt-1 ${
+                      imapStatus === 'success' ? 'text-green-700' :
+                      imapStatus === 'error' ? 'text-yellow-700' :
+                      imapStatus === 'testing' ? 'text-blue-700' :
+                      'text-gray-600'
+                    }`}>
+                      {imapStatus === 'testing' ? 'Testing receive capability...' :
+                       imapStatus === 'success' ? '✓ Can receive emails' :
+                       imapStatus === 'error' ? '⚠ Cannot receive (optional)' : 'Not tested'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {testMessage && (
-                <div className={`text-sm mt-3 p-3 rounded border ${
+                <div className={`text-sm p-3 rounded border ${
                   testStatus === 'success'
                     ? 'bg-green-50 text-green-700 border-green-200'
                     : 'bg-red-50 text-red-700 border-red-200'

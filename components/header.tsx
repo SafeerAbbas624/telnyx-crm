@@ -71,21 +71,32 @@ export default function Header() {
 
   const handleKillAllSending = async () => {
     setKillingSending(true)
+    console.log('🛑 [KILL SWITCH] Starting kill all blasts...')
     try {
       // Kill all text blasts
       const textRes = await fetch('/api/text-blast/kill-all', { method: 'POST' })
       const textData = await textRes.json()
+      console.log('🛑 [KILL SWITCH] Text blasts result:', textData)
 
       // Kill all call campaigns
       const callRes = await fetch('/api/call-campaigns/kill-all', { method: 'POST' })
       const callData = await callRes.json()
+      console.log('🛑 [KILL SWITCH] Call campaigns result:', callData)
+
+      // Kill all email blasts
+      const emailRes = await fetch('/api/email-blast/kill-all', { method: 'POST' })
+      const emailData = await emailRes.json()
+      console.log('🛑 [KILL SWITCH] Email blasts result:', emailData)
+
+      const totalKilled = (textData.cancelledCount || 0) + (emailData.count || 0) + (callData.cancelledCount || 0)
+      console.log(`🛑 [KILL SWITCH] ✅ Total killed: ${totalKilled}`)
 
       toast({
         title: "🛑 All Sending Stopped",
-        description: `Cancelled ${textData.cancelledCount || 0} text blasts and ${callData.cancelledCount || 0} call campaigns.`,
+        description: `Cancelled ${textData.cancelledCount || 0} text blasts, ${emailData.count || 0} email blasts, and ${callData.cancelledCount || 0} call campaigns.`,
       })
     } catch (error) {
-      console.error("Kill all error:", error)
+      console.error("🛑 [KILL SWITCH] Error:", error)
       toast({
         title: "Error",
         description: "Failed to stop some operations. Try refreshing the page.",
@@ -130,7 +141,7 @@ export default function Header() {
           <AlertDialogHeader>
             <AlertDialogTitle className="text-red-600">🛑 Emergency Stop All Sending</AlertDialogTitle>
             <AlertDialogDescription>
-              This will immediately stop <strong>ALL</strong> running text blasts and call campaigns.
+              This will immediately stop <strong>ALL</strong> running text blasts, email blasts, and call campaigns.
               Messages that are already queued may still be sent.
             </AlertDialogDescription>
           </AlertDialogHeader>

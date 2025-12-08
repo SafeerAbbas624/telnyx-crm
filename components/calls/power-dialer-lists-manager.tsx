@@ -14,6 +14,8 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
 import { Trash2, Play, Plus, Tag, Shuffle, ArrowUpDown, Phone, Users, Clock, FileText } from 'lucide-react'
+import { MultiLineDialerView } from './multi-line-dialer-view'
+import type { CallerIdStrategy } from '@/lib/dialer/types'
 
 interface PowerDialerList {
   id: string
@@ -24,6 +26,12 @@ interface PowerDialerList {
   contactsCalled: number
   contactsAnswered: number
   contactsNoAnswer: number
+  contactsVoicemail?: number
+  contactsBusy?: number
+  contactsFailed?: number
+  maxLines?: number
+  callerIdStrategy?: CallerIdStrategy
+  scriptId?: string
   createdAt: string
   lastWorkedOn?: string
   completedAt?: string
@@ -83,6 +91,9 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
   const [activeListId, setActiveListId] = useState<string | null>(null)
   const [queueContacts, setQueueContacts] = useState<Contact[]>([])
   const [currentCallIndex, setCurrentCallIndex] = useState(0)
+
+  // Multi-line dialer view
+  const [selectedList, setSelectedList] = useState<PowerDialerList | null>(null)
 
   useEffect(() => {
     loadLists()
@@ -296,6 +307,19 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
 
   if (loading) {
     return <div className="text-center py-8">Loading call lists...</div>
+  }
+
+  // Show multi-line dialer view when a list is selected
+  if (selectedList) {
+    return (
+      <MultiLineDialerView
+        list={selectedList}
+        onBack={() => {
+          setSelectedList(null)
+          loadLists() // Refresh lists when returning
+        }}
+      />
+    )
   }
 
   return (
@@ -553,14 +577,14 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                   <div className="flex gap-2 pt-2">
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="default"
                       onClick={() => {
-                        loadListQueue(list.id)
+                        setSelectedList(list)
                         onSelectList?.(list.id)
                       }}
                     >
                       <Play className="w-4 h-4 mr-1" />
-                      Resume
+                      Open Dialer
                     </Button>
                     <Button
                       size="sm"

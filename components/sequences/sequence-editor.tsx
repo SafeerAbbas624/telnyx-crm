@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -25,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { TemplateVariableSelector } from "@/components/ui/template-variable-selector"
 import { toast } from "sonner"
 import {
   ArrowLeft,
@@ -264,6 +265,11 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
   const [saving, setSaving] = useState(false)
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
 
+  // Refs for variable insertion
+  const smsMessageRef = useRef<HTMLTextAreaElement>(null)
+  const emailSubjectRef = useRef<HTMLInputElement>(null)
+  const emailBodyRef = useRef<HTMLTextAreaElement>(null)
+
   // Step dialog state
   const [showStepDialog, setShowStepDialog] = useState(false)
   const [editingStep, setEditingStep] = useState<SequenceStep | null>(null)
@@ -401,6 +407,28 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
     } catch (error) {
       console.error("Error toggling sequence:", error)
       toast.error("Failed to update sequence")
+    }
+  }
+
+  // Helper to insert variable at cursor position
+  const insertVariableAtCursor = (
+    variable: string,
+    ref: React.RefObject<HTMLTextAreaElement | HTMLInputElement | null>,
+    currentValue: string,
+    setValue: (value: string) => void
+  ) => {
+    const element = ref.current
+    if (element) {
+      const start = element.selectionStart || 0
+      const end = element.selectionEnd || 0
+      const newValue = currentValue.substring(0, start) + variable + currentValue.substring(end)
+      setValue(newValue)
+      setTimeout(() => {
+        element.focus()
+        element.setSelectionRange(start + variable.length, start + variable.length)
+      }, 0)
+    } else {
+      setValue(currentValue + variable)
     }
   }
 
@@ -745,9 +773,26 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
             {/* Type-specific config will be added here */}
             {stepForm.type === "SMS" && (
               <div className="space-y-2">
-                <Label>Message Template</Label>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Message Template</Label>
+                  <TemplateVariableSelector
+                    onSelect={(variable) =>
+                      insertVariableAtCursor(
+                        variable,
+                        smsMessageRef,
+                        stepForm.config.message || "",
+                        (value) =>
+                          setStepForm({
+                            ...stepForm,
+                            config: { ...stepForm.config, message: value },
+                          })
+                      )
+                    }
+                  />
+                </div>
                 <Textarea
-                  placeholder="Enter your SMS message..."
+                  ref={smsMessageRef}
+                  placeholder="Hi {firstName}, this is a message about your property at {propertyAddress}..."
                   value={stepForm.config.message || ""}
                   onChange={(e) =>
                     setStepForm({
@@ -758,7 +803,7 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
                   rows={4}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Use variables like {"{{firstName}}"}, {"{{propertyAddress}}"}, etc.
+                  Click "Insert Variable" to add dynamic content at cursor position
                 </p>
               </div>
             )}
@@ -766,9 +811,27 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
             {stepForm.type === "EMAIL" && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Subject</Label>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label>Subject</Label>
+                    <TemplateVariableSelector
+                      onSelect={(variable) =>
+                        insertVariableAtCursor(
+                          variable,
+                          emailSubjectRef,
+                          stepForm.config.subject || "",
+                          (value) =>
+                            setStepForm({
+                              ...stepForm,
+                              config: { ...stepForm.config, subject: value },
+                            })
+                        )
+                      }
+                      buttonSize="sm"
+                    />
+                  </div>
                   <Input
-                    placeholder="Email subject..."
+                    ref={emailSubjectRef}
+                    placeholder="e.g., Follow up on {propertyAddress}"
                     value={stepForm.config.subject || ""}
                     onChange={(e) =>
                       setStepForm({
@@ -779,9 +842,26 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Body</Label>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label>Body</Label>
+                    <TemplateVariableSelector
+                      onSelect={(variable) =>
+                        insertVariableAtCursor(
+                          variable,
+                          emailBodyRef,
+                          stepForm.config.body || "",
+                          (value) =>
+                            setStepForm({
+                              ...stepForm,
+                              config: { ...stepForm.config, body: value },
+                            })
+                        )
+                      }
+                    />
+                  </div>
                   <Textarea
-                    placeholder="Email body..."
+                    ref={emailBodyRef}
+                    placeholder="Hi {firstName}, I wanted to reach out about..."
                     value={stepForm.config.body || ""}
                     onChange={(e) =>
                       setStepForm({
@@ -791,6 +871,9 @@ export default function SequenceEditor({ sequenceId }: SequenceEditorProps) {
                     }
                     rows={6}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Click "Insert Variable" to add dynamic content at cursor position
+                  </p>
                 </div>
               </div>
             )}

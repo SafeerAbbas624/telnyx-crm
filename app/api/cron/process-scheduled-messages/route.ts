@@ -6,17 +6,24 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Process scheduled messages that are due to be sent.
- * This endpoint should be called by a cron job every minute.
- * 
- * Security: Requires CRON_SECRET authorization header
+ * This endpoint should be called by a cron job or worker every minute.
+ *
+ * Security: Accepts either CRON_SECRET authorization header or INTERNAL_API_KEY
  */
-export async function GET(request: NextRequest) {
+async function processScheduledMessages(request: NextRequest) {
   try {
-    // Verify the request is from a trusted cron service
+    // Verify the request is from a trusted cron service or internal worker
     const authHeader = request.headers.get('authorization');
+    const internalKey = request.headers.get('x-internal-key');
     const cronSecret = process.env.CRON_SECRET;
+    const internalApiKey = process.env.INTERNAL_API_KEY;
 
-    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    const isAuthorized =
+      (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
+      (internalApiKey && internalKey === internalApiKey) ||
+      (!cronSecret && !internalApiKey); // Allow if no secrets configured (dev mode)
+
+    if (!isAuthorized) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -154,3 +161,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Support both GET (for external cron services) and POST (for internal worker)
+export async function GET(request: NextRequest) {
+  return processScheduledMessages(request);
+}
+
+export async function POST(request: NextRequest) {
+  return processScheduledMessages(request);
+}

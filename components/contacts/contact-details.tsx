@@ -6,8 +6,22 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Edit, Phone, Mail, MapPin, DollarSign, Home, GripHorizontal, Building2, Calendar, User, Tag, AlertCircle } from "lucide-react"
+import { ArrowLeft, Edit, Phone, Mail, MapPin, DollarSign, Home, GripHorizontal, Building2, Calendar, User, Tag, AlertCircle, ExternalLink } from "lucide-react"
 import type { Contact } from "@/lib/types"
+
+// LinkedIn icon component
+const LinkedInIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+  </svg>
+)
+
+// Future-proof social configs - easily add more socials here
+const socialConfigs = [
+  { key: 'linkedinUrl' as const, icon: LinkedInIcon, label: 'LinkedIn', color: 'text-[#0077B5]' },
+  // Future: { key: 'twitterUrl' as const, icon: TwitterIcon, label: 'X', color: 'text-black' },
+  // Future: { key: 'instagramUrl' as const, icon: InstagramIcon, label: 'Instagram', color: 'text-pink-600' },
+]
 import { ContactNotes } from "./contact-notes"
 import ContactActivities from "./contact-activities"
 import ContactCalls from "./contact-calls"
@@ -217,6 +231,33 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
                     )}
                   </div>
                 </div>
+                {/* Social Links - Only show if at least one exists */}
+                {socialConfigs.some(social => c[social.key]) && (
+                  <div className="flex items-start gap-2">
+                    <div className="h-4 w-4 mt-0.5 flex-shrink-0" /> {/* Spacer for alignment */}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-gray-500 mb-1">Social</p>
+                      <div className="flex items-center gap-2">
+                        {socialConfigs.map(social => {
+                          const url = c[social.key]
+                          if (!url) return null
+                          return (
+                            <a
+                              key={social.key}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`${social.color} hover:opacity-80 transition-opacity`}
+                              title={`Open ${social.label} profile`}
+                            >
+                              <social.icon className="h-5 w-5" />
+                            </a>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

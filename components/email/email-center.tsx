@@ -4,11 +4,12 @@ import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Mail, Send, Settings } from "lucide-react"
+import { Mail, Send, Settings, Activity } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import EmailConversationsList from "./email-conversations-list"
 import EmailConversation from "./email-conversation"
 import EmailBlast from "./email-blast"
+import EmailBlastOperations from "./email-blast-operations"
 import EmailAccountSetup from "./email-account-setup"
 import { EmailSettings } from "./email-settings"
 import { EmailConversationsGmail } from "./email-conversations-gmail"
@@ -34,6 +35,7 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
   const [showAccountSetup, setShowAccountSetup] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
+  const [activeTab, setActiveTab] = useState("conversations")
 
   // Check if mobile
   useEffect(() => {
@@ -129,9 +131,9 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
 
       {/* Tabs */}
       <div className="flex-1 overflow-hidden">
-        <Tabs defaultValue="conversations" className="h-full flex flex-col">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
           <div className="px-4 pt-4">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="conversations" className="flex items-center gap-2">
                 <Mail className="h-4 w-4" />
                 Conversations
@@ -139,6 +141,10 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
               <TabsTrigger value="blast" className="flex items-center gap-2">
                 <Send className="h-4 w-4" />
                 Email Blast
+              </TabsTrigger>
+              <TabsTrigger value="operations" className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Operations
               </TabsTrigger>
               <TabsTrigger value="settings" className="flex items-center gap-2">
                 <Settings className="h-4 w-4" />
@@ -153,6 +159,9 @@ export default function EmailCenter({ selectedContactId }: EmailCenterProps) {
             </TabsContent>
             <TabsContent value="blast" className="h-full m-0">
               <EmailBlast emailAccounts={emailAccounts} />
+            </TabsContent>
+            <TabsContent value="operations" className="h-full m-0 overflow-auto">
+              <EmailBlastOperations onSwitchTab={setActiveTab} />
             </TabsContent>
             <TabsContent value="settings" className="h-full m-0 p-4 overflow-y-auto">
               <EmailSettings onAccountChange={loadEmailAccounts} />

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Settings, User, Users, ListChecks, Phone, Mail, MessageSquare, Copy, FileText } from "lucide-react"
+import { Settings, User, Users, ListChecks, Phone, Mail, MessageSquare, Copy, FileText, Clock, PhoneCall } from "lucide-react"
 import ProfileSettings from "./profile-settings"
 import TeamManagement from "./team-management"
 import TaskTypesSettings from "./task-types-settings"
@@ -13,8 +13,10 @@ import { EmailSettings } from "@/components/email/email-settings"
 import TemplatesSettings from "./templates-settings"
 import DuplicateManagement from "./duplicate-management"
 import CallScriptsSettings from "./call-scripts-settings"
+import ScheduledMessagesSettings from "./scheduled-messages"
+import DispositionsSettings from "./dispositions-settings"
 
-const VALID_TABS = ['profile', 'team', 'task-types', 'templates', 'call-scripts', 'phone-numbers', 'email-accounts', 'duplicates']
+const VALID_TABS = ['profile', 'team', 'task-types', 'templates', 'call-scripts', 'dispositions', 'phone-numbers', 'email-accounts', 'duplicates', 'scheduled']
 
 export default function SettingsPage() {
   const searchParams = useSearchParams()
@@ -44,7 +46,7 @@ export default function SettingsPage() {
       {/* Settings Tabs */}
       <div className="flex-1 overflow-auto p-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className="grid w-full grid-cols-8 max-w-7xl mb-6">
+          <TabsList className="flex flex-wrap w-full max-w-7xl mb-6 h-auto gap-1">
             <TabsTrigger value="profile" className="flex items-center gap-2">
               <User className="h-4 w-4" />
               Profile
@@ -63,19 +65,27 @@ export default function SettingsPage() {
             </TabsTrigger>
             <TabsTrigger value="call-scripts" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Call Scripts
+              Scripts
+            </TabsTrigger>
+            <TabsTrigger value="dispositions" className="flex items-center gap-2">
+              <PhoneCall className="h-4 w-4" />
+              Dispositions
             </TabsTrigger>
             <TabsTrigger value="phone-numbers" className="flex items-center gap-2">
               <Phone className="h-4 w-4" />
-              Phone Numbers
+              Phone
             </TabsTrigger>
             <TabsTrigger value="email-accounts" className="flex items-center gap-2">
               <Mail className="h-4 w-4" />
-              Email Accounts
+              Email
             </TabsTrigger>
             <TabsTrigger value="duplicates" className="flex items-center gap-2">
               <Copy className="h-4 w-4" />
               Duplicates
+            </TabsTrigger>
+            <TabsTrigger value="scheduled" className="flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Scheduled
             </TabsTrigger>
           </TabsList>
 
@@ -105,6 +115,11 @@ export default function SettingsPage() {
                 <CallScriptsSettings />
               </div>
             </TabsContent>
+            <TabsContent value="dispositions" className="h-full m-0">
+              <div className="h-full overflow-y-auto">
+                <DispositionsSettings />
+              </div>
+            </TabsContent>
             <TabsContent value="phone-numbers" className="h-full m-0">
               <div className="h-full overflow-y-auto">
                 <TelnyxPhoneNumbers />
@@ -118,6 +133,11 @@ export default function SettingsPage() {
             <TabsContent value="duplicates" className="h-full m-0">
               <div className="h-full overflow-y-auto">
                 <DuplicateManagement />
+              </div>
+            </TabsContent>
+            <TabsContent value="scheduled" className="h-full m-0">
+              <div className="h-full overflow-y-auto">
+                <ScheduledMessagesSettings />
               </div>
             </TabsContent>
           </div>

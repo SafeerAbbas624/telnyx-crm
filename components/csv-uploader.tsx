@@ -179,6 +179,16 @@ export function CsvUploader({ open, onOpenChange }: CsvUploaderProps) {
           case "email3":
             ;(newContact as Record<string, unknown>)[mapping.dbField] = String(value).toLowerCase()
             break
+          case "linkedinUrl":
+            // Normalize LinkedIn URL
+            let linkedinUrl = String(value).trim()
+            if (linkedinUrl && !linkedinUrl.startsWith('http://') && !linkedinUrl.startsWith('https://')) {
+              linkedinUrl = 'https://' + linkedinUrl
+            }
+            if (linkedinUrl && linkedinUrl.toLowerCase().includes('linkedin.com')) {
+              ;(newContact as Record<string, unknown>)[mapping.dbField] = linkedinUrl
+            }
+            break
           case "propertyType":
             newContact.propertyType = normalizePropertyType(value)
             break
@@ -341,6 +351,7 @@ export function CsvUploader({ open, onOpenChange }: CsvUploaderProps) {
       { value: "notes", label: "Notes" },
       { value: "dealStatus", label: "Deal Status" },
       { value: "avatarUrl", label: "Avatar URL" },
+      { value: "linkedinUrl", label: "LinkedIn URL" },
     ]
   }
 

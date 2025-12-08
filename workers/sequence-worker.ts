@@ -1,13 +1,17 @@
 /**
- * Sequence Worker
- * 
- * This worker processes sequence enrollments by calling the /api/sequences/process endpoint
- * on a regular interval. It handles:
+ * Sequence & Scheduled Message Worker
+ *
+ * This worker processes:
+ * 1. Sequence enrollments by calling the /api/sequences/process endpoint
+ * 2. Scheduled messages by calling the /api/cron/process-scheduled-messages endpoint
+ *
+ * It handles:
  * - Executing due sequence steps (EMAIL, SMS, TASK)
+ * - Executing scheduled SMS and EMAIL messages
  * - Rate limiting
  * - Quiet hours enforcement
  * - DNC/unsubscribe checks
- * 
+ *
  * Configuration via environment variables:
  * - SEQUENCE_PROCESS_INTERVAL_MS: How often to process (default: 60000ms = 1 minute)
  * - INTERNAL_API_KEY: Optional security key for the process endpoint
@@ -18,28 +22,36 @@ const PROCESS_INTERVAL = parseInt(process.env.SEQUENCE_PROCESS_INTERVAL_MS || "6
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || ""
 const APP_URL = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000"
 
-let isProcessing = false
-let lastProcessTime: Date | null = null
-let processCount = 0
-let totalProcessed = 0
-let totalFailed = 0
+// Sequence processing stats
+let isProcessingSequences = false
+let lastSequenceProcessTime: Date | null = null
+let sequenceProcessCount = 0
+let sequenceTotalProcessed = 0
+let sequenceTotalFailed = 0
+
+// Scheduled message processing stats
+let isProcessingScheduled = false
+let lastScheduledProcessTime: Date | null = null
+let scheduledProcessCount = 0
+let scheduledTotalSent = 0
+let scheduledTotalFailed = 0
 
 async function processSequences() {
-  if (isProcessing) {
-    console.log("[Sequence Worker] Already processing, skipping...")
+  if (isProcessingSequences) {
+    console.log("[Worker] Sequences: Already processing, skipping...")
     return
   }
 
-  isProcessing = true
+  isProcessingSequences = true
   const startTime = Date.now()
 
   try {
-    console.log(`[Sequence Worker] Starting process cycle #${++processCount}`)
+    console.log(`[Worker] Sequences: Starting process cycle #${++sequenceProcessCount}`)
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     }
-    
+
     if (INTERNAL_API_KEY) {
       headers["x-internal-key"] = INTERNAL_API_KEY
     }
@@ -55,53 +67,113 @@ async function processSequences() {
     }
 
     const result = await response.json()
-    lastProcessTime = new Date()
+    lastSequenceProcessTime = new Date()
 
     if (result.message?.includes("quiet hours")) {
-      console.log(`[Sequence Worker] Skipped: Currently in quiet hours`)
+      console.log(`[Worker] Sequences: Skipped - quiet hours`)
     } else {
-      totalProcessed += result.processed || 0
-      totalFailed += result.failed || 0
-      
+      sequenceTotalProcessed += result.processed || 0
+      sequenceTotalFailed += result.failed || 0
+
+      if (result.processed > 0 || result.failed > 0) {
+        console.log(
+          `[Worker] Sequences: Done in ${Date.now() - startTime}ms - ` +
+          `Processed: ${result.processed}, Skipped: ${result.skipped}, Failed: ${result.failed}`
+        )
+      }
+    }
+  } catch (error: any) {
+    console.error(`[Worker] Sequences: Error -`, error.message)
+  } finally {
+    isProcessingSequences = false
+  }
+}
+
+async function processScheduledMessages() {
+  if (isProcessingScheduled) {
+    console.log("[Worker] Scheduled: Already processing, skipping...")
+    return
+  }
+
+  isProcessingScheduled = true
+  const startTime = Date.now()
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+
+    if (INTERNAL_API_KEY) {
+      headers["x-internal-key"] = INTERNAL_API_KEY
+    }
+
+    const response = await fetch(`${APP_URL}/api/cron/process-scheduled-messages`, {
+      method: "POST",
+      headers,
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(`HTTP ${response.status}: ${errorText}`)
+    }
+
+    const result = await response.json()
+    lastScheduledProcessTime = new Date()
+    scheduledProcessCount++
+
+    scheduledTotalSent += result.sent || 0
+    scheduledTotalFailed += result.failed || 0
+
+    if (result.processed > 0) {
       console.log(
-        `[Sequence Worker] Completed in ${Date.now() - startTime}ms - ` +
-        `Processed: ${result.processed}, Skipped: ${result.skipped}, Failed: ${result.failed}`
+        `[Worker] Scheduled: Done in ${Date.now() - startTime}ms - ` +
+        `Processed: ${result.processed}, Sent: ${result.sent}, Failed: ${result.failed}`
       )
     }
   } catch (error: any) {
-    console.error(`[Sequence Worker] Error:`, error.message)
+    console.error(`[Worker] Scheduled: Error -`, error.message)
   } finally {
-    isProcessing = false
+    isProcessingScheduled = false
   }
+}
+
+async function runAllProcessors() {
+  // Run both in parallel since they're independent
+  await Promise.all([
+    processSequences(),
+    processScheduledMessages()
+  ])
 }
 
 // Status logging every 5 minutes
 setInterval(() => {
   console.log(
-    `[Sequence Worker] Status - ` +
-    `Cycles: ${processCount}, Total Processed: ${totalProcessed}, Total Failed: ${totalFailed}, ` +
-    `Last Process: ${lastProcessTime?.toISOString() || "Never"}`
+    `[Worker] Status - ` +
+    `Sequences: Cycles=${sequenceProcessCount}, Processed=${sequenceTotalProcessed}, Failed=${sequenceTotalFailed} | ` +
+    `Scheduled: Cycles=${scheduledProcessCount}, Sent=${scheduledTotalSent}, Failed=${scheduledTotalFailed}`
   )
 }, 300000)
 
 // Main loop
-console.log(`[Sequence Worker] Starting with ${PROCESS_INTERVAL}ms interval`)
-console.log(`[Sequence Worker] API URL: ${APP_URL}/api/sequences/process`)
+console.log(`[Worker] Starting with ${PROCESS_INTERVAL}ms interval`)
+console.log(`[Worker] API URLs:`)
+console.log(`  - Sequences: ${APP_URL}/api/sequences/process`)
+console.log(`  - Scheduled: ${APP_URL}/api/cron/process-scheduled-messages`)
 
 // Run immediately on start
-processSequences()
+runAllProcessors()
 
 // Then run on interval
-setInterval(processSequences, PROCESS_INTERVAL)
+setInterval(runAllProcessors, PROCESS_INTERVAL)
 
 // Handle graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("[Sequence Worker] Received SIGTERM, shutting down...")
+  console.log("[Worker] Received SIGTERM, shutting down...")
   process.exit(0)
 })
 
 process.on("SIGINT", () => {
-  console.log("[Sequence Worker] Received SIGINT, shutting down...")
+  console.log("[Worker] Received SIGINT, shutting down...")
   process.exit(0)
 })
 

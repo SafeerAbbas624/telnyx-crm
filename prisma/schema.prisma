@@ -20,6 +20,7 @@ model Contact {
   email1                  String?
   email2                  String?
   email3                  String?
+  linkedinUrl             String?                  @map("linkedin_url")
   propertyAddress         String?                  @map("property_address")
   fullPropertyAddress     String?                  @map("full_property_address")
   contactAddress          String?                  @map("contact_address")
@@ -65,6 +66,7 @@ model Contact {
   deals                   Deal[]                   @relation("ContactDeals")
   sequenceEnrollments     SequenceEnrollment[]     @relation("ContactSequenceEnrollments")
   scheduledMessages       ScheduledMessage[]       @relation("ContactScheduledMessages")
+  dispositionLogs         CallDispositionLog[]
 
   // Performance indexes for common queries
   @@index([pipelineId], name: "idx_contacts_pipeline_id")
@@ -1440,22 +1442,29 @@ model EmailBlast {
 
   emailAccountId String @map("email_account_id") @db.Uuid
 
-  // Recipients
+  // Recipients - stored as JSON array like text blast
+  selectedContacts Json? @map("selected_contacts") // Store contact IDs as JSON array
+
+  // Legacy fields for backwards compatibility
   contactIds String[] @map("contact_ids") @db.Uuid
   ccEmails   String[] @default([]) @map("cc_emails")
   bccEmails  String[] @default([]) @map("bcc_emails")
 
   // Blast Settings
-  delayBetweenEmails Int @default(0) @map("delay_between_emails") // seconds
+  delayBetweenEmails Int @default(5) @map("delay_between_emails") // seconds
 
   // Status
   status        TextBlastStatus @default(draft)
   totalContacts Int             @default(0) @map("total_contacts")
   sentCount     Int             @default(0) @map("sent_count")
   failedCount   Int             @default(0) @map("failed_count")
+  currentIndex  Int             @default(0) @map("current_index")
+  isPaused      Boolean         @default(false) @map("is_paused")
 
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
+  pausedAt    DateTime? @map("paused_at")
+  resumedAt   DateTime? @map("resumed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1463,7 +1472,12 @@ model EmailBlast {
   // Relations
   emailAccount EmailAccount   @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
   messages     EmailMessage[]
+  createdBy    String?        @map("created_by") @db.Uuid
+  createdByUser User?         @relation("UserEmailBlasts", fields: [createdBy], references: [id], onDelete: SetNull)
 
+  @@index([status])
+  @@index([createdBy])
+  @@index([createdAt(sort: Desc)])
   @@map("email_blasts")
 }
 
@@ -1512,6 +1526,7 @@ model User {
   filterPresets       FilterPreset[]       @relation("UserFilterPresets")
   powerDialerSessions PowerDialerSession[] @relation("PowerDialerSessions")
   powerDialerLists    PowerDialerList[]    @relation("PowerDialerLists")
+  powerDialerRuns     PowerDialerRun[]     @relation("PowerDialerRuns")
   taskReplies         TaskReply[]          @relation("UserTaskReplies")
 
   // Task-related relations
@@ -1532,6 +1547,9 @@ model User {
 
   // Text blast relations
   textBlasts TextBlast[] @relation("UserTextBlasts")
+
+  // Email blast relations
+  emailBlasts EmailBlast[] @relation("UserEmailBlasts")
 
   // Sequence relations
   sequences            Sequence[]           @relation("UserSequences")
@@ -1785,6 +1803,8 @@ enum PowerDialerListContactStatus {
   ANSWERED
   NO_ANSWER
   FAILED
+  COMPLETED  // Dispositioned and done
+  SKIPPED    // Manually skipped
 }
 
 // Power Dialer Named Lists - Persistent call lists that can span multiple sessions
@@ -1800,11 +1820,19 @@ model PowerDialerList {
   // List status
   status PowerDialerListStatus @default(ACTIVE)
 
+  // Multi-line dialer configuration
+  maxLines         Int     @default(3) @map("max_lines") // Default concurrent lines
+  callerIdStrategy String  @default("round_robin") @map("caller_id_strategy") // round_robin, single_number, random
+  currentIndex     Int     @default(0) @map("current_index") // Resume position
+
   // Progress tracking
   totalContacts    Int @default(0) @map("total_contacts")
   contactsCalled   Int @default(0) @map("contacts_called")
   contactsAnswered Int @default(0) @map("contacts_answered")
   contactsNoAnswer Int @default(0) @map("contacts_no_answer")
+  contactsVoicemail Int @default(0) @map("contacts_voicemail")
+  contactsBusy     Int @default(0) @map("contacts_busy")
+  contactsFailed   Int @default(0) @map("contacts_failed")
   totalTalkTime    Int @default(0) @map("total_talk_time") // in seconds
 
   // Timestamps
@@ -1820,6 +1848,7 @@ model PowerDialerList {
   // Relations
   contacts   PowerDialerListContact[]
   sessions   PowerDialerSession[]
+  runs       PowerDialerRun[]
   Pipeline   Pipeline?                @relation(fields: [pipelineId], references: [id])
   pipelineId String?                  @db.Uuid
 
@@ -1842,14 +1871,101 @@ model PowerDialerListContact {
   status       PowerDialerListContactStatus @default(PENDING)
   attemptCount Int                          @default(0) @map("attempt_count")
   lastCalledAt DateTime?                    @map("last_called_at")
+  disposition  String?                      // Disposition name from last call
 
   // Timestamps
   addedAt DateTime @default(now()) @map("added_at")
+
+  // Link to run legs for this contact
+  runLegs PowerDialerRunLeg[]
 
   @@unique([listId, contactId])
   @@index([listId, status])
   @@index([listId, lastCalledAt(sort: Desc)])
   @@map("power_dialer_list_contacts")
+}
+
+// Multi-Line Power Dialer Run - Tracks an active dialing session
+model PowerDialerRun {
+  id     String          @id @default(uuid()) @db.Uuid
+  listId String          @map("list_id") @db.Uuid
+  list   PowerDialerList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  userId String          @map("user_id") @db.Uuid
+  user   User            @relation("PowerDialerRuns", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Run configuration
+  maxLines         Int      @default(3) @map("max_lines")
+  selectedNumbers  String[] @map("selected_numbers") // DIDs being used for this run
+  callerIdStrategy String   @default("round_robin") @map("caller_id_strategy")
+  scriptId         String?  @map("script_id") @db.Uuid
+
+  // Run status
+  status String @default("idle") // idle, running, paused, completed, error
+
+  // Progress
+  currentIndex   Int @default(0) @map("current_index")
+  totalContacts  Int @default(0) @map("total_contacts")
+  totalAttempted Int @default(0) @map("total_attempted")
+  totalAnswered  Int @default(0) @map("total_answered")
+  totalNoAnswer  Int @default(0) @map("total_no_answer")
+  totalVoicemail Int @default(0) @map("total_voicemail")
+  totalBusy      Int @default(0) @map("total_busy")
+  totalFailed    Int @default(0) @map("total_failed")
+  totalCanceled  Int @default(0) @map("total_canceled") // Canceled because another answered
+  totalTalkTime  Int @default(0) @map("total_talk_time") // in seconds
+
+  // Timestamps
+  startedAt   DateTime? @map("started_at")
+  pausedAt    DateTime? @map("paused_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  legs PowerDialerRunLeg[]
+
+  @@index([listId, status])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("power_dialer_runs")
+}
+
+// Individual call leg within a multi-line dialer run
+model PowerDialerRunLeg {
+  id    String         @id @default(uuid()) @db.Uuid
+  runId String         @map("run_id") @db.Uuid
+  run   PowerDialerRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  // Contact being called
+  listContactId String                 @map("list_contact_id") @db.Uuid
+  listContact   PowerDialerListContact @relation(fields: [listContactId], references: [id], onDelete: Cascade)
+
+  // Telnyx tracking
+  telnyxCallControlId String? @map("telnyx_call_control_id")
+  telnyxSessionId     String? @map("telnyx_session_id")
+
+  // Call details
+  fromNumber String @map("from_number")
+  toNumber   String @map("to_number")
+  lineNumber Int    @map("line_number") // 1..maxLines slot
+
+  // Status
+  status         String  @default("queued") // queued, dialing, ringing, amd_check, answered, voicemail, machine, no_answer, busy, failed, canceled_other_answer
+  amdResult      String? @map("amd_result") // human, machine, fax, unknown
+  hangupCause    String? @map("hangup_cause")
+  sipResponseCode Int?   @map("sip_response_code")
+
+  // Timing
+  ringDurationMs Int? @map("ring_duration_ms")
+  talkDurationMs Int? @map("talk_duration_ms")
+
+  // Timestamps
+  startedAt  DateTime  @default(now()) @map("started_at")
+  answeredAt DateTime? @map("answered_at")
+  endedAt    DateTime? @map("ended_at")
+
+  @@index([runId, status])
+  @@index([telnyxCallControlId])
+  @@map("power_dialer_run_legs")
 }
 
 // Call Scripts for Autodialer Campaigns
@@ -2320,4 +2436,97 @@ model ScheduledMessage {
   @@index([createdById])
   @@index([channel, status])
   @@map("scheduled_messages")
+}
+
+// ========================================
+// Call Dispositions with Automation Rules
+// ========================================
+
+// CallDisposition - Custom dispositions for call outcomes
+model CallDisposition {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique // e.g., "Interested", "Not Interested", "Callback", "Wrong Number"
+  description String?
+  color       String   @default("#6b7280") // Hex color for UI
+  icon        String?  // Lucide icon name
+  isDefault   Boolean  @default(false) @map("is_default") // System default dispositions
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  // Relations
+  actions     CallDispositionAction[]
+  logs        CallDispositionLog[]
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive, sortOrder])
+  @@map("call_dispositions")
+}
+
+// CallDispositionAction - Rules/automations triggered by a disposition
+model CallDispositionAction {
+  id            String          @id @default(uuid()) @db.Uuid
+  dispositionId String          @map("disposition_id") @db.Uuid
+  disposition   CallDisposition @relation(fields: [dispositionId], references: [id], onDelete: Cascade)
+
+  // Action type
+  actionType    DispositionActionType @map("action_type")
+
+  // Action configuration (depends on actionType)
+  // For ADD_TAG / REMOVE_TAG: { tagId: "uuid", tagName: "string" }
+  // For ADD_TO_DNC: { reason: "string" }
+  // For TRIGGER_SEQUENCE: { sequenceId: "uuid" }
+  // For SEND_SMS: { templateId: "uuid", phoneNumberId: "uuid" }
+  // For SEND_EMAIL: { templateId: "uuid" }
+  config        Json            @default("{}")
+
+  sortOrder     Int             @default(0) @map("sort_order")
+  isActive      Boolean         @default(true) @map("is_active")
+
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([dispositionId, isActive])
+  @@map("call_disposition_actions")
+}
+
+// CallDispositionLog - Audit log of disposition selections
+model CallDispositionLog {
+  id            String          @id @default(uuid()) @db.Uuid
+  dispositionId String          @map("disposition_id") @db.Uuid
+  disposition   CallDisposition @relation(fields: [dispositionId], references: [id])
+
+  contactId     String          @map("contact_id") @db.Uuid
+  contact       Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  // Call context
+  callId        String?         @map("call_id") @db.Uuid // Reference to call log if available
+  dialerRunId   String?         @map("dialer_run_id") // Power dialer run ID
+  listId        String?         @map("list_id") @db.Uuid // Power dialer list ID
+
+  // User notes
+  notes         String?
+
+  // Actions executed
+  actionsExecuted Json?         @default("[]") @map("actions_executed") // Array of action results
+
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy     String?         @map("created_by") @db.Uuid // User who set the disposition
+
+  @@index([contactId, createdAt(sort: Desc)])
+  @@index([dispositionId, createdAt(sort: Desc)])
+  @@map("call_disposition_logs")
+}
+
+enum DispositionActionType {
+  ADD_TAG
+  REMOVE_TAG
+  ADD_TO_DNC
+  REMOVE_FROM_DNC
+  TRIGGER_SEQUENCE
+  SEND_SMS
+  SEND_EMAIL
+  UPDATE_DEAL_STAGE
+  CREATE_TASK
 }

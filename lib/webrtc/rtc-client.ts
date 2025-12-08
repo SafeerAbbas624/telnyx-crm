@@ -24,7 +24,7 @@ export type InboundCallInfo = {
 }
 
 class TelnyxWebRTCClient {
-  // VERSION: 2024-12-03-16:40 - RINGTONE AND AUDIO FIXES
+  // VERSION: 2024-12-08-10:00 - POWER DIALER AUTO-ANSWER MODE
   private client: any | null = null
   private registered = false
   private currentCall: any | null = null
@@ -46,9 +46,24 @@ class TelnyxWebRTCClient {
   private outboundCallIds = new Set<string>()
   // Flag to prevent false inbound detection during outbound call initiation
   private isInitiatingOutbound = false
+  // Power dialer mode - auto-answer incoming calls (for transferred calls from dialer)
+  private powerDialerMode = false
 
   constructor() {
-    console.log('[RTC] 🔧 WebRTC Client Version: 2024-12-03-16:40 - WITH FALLBACK RINGTONE')
+    console.log('[RTC] 🔧 WebRTC Client Version: 2024-12-08-10:00 - POWER DIALER AUTO-ANSWER')
+  }
+
+  /**
+   * Enable/disable power dialer mode
+   * When enabled, incoming calls are auto-answered (for transferred calls from power dialer)
+   */
+  setPowerDialerMode(enabled: boolean) {
+    this.powerDialerMode = enabled
+    console.log(`[RTC] Power dialer mode: ${enabled ? 'ENABLED' : 'DISABLED'}`)
+  }
+
+  isPowerDialerModeEnabled(): boolean {
+    return this.powerDialerMode
   }
 
   on(event: string, handler: Listener) {
@@ -449,13 +464,25 @@ class TelnyxWebRTCClient {
             from: callerNumber,
             to: destinationNumber,
             callId: callId,
-            name: callerName
+            name: callerName,
+            powerDialerMode: this.powerDialerMode
           })
 
           this.inboundCall = call
 
-          // Play ringtone using Web Audio API
-          this.playRingtone()
+          // In power dialer mode, auto-answer the call immediately
+          if (this.powerDialerMode) {
+            console.log("[RTC] 🤖 POWER DIALER MODE: Auto-answering transferred call...")
+            this.answerInboundCall().then(() => {
+              console.log("[RTC] ✅ Auto-answered call in power dialer mode")
+            }).catch((err) => {
+              console.error("[RTC] ❌ Failed to auto-answer in power dialer mode:", err)
+            })
+            // Don't play ringtone in power dialer mode
+          } else {
+            // Normal mode: Play ringtone using Web Audio API
+            this.playRingtone()
+          }
 
           // Emit inbound call event
           this.emit("inboundCall", {

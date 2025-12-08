@@ -41,6 +41,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
   const [email1, setEmail1] = useState("")
   const [email2, setEmail2] = useState("")
   const [email3, setEmail3] = useState("")
+  const [linkedinUrl, setLinkedinUrl] = useState("")
   const [propertyAddress, setPropertyAddress] = useState("")
   const [contactAddress, setContactAddress] = useState("")
   const [city, setCity] = useState("")
@@ -74,6 +75,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       setEmail1(contact.email1 || "")
       setEmail2(contact.email2 || "")
       setEmail3(contact.email3 || "")
+      setLinkedinUrl(contact.linkedinUrl || "")
       setPropertyAddress(contact.propertyAddress || "")
       setContactAddress(contact.contactAddress || "")
       setCity(contact.city || "")
@@ -125,6 +127,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       email1: email1 || undefined,
       email2: email2 || undefined,
       email3: email3 || undefined,
+      linkedinUrl: linkedinUrl || undefined,
       propertyAddress: propertyAddress || undefined,
       contactAddress: contactAddress || undefined,
       city: city || undefined,
@@ -205,6 +208,16 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
               <Label htmlFor="email3">Email 3</Label>
               <Input id="email3" value={email3} onChange={(e) => setEmail3(e.target.value)} type="email" />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="linkedinUrl">LinkedIn URL</Label>
+            <Input
+              id="linkedinUrl"
+              value={linkedinUrl}
+              onChange={(e) => setLinkedinUrl(e.target.value)}
+              type="url"
+              placeholder="https://linkedin.com/in/username"
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="propertyAddress">Property Address</Label>

@@ -119,7 +119,7 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     checkForRunningBlast()
   }, [])
 
-  // Check if there's already a running blast (for when user navigates away and back)
+  // Check if there's already a running/paused blast (for when user navigates away and back)
   const checkForRunningBlast = async () => {
     try {
       const response = await fetch('/api/text-blast?checkRunning=true')
@@ -127,25 +127,65 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
 
       if (data.hasRunning && data.runningBlast) {
         const blast = data.runningBlast
+        console.log('[TEXT-BLAST] Found active blast:', blast.id, 'status:', blast.status)
+
         setActiveBlastId(blast.id)
         setIsRunning(blast.status === 'running')
         setIsPaused(blast.status === 'paused' || blast.isPaused)
         setSentCount(blast.sentCount || 0)
         setFailedCount(blast.failedCount || 0)
         setCurrentIndex(blast.currentIndex || 0)
+        setMessage(blast.message || '')
+        setDelaySeconds(blast.delaySeconds || 2)
 
-        // Load the contacts for this blast - fetch each contact by ID
+        // Load sender numbers
+        if (blast.senderNumbers) {
+          try {
+            const numbers = JSON.parse(blast.senderNumbers)
+            setSelectedNumbers(numbers)
+          } catch (e) {
+            console.error('Error parsing sender numbers:', e)
+          }
+        }
+
+        // Load the contacts for this blast - fetch actual contact data
         if (blast.selectedContacts) {
           try {
             const contactIds = JSON.parse(blast.selectedContacts)
-            // Create placeholder contacts with IDs for now (full data not critical for status display)
-            const contacts = contactIds.map((id: string, idx: number) => ({
-              id,
-              firstName: 'Contact',
-              lastName: `#${idx + 1}`,
-              status: idx < blast.currentIndex ? 'sent' : 'pending' as const
-            }))
-            setQueueContacts(contacts)
+            console.log('[TEXT-BLAST] Loading', contactIds.length, 'contacts for blast:', contactIds)
+
+            // Fetch actual contact details
+            const contactsResponse = await fetch('/api/contacts/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: contactIds })
+            })
+
+            console.log('[TEXT-BLAST] Batch response status:', contactsResponse.status)
+
+            if (contactsResponse.ok) {
+              const contactsData = await contactsResponse.json()
+              console.log('[TEXT-BLAST] Batch returned', contactsData.contacts?.length, 'contacts:', contactsData)
+
+              if (contactsData.contacts && contactsData.contacts.length > 0) {
+                // Map contacts with their status based on current index
+                const contacts = contactsData.contacts.map((c: Contact, idx: number) => ({
+                  ...c,
+                  status: idx < (blast.currentIndex || 0) ? 'sent' : 'pending' as const
+                }))
+                setQueueContacts(contacts)
+                console.log('[TEXT-BLAST] Set', contacts.length, 'contacts with statuses')
+              } else {
+                console.warn('[TEXT-BLAST] Batch returned empty contacts array')
+                // Fallback if batch returns empty
+                await loadContactsFallback(contactIds, blast.currentIndex || 0)
+              }
+            } else {
+              const errText = await contactsResponse.text()
+              console.error('[TEXT-BLAST] Batch API error:', errText)
+              // Fallback to placeholder contacts
+              await loadContactsFallback(contactIds, blast.currentIndex || 0)
+            }
           } catch (e) {
             console.error('Error loading blast contacts:', e)
           }
@@ -158,11 +198,24 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
           }, 2000)
         }
 
-        toast.info(`Resumed tracking blast: ${blast.name}`)
+        const statusText = blast.status === 'paused' ? 'Paused blast' : 'Running blast'
+        toast.info(`${statusText}: ${blast.name} (${blast.sentCount}/${blast.totalContacts} sent)`)
       }
     } catch (error) {
       console.error('Error checking for running blast:', error)
     }
+  }
+
+  // Fallback to load contacts one by one or as placeholders
+  const loadContactsFallback = async (contactIds: string[], currentIdx: number) => {
+    console.log('[TEXT-BLAST] Using fallback to load contacts')
+    const contacts = contactIds.map((id: string, idx: number) => ({
+      id,
+      firstName: 'Contact',
+      lastName: `#${idx + 1}`,
+      status: idx < currentIdx ? 'sent' : 'pending' as const
+    })) as QueueContact[]
+    setQueueContacts(contacts)
   }
 
   // Auto-scroll to current contact during blast
@@ -341,7 +394,63 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     }
   }
 
-  // Poll for blast status updates
+  // Auto-scroll to current contact during blast
+  const scrollToCurrentContact = useCallback((index: number) => {
+    if (!queueScrollRef.current) return
+
+    const scrollContainer = queueScrollRef.current.querySelector('[data-radix-scroll-area-viewport]')
+    if (!scrollContainer) return
+
+    const contactElement = scrollContainer.querySelector(`[data-contact-index="${index}"]`)
+    if (contactElement) {
+      contactElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [])
+
+  // Update blast status from real-time or polling data
+  const updateBlastStatus = useCallback((blast: any) => {
+    console.log('🔄 Updating blast status:', blast)
+    setSentCount(blast.sentCount || 0)
+    setFailedCount(blast.failedCount || 0)
+    setCurrentIndex(blast.currentIndex || 0)
+
+    // Update queue contacts based on current index
+    setQueueContacts(prev => prev.map((c, idx) => {
+      if (idx < blast.currentIndex) {
+        return { ...c, status: 'sent' as const }
+      }
+      return c
+    }))
+
+    // Auto-scroll to the current contact being processed
+    if (blast.currentIndex !== undefined && blast.status === 'running') {
+      setTimeout(() => scrollToCurrentContact(blast.currentIndex), 100)
+    }
+
+    if (blast.status === 'completed') {
+      setIsRunning(false)
+      setIsPaused(false)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+      toast.success(`Text blast complete! ${blast.sentCount} sent, ${blast.failedCount} failed`)
+      onBlastComplete?.()
+    } else if (blast.status === 'paused') {
+      setIsRunning(false)
+      setIsPaused(true)
+    } else if (blast.status === 'failed') {
+      setIsRunning(false)
+      setIsPaused(false)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+      toast.error('Text blast failed')
+    }
+  }, [onBlastComplete, scrollToCurrentContact])
+
+  // Poll for blast status updates (fallback)
   const pollBlastStatus = async (blastId: string) => {
     try {
       const response = await fetch(`/api/text-blast/${blastId}`)
@@ -351,44 +460,73 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
       const blast = data.blast
 
       if (blast) {
-        setSentCount(blast.sentCount || 0)
-        setFailedCount(blast.failedCount || 0)
-        setCurrentIndex(blast.currentIndex || 0)
-
-        // Update queue contacts based on current index
-        setQueueContacts(prev => prev.map((c, idx) => {
-          if (idx < blast.currentIndex) {
-            return { ...c, status: 'sent' as const }
-          }
-          return c
-        }))
-
-        if (blast.status === 'completed') {
-          setIsRunning(false)
-          setIsPaused(false)
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current)
-            pollIntervalRef.current = null
-          }
-          toast.success(`Text blast complete! ${blast.sentCount} sent, ${blast.failedCount} failed`)
-          onBlastComplete?.()
-        } else if (blast.status === 'paused') {
-          setIsRunning(false)
-          setIsPaused(true)
-        } else if (blast.status === 'failed') {
-          setIsRunning(false)
-          setIsPaused(false)
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current)
-            pollIntervalRef.current = null
-          }
-          toast.error('Text blast failed')
-        }
+        updateBlastStatus(blast)
       }
     } catch (error) {
       console.error('Error polling blast status:', error)
     }
   }
+
+  // Listen for real-time updates via SSE
+  useEffect(() => {
+    if (!activeBlastId) return
+
+    console.log('🔌 Connecting to SSE for blast:', activeBlastId)
+    const es = new EventSource('/api/events')
+
+    es.onopen = () => {
+      console.log('✅ SSE connected for blast:', activeBlastId)
+    }
+
+    const onProgress = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data || '{}')
+        console.log('📡 SSE progress event received:', data)
+        if (data.blastId === activeBlastId) {
+          console.log('📡 Matched blast ID, updating UI:', data)
+          updateBlastStatus(data)
+        }
+      } catch (error) {
+        console.error('Error parsing SSE event:', error)
+      }
+    }
+
+    const onCompleted = (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data || '{}')
+        console.log('✅ SSE completed event received:', data)
+        if (data.blastId === activeBlastId) {
+          console.log('✅ Blast completed, updating UI:', data)
+          updateBlastStatus(data)
+        }
+      } catch (error) {
+        console.error('Error parsing SSE event:', error)
+      }
+    }
+
+    // Listen for generic message events as well
+    es.onmessage = (evt) => {
+      console.log('📩 SSE generic message:', evt.data)
+    }
+
+    es.addEventListener('text-blast:progress', onProgress as any)
+    es.addEventListener('text-blast:completed', onCompleted as any)
+
+    es.onerror = (err) => {
+      console.log('❌ SSE connection error, will auto-reconnect', err)
+    }
+
+    return () => {
+      console.log('🔌 Disconnecting SSE for blast:', activeBlastId)
+      try {
+        es.removeEventListener('text-blast:progress', onProgress as any)
+        es.removeEventListener('text-blast:completed', onCompleted as any)
+        es.close()
+      } catch (error) {
+        console.error('Error cleaning up SSE:', error)
+      }
+    }
+  }, [activeBlastId, updateBlastStatus])
 
   // Start blast using backend API
   const startBlast = async () => {
@@ -444,10 +582,10 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
       setIsPaused(false)
       toast.success(`Text blast started! Processing ${pendingContacts.length} contacts in background.`)
 
-      // Start polling for status updates
+      // Start polling for status updates (as fallback to SSE)
       pollIntervalRef.current = setInterval(() => {
         pollBlastStatus(blast.id)
-      }, 2000) // Poll every 2 seconds
+      }, 2000) // Poll every 2 seconds (SSE provides real-time updates)
 
     } catch (error: any) {
       toast.error(error.message || 'Failed to start blast')
@@ -499,11 +637,11 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
         setIsPaused(false)
         toast.success("Blast resumed")
 
-        // Resume polling
+        // Resume polling (as fallback to SSE)
         if (!pollIntervalRef.current) {
           pollIntervalRef.current = setInterval(() => {
             pollBlastStatus(activeBlastId)
-          }, 2000)
+          }, 5000)
         }
       } else {
         toast.error('Failed to resume blast')
@@ -557,25 +695,24 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
   const totalCost = pendingContacts.length * SMS_COST_PER_MESSAGE
   const estimatedTime = pendingContacts.length * delaySeconds
 
-  // Kill all running blasts
+  // Kill all running blasts (text and email)
   const killAllBlasts = async () => {
     try {
-      const response = await fetch('/api/text-blast/kill-all', {
-        method: 'POST',
-      })
+      // Kill text blasts
+      const textRes = await fetch('/api/text-blast/kill-all', { method: 'POST' })
+      const textData = textRes.ok ? await textRes.json() : { count: 0 }
 
-      if (response.ok) {
-        const data = await response.json()
-        toast.success(data.message || 'All text blasts stopped')
-        setIsRunning(false)
-        setIsPaused(false)
-        setActiveBlastId(null)
-        if (pollIntervalRef.current) {
-          clearInterval(pollIntervalRef.current)
-          pollIntervalRef.current = null
-        }
-      } else {
-        toast.error('Failed to stop blasts')
+      // Kill email blasts
+      const emailRes = await fetch('/api/email-blast/kill-all', { method: 'POST' })
+      const emailData = emailRes.ok ? await emailRes.json() : { count: 0 }
+
+      toast.success(`Stopped ${textData.count || 0} text blasts and ${emailData.count || 0} email blasts`)
+      setIsRunning(false)
+      setIsPaused(false)
+      setActiveBlastId(null)
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
       }
     } catch (error) {
       toast.error('Error stopping blasts')

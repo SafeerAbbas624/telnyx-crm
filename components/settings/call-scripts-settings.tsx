@@ -120,11 +120,12 @@ export default function CallScriptsSettings() {
     if (!textarea) return
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
-    const newContent = formData.content.substring(0, start) + `{${variable}}` + formData.content.substring(end)
+    // Variable already comes formatted as {variableName} from TemplateVariableSelector
+    const newContent = formData.content.substring(0, start) + variable + formData.content.substring(end)
     setFormData({ ...formData, content: newContent })
     setTimeout(() => {
       textarea.focus()
-      const newPos = start + variable.length + 2
+      const newPos = start + variable.length
       textarea.setSelectionRange(newPos, newPos)
     }, 0)
   }

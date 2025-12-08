@@ -40,6 +40,7 @@ export interface Contact {
   email1?: string | null;
   email2?: string | null;
   email3?: string | null;
+  linkedinUrl?: string | null;
   propertyAddress?: string | null;
   contactAddress?: string | null;
   city?: string | null;
