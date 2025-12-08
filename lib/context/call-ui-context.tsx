@@ -3,6 +3,16 @@
 import React, { createContext, useContext, useMemo, useState } from "react"
 import type { Contact } from "@/lib/types"
 
+// Power dialer context for script and dispositions
+export type PowerDialerContext = {
+  enabled: boolean
+  listId?: string
+  scriptId?: string
+  script?: { id: string; name: string; content: string }
+  onNextContact?: () => void
+  onDisposition?: (dispositionId: string, notes?: string) => Promise<void>
+}
+
 export type CallSession = {
   contact?: Partial<Contact> & { id: string }
   fromNumber: string
@@ -15,11 +25,21 @@ export type CallSession = {
   isMinimized: boolean
   callId: string // Unique ID for this call session to prevent timer conflicts
   direction?: 'inbound' | 'outbound'
+  powerDialer?: PowerDialerContext // Power dialer context when in dialer mode
 }
 
 type CallUIContextType = {
   call: CallSession | null
-  openCall: (opts: { contact?: Partial<Contact> & { id: string }, fromNumber: string, toNumber: string, mode: 'call_control' | 'webrtc', telnyxCallId?: string, webrtcSessionId?: string, direction?: 'inbound' | 'outbound' }) => void
+  openCall: (opts: {
+    contact?: Partial<Contact> & { id: string },
+    fromNumber: string,
+    toNumber: string,
+    mode: 'call_control' | 'webrtc',
+    telnyxCallId?: string,
+    webrtcSessionId?: string,
+    direction?: 'inbound' | 'outbound',
+    powerDialer?: PowerDialerContext
+  }) => void
   setNotes: (notes: string) => void
   minimize: () => void
   maximize: () => void
@@ -33,7 +53,7 @@ export function CallUIProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<CallUIContextType>(() => ({
     call,
-    openCall: async ({ contact, fromNumber, toNumber, mode, telnyxCallId, webrtcSessionId, direction }) => {
+    openCall: async ({ contact, fromNumber, toNumber, mode, telnyxCallId, webrtcSessionId, direction, powerDialer }) => {
       // Auto-close previous call if exists (Issue #2 fix)
       if (call) {
         setCall(null)
@@ -83,6 +103,7 @@ export function CallUIProvider({ children }: { children: React.ReactNode }) {
         isMinimized: false,
         callId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Unique call ID
         direction: direction || 'outbound',
+        powerDialer, // Include power dialer context if provided
       })
     },
     setNotes: (notes: string) => {

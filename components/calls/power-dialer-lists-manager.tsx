@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
 import { Trash2, Play, Plus, Tag, Shuffle, ArrowUpDown, Phone, Users, Clock, FileText } from 'lucide-react'
-import { MultiLineDialerView } from './multi-line-dialer-view'
+import { SimplePowerDialer } from './simple-power-dialer'
 import type { CallerIdStrategy } from '@/lib/dialer/types'
 
 interface PowerDialerList {
@@ -309,11 +309,13 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
     return <div className="text-center py-8">Loading call lists...</div>
   }
 
-  // Show multi-line dialer view when a list is selected
+  // Show simple power dialer when a list is selected
   if (selectedList) {
     return (
-      <MultiLineDialerView
-        list={selectedList}
+      <SimplePowerDialer
+        listId={selectedList.id}
+        listName={selectedList.name}
+        scriptId={selectedList.scriptId}
         onBack={() => {
           setSelectedList(null)
           loadLists() // Refresh lists when returning
