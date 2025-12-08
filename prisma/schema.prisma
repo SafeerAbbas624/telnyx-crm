@@ -1805,6 +1805,7 @@ enum PowerDialerListContactStatus {
   FAILED
   COMPLETED  // Dispositioned and done
   SKIPPED    // Manually skipped
+  REMOVED    // Removed from queue (DNC, bad number, etc.)
 }
 
 // Power Dialer Named Lists - Persistent call lists that can span multiple sessions
@@ -2529,4 +2530,7 @@ enum DispositionActionType {
   SEND_EMAIL
   UPDATE_DEAL_STAGE
   CREATE_TASK
+  REQUEUE_CONTACT      // Put back in queue for retry
+  REMOVE_FROM_QUEUE    // Remove from all dialer queues
+  MARK_BAD_NUMBER      // Mark phone as invalid
 }

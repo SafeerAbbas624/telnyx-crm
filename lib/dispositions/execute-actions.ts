@@ -25,6 +25,7 @@ interface ActionContext {
   listId?: string
   dialerRunId?: string
   legId?: string
+  listEntryId?: string // For requeue operations
 }
 
 interface DispositionAction {
@@ -72,6 +73,15 @@ export async function executeDispositionActions(
           break
         case 'CREATE_TASK':
           result = await createTask(contactId, config)
+          break
+        case 'REQUEUE_CONTACT':
+          result = await requeueContact(contactId, config, context)
+          break
+        case 'REMOVE_FROM_QUEUE':
+          result = await removeFromQueue(contactId, context)
+          break
+        case 'MARK_BAD_NUMBER':
+          result = await markBadNumber(contactId, config)
           break
         default:
           result = { actionType: action.actionType, success: false, error: 'Unknown action type' }
@@ -218,5 +228,72 @@ async function createTask(contactId: string, config: ActionConfig): Promise<Acti
     }
   })
   return { actionType: 'CREATE_TASK', success: true }
+}
+
+async function requeueContact(contactId: string, config: ActionConfig, context: ActionContext): Promise<ActionResult> {
+  // Requeue the contact by resetting status to 'pending' with a delay
+  const delayMinutes = (config as any).delayMinutes || 30
+  const nextAttemptAt = new Date(Date.now() + delayMinutes * 60 * 1000)
+
+  if (context.listId) {
+    // Reset status in the specific list
+    await prisma.powerDialerListContact.updateMany({
+      where: { contactId, listId: context.listId },
+      data: {
+        status: 'pending',
+        lastAttemptAt: new Date(),
+        attemptCount: { increment: 1 }
+      }
+    })
+  } else {
+    // Reset all list entries for this contact
+    await prisma.powerDialerListContact.updateMany({
+      where: { contactId },
+      data: {
+        status: 'pending',
+        lastAttemptAt: new Date(),
+        attemptCount: { increment: 1 }
+      }
+    })
+  }
+
+  return { actionType: 'REQUEUE_CONTACT', success: true, details: { delayMinutes } }
+}
+
+async function removeFromQueue(contactId: string, context: ActionContext): Promise<ActionResult> {
+  if (context.listId) {
+    // Remove from specific list
+    await prisma.powerDialerListContact.updateMany({
+      where: { contactId, listId: context.listId },
+      data: { status: 'removed' }
+    })
+  } else {
+    // Remove from all lists
+    await prisma.powerDialerListContact.updateMany({
+      where: { contactId },
+      data: { status: 'removed' }
+    })
+  }
+
+  return { actionType: 'REMOVE_FROM_QUEUE', success: true }
+}
+
+async function markBadNumber(contactId: string, config: ActionConfig): Promise<ActionResult> {
+  // Mark the primary phone as bad
+  await prisma.contact.update({
+    where: { id: contactId },
+    data: {
+      phone1Valid: false,
+      phone1InvalidReason: config.reason || 'Marked as bad via disposition'
+    }
+  })
+
+  // Also remove from all queues
+  await prisma.powerDialerListContact.updateMany({
+    where: { contactId },
+    data: { status: 'bad_number' }
+  })
+
+  return { actionType: 'MARK_BAD_NUMBER', success: true }
 }
 

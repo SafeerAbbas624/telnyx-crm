@@ -24,7 +24,7 @@ export type InboundCallInfo = {
 }
 
 class TelnyxWebRTCClient {
-  // VERSION: 2024-12-08-10:00 - POWER DIALER AUTO-ANSWER MODE
+  // VERSION: 2024-12-08-11:00 - MULTI-LINE POWER DIALER
   private client: any | null = null
   private registered = false
   private currentCall: any | null = null
@@ -48,9 +48,11 @@ class TelnyxWebRTCClient {
   private isInitiatingOutbound = false
   // Power dialer mode - auto-answer incoming calls (for transferred calls from dialer)
   private powerDialerMode = false
+  // Track multiple active calls for multi-line dialing
+  private activeCalls = new Map<string, any>()
 
   constructor() {
-    console.log('[RTC] 🔧 WebRTC Client Version: 2024-12-08-10:00 - POWER DIALER AUTO-ANSWER')
+    console.log('[RTC] 🔧 WebRTC Client Version: 2024-12-08-11:00 - MULTI-LINE POWER DIALER')
   }
 
   /**
@@ -549,10 +551,15 @@ class TelnyxWebRTCClient {
         // Detect call end states (hangup, destroy, failed, bye, cancel, rejected)
         const endStates = ['hangup', 'destroy', 'failed', 'bye', 'cancel', 'rejected']
         if (endStates.includes(state)) {
-          console.log("[RTC] ☎️ Call ended with state:", state)
+          console.log("[RTC] ☎️ Call ended with state:", state, "callId:", callId)
 
           // Stop ringtone
           this.stopRingtone()
+
+          // Remove from activeCalls map
+          if (callId) {
+            this.activeCalls.delete(callId)
+          }
 
           if (this.audioEl) {
             try {
@@ -566,8 +573,8 @@ class TelnyxWebRTCClient {
           if (currentCallId === call.callId || currentCallId === call.id) {
             console.log("[RTC] Clearing currentCall reference")
             this.currentCall = null
-            // Clean up local stream
-            if (this.localStream) {
+            // Only clean up local stream if no other active calls
+            if (this.activeCalls.size === 0 && this.localStream) {
               try { this.localStream.getTracks().forEach(t => t.stop()) } catch {}
               this.localStream = null
             }
@@ -650,10 +657,13 @@ class TelnyxWebRTCClient {
     const callId = call?.callId || call?.id
     if (callId) {
       this.outboundCallIds.add(callId)
+      // Track in activeCalls map for multi-line dialing
+      this.activeCalls.set(callId, call)
       // Clean up temp ID and real ID after call ends (30 minutes max)
       setTimeout(() => {
         this.outboundCallIds.delete(callId)
         this.outboundCallIds.delete(tempOutboundId)
+        this.activeCalls.delete(callId)
       }, 30 * 60 * 1000)
     }
 
@@ -885,7 +895,11 @@ class TelnyxWebRTCClient {
     this.emit("inboundCallEnded", { declined: true })
   }
 
-  async hangup() {
+  /**
+   * Hangup a call
+   * @param sessionId - Optional specific call to hangup. If not provided, hangs up current/inbound call.
+   */
+  async hangup(sessionId?: string) {
     // Stop ringtone if playing
     if (this.ringtoneEl) {
       this.ringtoneEl.pause()
@@ -893,6 +907,28 @@ class TelnyxWebRTCClient {
     }
 
     try {
+      // If sessionId provided, hangup that specific call
+      if (sessionId) {
+        const call = this.activeCalls.get(sessionId)
+        if (call) {
+          console.log(`[RTC] Hanging up specific call: ${sessionId}`)
+          try {
+            await call.hangup()
+          } catch (err: any) {
+            if (!String(err?.message || "").includes("CALL DOES NOT EXIST")) {
+              console.warn("[RTC] hangup error for", sessionId, err)
+            }
+          }
+          this.activeCalls.delete(sessionId)
+          // If this was the current call, clear it
+          const currentCallId = this.currentCall?.callId || this.currentCall?.id
+          if (currentCallId === sessionId) {
+            this.currentCall = null
+          }
+          return
+        }
+      }
+
       // Hangup current call
       if (this.currentCall) {
         try {
@@ -913,10 +949,13 @@ class TelnyxWebRTCClient {
         this.inboundCall = null
       }
     } finally {
-      this.currentCall = null
-      if (this.localStream) {
-        try { this.localStream.getTracks().forEach(t => t.stop()) } catch {}
-        this.localStream = null
+      if (!sessionId) {
+        // Only clear current call if no specific sessionId was provided
+        this.currentCall = null
+        if (this.localStream) {
+          try { this.localStream.getTracks().forEach(t => t.stop()) } catch {}
+          this.localStream = null
+        }
       }
     }
   }

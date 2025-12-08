@@ -72,11 +72,26 @@ export async function POST(request: NextRequest) {
 
     // Update power dialer list contact status if listId provided
     if (listId) {
-      const isCallback = disposition.name.toLowerCase().includes('callback')
+      const dispName = disposition.name.toLowerCase()
+      // Determine final status based on disposition
+      let finalStatus = 'COMPLETED' // Default: mark as done
+
+      // Requeue if callback or no answer type
+      if (dispName.includes('callback') || dispName.includes('no answer') ||
+          dispName.includes('no contact') || dispName.includes('voicemail')) {
+        finalStatus = 'PENDING' // Put back in queue for retry
+      }
+
+      // Remove if explicitly marked as DNC, bad number, or not interested
+      if (dispName.includes('dnc') || dispName.includes('do not call') ||
+          dispName.includes('bad number') || dispName.includes('wrong number')) {
+        finalStatus = 'REMOVED'
+      }
+
       await prisma.powerDialerListContact.updateMany({
         where: { listId, contactId },
         data: {
-          status: isCallback ? 'PENDING' : 'COMPLETED',
+          status: finalStatus,
           disposition: disposition.name,
           lastCalledAt: new Date()
         }

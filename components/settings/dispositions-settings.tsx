@@ -31,14 +31,17 @@ interface Disposition {
 }
 
 const ACTION_TYPES = [
-  { value: 'ADD_TAG', label: 'Add Tag' },
-  { value: 'REMOVE_TAG', label: 'Remove Tag' },
-  { value: 'ADD_TO_DNC', label: 'Add to DNC' },
-  { value: 'REMOVE_FROM_DNC', label: 'Remove from DNC' },
-  { value: 'TRIGGER_SEQUENCE', label: 'Trigger Sequence' },
-  { value: 'SEND_SMS', label: 'Send SMS' },
-  { value: 'SEND_EMAIL', label: 'Send Email' },
-  { value: 'CREATE_TASK', label: 'Create Task' }
+  { value: 'ADD_TAG', label: 'Add Tag', desc: 'Add a tag to the contact' },
+  { value: 'REMOVE_TAG', label: 'Remove Tag', desc: 'Remove a tag from the contact' },
+  { value: 'ADD_TO_DNC', label: 'Add to DNC', desc: 'Add contact to Do Not Call list' },
+  { value: 'REMOVE_FROM_DNC', label: 'Remove from DNC', desc: 'Remove from Do Not Call list' },
+  { value: 'TRIGGER_SEQUENCE', label: 'Trigger Sequence', desc: 'Enroll contact in a sequence' },
+  { value: 'SEND_SMS', label: 'Send SMS', desc: 'Send an SMS immediately' },
+  { value: 'SEND_EMAIL', label: 'Send Email', desc: 'Send an email immediately' },
+  { value: 'CREATE_TASK', label: 'Create Task', desc: 'Create a follow-up task' },
+  { value: 'REQUEUE_CONTACT', label: 'Requeue Contact', desc: 'Put contact back in dialer queue for retry' },
+  { value: 'REMOVE_FROM_QUEUE', label: 'Remove from Queue', desc: 'Remove contact from all dialer queues' },
+  { value: 'MARK_BAD_NUMBER', label: 'Mark Bad Number', desc: 'Mark phone as invalid/bad number' }
 ]
 
 const ICON_OPTIONS = [
@@ -261,6 +264,18 @@ export default function DispositionsSettings() {
                               <Input placeholder="Task title" value={(action.config.taskTitle as string) || ''} onChange={(e) => updateAction(idx, 'taskTitle', e.target.value)} />
                               <Input type="number" placeholder="Due in days" value={(action.config.taskDueInDays as number) || ''} onChange={(e) => updateAction(idx, 'taskDueInDays', parseInt(e.target.value))} />
                             </>
+                          )}
+                          {action.actionType === 'REQUEUE_CONTACT' && (
+                            <Input type="number" placeholder="Delay in hours (0 = immediate)" value={(action.config.delayHours as number) || 0} onChange={(e) => updateAction(idx, 'delayHours', parseInt(e.target.value) || 0)} />
+                          )}
+                          {action.actionType === 'MARK_BAD_NUMBER' && (
+                            <Input placeholder="Reason (e.g., disconnected, wrong number)" value={(action.config.reason as string) || ''} onChange={(e) => updateAction(idx, 'reason', e.target.value)} />
+                          )}
+                          {/* Show description for actions without config */}
+                          {['REMOVE_FROM_QUEUE', 'REMOVE_FROM_DNC'].includes(action.actionType) && (
+                            <p className="text-xs text-muted-foreground">
+                              {ACTION_TYPES.find(t => t.value === action.actionType)?.desc}
+                            </p>
                           )}
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => removeAction(idx)}>
