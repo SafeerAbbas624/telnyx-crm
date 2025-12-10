@@ -151,23 +151,33 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     loadQueue()
   }, [listId])
 
-  // Load script from API
+  // Load script from list (API now returns script relation)
   useEffect(() => {
     const loadScript = async () => {
       try {
-        // Get list details to find scriptId
+        // Get list details - script is now included in the response
         const listRes = await fetch(`/api/power-dialer/lists/${listId}`)
         if (listRes.ok) {
           const listData = await listRes.json()
-          setScriptId(listData.scriptId || null)
-          if (listData.scriptId) {
+
+          // If list has a script relation, use it directly
+          if (listData.script) {
+            setScriptId(listData.script.id)
+            setScript(listData.script.content || '')
+            setEditableScript(listData.script.content || '')
+            console.log('[PowerDialer] ℹ️ Loaded script from campaign:', listData.script.name)
+          } else if (listData.scriptId) {
+            // Fallback: fetch script by ID
             const scriptRes = await fetch(`/api/call-scripts/${listData.scriptId}`)
             if (scriptRes.ok) {
               const scriptData = await scriptRes.json()
+              setScriptId(scriptData.id)
               setScript(scriptData.content || '')
               setEditableScript(scriptData.content || '')
               console.log('[PowerDialer] ℹ️ Loaded script:', scriptData.name)
             }
+          } else {
+            console.log('[PowerDialer] ℹ️ No script assigned to this campaign')
           }
         }
       } catch (err) {
@@ -193,13 +203,25 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     loadAvailableScripts()
   }, [])
 
-  // Handle selecting a script template
-  const handleSelectScript = (selectedScript: { id: string; name: string; content: string }) => {
+  // Handle selecting a script template - saves to campaign for persistence
+  const handleSelectScript = async (selectedScript: { id: string; name: string; content: string }) => {
     setScriptId(selectedScript.id)
     setScript(selectedScript.content)
     setEditableScript(selectedScript.content)
     setShowScriptSelector(false)
-    toast.success('Script loaded!', { description: selectedScript.name })
+
+    // Save the script selection to the campaign so it persists
+    try {
+      await fetch(`/api/power-dialer/lists/${listId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scriptId: selectedScript.id })
+      })
+      toast.success('Script saved to campaign!', { description: selectedScript.name })
+    } catch (err) {
+      console.error('[PowerDialer] Failed to save script to campaign:', err)
+      toast.success('Script loaded!', { description: selectedScript.name })
+    }
   }
 
   const handleStart = () => {

@@ -20,6 +20,13 @@ export async function GET(
     const list = await prisma.powerDialerList.findUnique({
       where: { id: listId },
       include: {
+        script: {
+          select: {
+            id: true,
+            name: true,
+            content: true,
+          }
+        },
         contacts: {
           include: {
             contact: {
@@ -65,7 +72,7 @@ export async function PATCH(
 
     const listId = params.id
     const body = await request.json()
-    const { name, description, status } = body
+    const { name, description, status, scriptId } = body
 
     // Verify ownership
     const list = await prisma.powerDialerList.findUnique({
@@ -79,6 +86,7 @@ export async function PATCH(
     const updateData: any = {}
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
+    if (scriptId !== undefined) updateData.scriptId = scriptId // Save script association
     if (status !== undefined) {
       updateData.status = status
       if (status === 'COMPLETED') {
