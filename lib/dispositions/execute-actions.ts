@@ -12,6 +12,9 @@ interface ActionConfig {
   taskTitle?: string
   taskDescription?: string
   taskDueInDays?: number
+  taskPriority?: 'low' | 'medium' | 'high' | 'urgent'
+  assignToUserId?: string
+  delayMinutes?: number
 }
 
 interface ActionResult {
@@ -182,52 +185,82 @@ async function sendSms(contactId: string, config: ActionConfig): Promise<ActionR
   if (!config.templateId) {
     return { actionType: 'SEND_SMS', success: false, error: 'No SMS template specified' }
   }
-  // Schedule the SMS for immediate send
+
+  // Calculate scheduled time with optional delay
+  const delayMs = (config.delayMinutes || 0) * 60 * 1000
+  const scheduledAt = new Date(Date.now() + delayMs)
+
   await prisma.scheduledMessage.create({
     data: {
       contactId,
       channel: 'sms',
       status: 'pending',
-      scheduledAt: new Date(),
+      scheduledAt,
       metadata: { templateId: config.templateId, phoneNumberId: config.phoneNumberId, source: 'disposition' }
     }
   })
-  return { actionType: 'SEND_SMS', success: true, details: { templateId: config.templateId } }
+  return { actionType: 'SEND_SMS', success: true, details: { templateId: config.templateId, delayMinutes: config.delayMinutes } }
 }
 
 async function sendEmail(contactId: string, config: ActionConfig): Promise<ActionResult> {
   if (!config.templateId) {
     return { actionType: 'SEND_EMAIL', success: false, error: 'No email template specified' }
   }
-  // Schedule the email for immediate send
+
+  // Calculate scheduled time with optional delay
+  const delayMs = (config.delayMinutes || 0) * 60 * 1000
+  const scheduledAt = new Date(Date.now() + delayMs)
+
   await prisma.scheduledMessage.create({
     data: {
       contactId,
       channel: 'email',
       status: 'pending',
-      scheduledAt: new Date(),
+      scheduledAt,
       metadata: { templateId: config.templateId, source: 'disposition' }
     }
   })
-  return { actionType: 'SEND_EMAIL', success: true, details: { templateId: config.templateId } }
+  return { actionType: 'SEND_EMAIL', success: true, details: { templateId: config.templateId, delayMinutes: config.delayMinutes } }
 }
 
 async function createTask(contactId: string, config: ActionConfig): Promise<ActionResult> {
   const dueDate = new Date()
   dueDate.setDate(dueDate.getDate() + (config.taskDueInDays || 1))
 
-  await prisma.task.create({
+  // Get contact info for variable replacement in title/description
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: { firstName: true, lastName: true, phone1: true, email1: true, llcName: true, propertyAddress: true }
+  })
+
+  // Replace variables in title and description
+  const replaceVars = (text: string | undefined) => {
+    if (!text) return text
+    return text
+      .replace(/\{firstName\}/gi, contact?.firstName || '')
+      .replace(/\{lastName\}/gi, contact?.lastName || '')
+      .replace(/\{phone\}/gi, contact?.phone1 || '')
+      .replace(/\{email\}/gi, contact?.email1 || '')
+      .replace(/\{llcName\}/gi, contact?.llcName || '')
+      .replace(/\{companyName\}/gi, contact?.llcName || '')
+      .replace(/\{propertyAddress\}/gi, contact?.propertyAddress || '')
+      .replace(/\{address\}/gi, contact?.propertyAddress || '')
+  }
+
+  // Create an Activity record with type 'task'
+  await prisma.activity.create({
     data: {
-      title: config.taskTitle || 'Follow up',
-      description: config.taskDescription,
-      type: 'follow_up',
-      status: 'pending',
-      priority: 'medium',
-      dueDate,
-      contactId
+      title: replaceVars(config.taskTitle) || 'Follow up',
+      description: replaceVars(config.taskDescription),
+      type: 'task',
+      status: 'planned',
+      priority: config.taskPriority || 'medium',
+      due_date: dueDate,
+      contact_id: contactId,
+      assigned_to: config.assignToUserId || null
     }
   })
-  return { actionType: 'CREATE_TASK', success: true }
+  return { actionType: 'CREATE_TASK', success: true, details: { assignedTo: config.assignToUserId } }
 }
 
 async function requeueContact(contactId: string, config: ActionConfig, context: ActionContext): Promise<ActionResult> {

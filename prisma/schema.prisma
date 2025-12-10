@@ -1826,6 +1826,12 @@ model PowerDialerList {
   callerIdStrategy String  @default("round_robin") @map("caller_id_strategy") // round_robin, single_number, random
   currentIndex     Int     @default(0) @map("current_index") // Resume position
 
+  // Dynamic tag-based sync configuration
+  syncTagIds    String[]  @default([]) @map("sync_tag_ids") // Tag IDs to sync contacts from
+  autoSync      Boolean   @default(false) @map("auto_sync") // Whether to auto-sync every minute
+  lastSyncAt    DateTime? @map("last_sync_at") // Last time contacts were synced from tags
+  syncIntervalMinutes Int @default(1) @map("sync_interval_minutes") // How often to sync (default 1 min)
+
   // Progress tracking
   totalContacts    Int @default(0) @map("total_contacts")
   contactsCalled   Int @default(0) @map("contacts_called")
@@ -1856,6 +1862,7 @@ model PowerDialerList {
   @@index([userId, status])
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, lastWorkedOn(sort: Desc)])
+  @@index([autoSync, lastSyncAt]) // For finding lists needing sync
   @@map("power_dialer_lists")
 }
 

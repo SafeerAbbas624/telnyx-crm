@@ -53,13 +53,16 @@ export default function AddContactDialog({ open, onOpenChange, onAddContact }: A
   }, [open])
 
   const propertyTypes = [
-    "Single-family (SFR)",
+    "Single-family (SFH)",
     "Duplex",
     "Triplex",
     "Quadplex",
-    "Multifamily (5+ units)",
+    "Multi-family",
     "Townhouse",
-    "Condominium (Condo)",
+    "Condo",
+    "Mobile Home",
+    "Land",
+    "Commercial",
   ]
 
   // Use callback to prevent tag updates from resetting other form fields

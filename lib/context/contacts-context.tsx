@@ -28,6 +28,10 @@ interface ContactsContextType {
   filterOptions: any
   currentQuery: string
   currentFilters: any
+  // New: All contacts for instant search (cached)
+  allContacts: Contact[]
+  allContactsLoading: boolean
+  loadAllContacts: () => Promise<Contact[]>
 }
 
 const ContactsContext = createContext<ContactsContextType | undefined>(undefined)
@@ -52,6 +56,55 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
   const hasLoadedOnceRef = useRef<boolean>(false)
   const [currentQuery, setCurrentQuery] = useState<string>("")
   const [currentFilters, setCurrentFilters] = useState<any>({})
+
+  // All contacts cache for instant search (shared across components)
+  const [allContacts, setAllContacts] = useState<Contact[]>([])
+  const [allContactsLoading, setAllContactsLoading] = useState(false)
+  const allContactsLoadedRef = useRef<boolean>(false)
+
+  // Load ALL contacts (10,000) for instant client-side search - cached globally
+  const loadAllContacts = async (): Promise<Contact[]> => {
+    // Return cached contacts if already loaded
+    if (allContactsLoadedRef.current && allContacts.length > 0) {
+      console.log(`📊 [CONTACTS CONTEXT] Returning ${allContacts.length} cached contacts`)
+      return allContacts
+    }
+
+    // Don't fetch if already loading
+    if (allContactsLoading) {
+      console.log(`📊 [CONTACTS CONTEXT] Already loading all contacts, waiting...`)
+      // Wait for existing load to complete
+      return new Promise((resolve) => {
+        const checkLoaded = setInterval(() => {
+          if (!allContactsLoading && allContacts.length > 0) {
+            clearInterval(checkLoaded)
+            resolve(allContacts)
+          }
+        }, 100)
+      })
+    }
+
+    try {
+      setAllContactsLoading(true)
+      console.log(`📊 [CONTACTS CONTEXT] Loading ALL contacts for instant search...`)
+
+      const response = await fetch('/api/contacts?limit=10000')
+      if (response.ok) {
+        const data = await response.json()
+        const loadedContacts = data.contacts || []
+        setAllContacts(loadedContacts)
+        allContactsLoadedRef.current = true
+        console.log(`📊 [CONTACTS CONTEXT] Cached ${loadedContacts.length} contacts for instant search`)
+        return loadedContacts
+      }
+      return []
+    } catch (error) {
+      console.error('📊 [CONTACTS CONTEXT] Error loading all contacts:', error)
+      return []
+    } finally {
+      setAllContactsLoading(false)
+    }
+  }
 
   const fetchContacts = async (page = 1, limit = 50, search = '', filters = {}) => {
     try {
@@ -180,9 +233,11 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Failed to fetch tags')
       }
       const data = await response.json()
-      setTags(data)
+      // Ensure tags is always an array
+      setTags(Array.isArray(data) ? data : [])
     } catch (err) {
       console.error('Error fetching tags:', err)
+      setTags([])
     }
   }
 
@@ -225,6 +280,24 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
     }
     loadData()
   }, [])
+
+  // Listen for contact updates from side panel
+  useEffect(() => {
+    const handleContactUpdate = (event: CustomEvent) => {
+      const { contactId, updatedContact } = event.detail;
+      console.log('[CONTACTS CONTEXT] Contact updated event received', { contactId });
+
+      // Update the contact in the local state
+      setContacts(prev => prev.map(c =>
+        c.id === contactId ? { ...c, ...updatedContact } : c
+      ));
+    };
+
+    window.addEventListener('contact-updated', handleContactUpdate as EventListener);
+    return () => {
+      window.removeEventListener('contact-updated', handleContactUpdate as EventListener);
+    };
+  }, []);
 
   const refreshContacts = async () => {
     await fetchContacts()
@@ -362,6 +435,10 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         refreshFilterOptions,
         currentQuery,
         currentFilters,
+        // All contacts for instant search
+        allContacts,
+        allContactsLoading,
+        loadAllContacts,
       }}
     >
       {children}

@@ -1,13 +1,13 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { X, Minimize2, Send, Mail, FileText, ChevronDown, Clock, RefreshCw } from "lucide-react"
+import { X, Minimize2, Send, Mail, FileText, ChevronDown, Clock, RefreshCw, GripVertical, Maximize2 } from "lucide-react"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { toast } from "sonner"
 import { format } from "date-fns"
@@ -41,6 +41,62 @@ export default function InlineEmailPanel() {
   const [isSending, setIsSending] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [scheduleMenuOpen, setScheduleMenuOpen] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Dragging state - default position is center-bottom area
+  const [position, setPosition] = useState({ x: -1, y: -1 }) // -1 means use default
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartPos = useRef({ x: 0, y: 0 })
+
+  // Initialize position on mount
+  useEffect(() => {
+    if (emailSession && position.x === -1) {
+      // Center horizontally, near bottom
+      const defaultX = Math.max(16, (window.innerWidth - 400) / 2)
+      const defaultY = Math.max(16, window.innerHeight - 450)
+      setPosition({ x: defaultX, y: defaultY })
+    }
+  }, [emailSession])
+
+  // Dragging handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (!panelRef.current) return
+    setIsDragging(true)
+    const rect = panelRef.current.getBoundingClientRect()
+    dragStartPos.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    }
+    e.preventDefault()
+  }
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return
+    const newX = e.clientX - dragStartPos.current.x
+    const newY = e.clientY - dragStartPos.current.y
+    const maxX = window.innerWidth - 420
+    const maxY = window.innerHeight - 420
+    setPosition({
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY))
+    })
+  }, [isDragging])
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  // Attach/detach global mouse handlers for dragging
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove)
+      window.addEventListener('mouseup', handleDragEnd)
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove)
+      window.removeEventListener('mouseup', handleDragEnd)
+    }
+  }, [isDragging, handleDragMove, handleDragEnd])
 
   // Helper to get display text for account dropdown
   const getAccountDisplayText = (acct: EmailAccount) => {
@@ -221,31 +277,43 @@ export default function InlineEmailPanel() {
     ? `${emailSession.contact.firstName || ''} ${emailSession.contact.lastName || ''}`.trim()
     : emailSession.email
 
-  // Minimized state - show tab at bottom right
+  // Minimized state - show pill at bottom center-right
   if (emailSession.isMinimized) {
     return (
-      <div className="fixed bottom-0 right-4 z-50">
-        <Button
+      <div className="fixed bottom-4 z-50" style={{ left: '50%', transform: 'translateX(-50%)' }}>
+        <div
+          className="bg-green-600 text-white rounded-full px-4 py-2 shadow-lg flex items-center gap-2 cursor-pointer hover:bg-green-700 transition"
           onClick={maximize}
-          className="bg-green-600 hover:bg-green-700 rounded-b-none h-8 text-sm"
         >
-          <Mail className="h-4 w-4 mr-2" />
-          {contactName || 'Email'}
-        </Button>
+          <Mail className="h-4 w-4 flex-shrink-0" />
+          <span className="text-xs font-medium truncate max-w-[100px]">{contactName || 'Email'}</span>
+          <Button variant="ghost" size="sm" className="h-5 w-5 p-0 text-white hover:bg-green-800" onClick={(e) => { e.stopPropagation(); close(); }}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="fixed bottom-0 right-4 z-50 w-[400px] shadow-2xl rounded-t-lg overflow-hidden border border-green-200">
-      <div className="bg-green-600 text-white px-3 py-2 flex items-center justify-between">
+    <div
+      ref={panelRef}
+      className="fixed z-50 w-[400px] shadow-2xl rounded-lg overflow-hidden border-2 border-green-500"
+      style={{ left: `${position.x}px`, top: `${position.y}px` }}
+    >
+      {/* Draggable Header */}
+      <div
+        className="bg-green-600 text-white px-3 py-2 flex items-center justify-between cursor-move select-none"
+        onMouseDown={handleDragStart}
+      >
         <div className="flex items-center gap-2 min-w-0">
+          <GripVertical className="h-4 w-4 opacity-60" />
           <Mail className="h-4 w-4 flex-shrink-0" />
           <span className="font-medium text-sm truncate">
             Email to {contactName}
           </span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
           <Button variant="ghost" size="icon" className="h-6 w-6 text-white hover:bg-green-700" onClick={minimize}>
             <Minimize2 className="h-3 w-3" />
           </Button>

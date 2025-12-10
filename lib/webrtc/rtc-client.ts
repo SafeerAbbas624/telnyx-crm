@@ -116,11 +116,19 @@ class TelnyxWebRTCClient {
 
   // Play ringtone using Web Audio API (gentle chime pattern - more pleasant than harsh phone ring)
   private playRingtone() {
+    console.log('[RTC] 🔔 playRingtone() called')
+
     if (!this.audioContext) {
       this.initRingtone()
     }
 
     this.stopRingtone()
+
+    // Show browser notification FIRST (always works if permission granted)
+    this.showInboundNotification()
+
+    // ALWAYS try the fallback ringtone as a backup - it might work if user has interacted
+    this.playFallbackRingtone()
 
     // Try to resume AudioContext if suspended - wait for it to be ready
     if (this.audioContext && this.audioContext.state === 'suspended') {
@@ -128,9 +136,7 @@ class TelnyxWebRTCClient {
         console.log('[RTC] ✓ AudioContext resumed for ringtone')
         this.startRingtoneChimes()
       }).catch((err) => {
-        console.warn('[RTC] Could not resume AudioContext, using fallback:', err)
-        // If AudioContext can't resume, use fallback immediately
-        this.playFallbackRingtone()
+        console.warn('[RTC] Could not resume AudioContext, fallback already playing:', err)
       })
       return
     }
@@ -139,12 +145,13 @@ class TelnyxWebRTCClient {
   }
 
   private startRingtoneChimes() {
-    // If AudioContext isn't ready, use fallback immediately
+    // If AudioContext isn't ready, fallback is already running from playRingtone()
     if (!this.audioContext || this.audioContext.state !== 'running') {
-      console.log('[RTC] AudioContext not ready for ringtone, using fallback')
-      this.playFallbackRingtone()
+      console.log('[RTC] AudioContext not ready for ringtone chimes (fallback should be running)')
       return
     }
+
+    console.log('[RTC] 🎵 Starting Web Audio API ringtone chimes')
 
     const playChime = () => {
       if (!this.audioContext || this.audioContext.state !== 'running') {
@@ -175,7 +182,7 @@ class TelnyxWebRTCClient {
 
           // Gentle envelope: quick attack, smooth decay
           gain.gain.setValueAtTime(0, now + note.start)
-          gain.gain.linearRampToValueAtTime(0.25, now + note.start + 0.02) // Quick attack
+          gain.gain.linearRampToValueAtTime(0.35, now + note.start + 0.02) // Quick attack (louder: 0.35 instead of 0.25)
           gain.gain.exponentialRampToValueAtTime(0.01, now + note.start + note.duration) // Smooth decay
 
           osc.connect(gain)
@@ -186,18 +193,14 @@ class TelnyxWebRTCClient {
         })
       } catch (e) {
         console.warn('[RTC] Error playing ringtone chime:', e)
-        this.playFallbackRingtone()
       }
     }
 
     // Play immediately
     playChime()
 
-    // Repeat every 2.5 seconds (gentler, more frequent pattern)
-    this.ringtoneInterval = setInterval(playChime, 2500)
-
-    // Also show browser notification for visibility
-    this.showInboundNotification()
+    // Repeat every 2 seconds (more frequent to be more noticeable)
+    this.ringtoneInterval = setInterval(playChime, 2000)
   }
 
   // Fallback ringtone using HTML audio element
@@ -208,12 +211,12 @@ class TelnyxWebRTCClient {
       console.log('[RTC] Creating fallback ringtone audio element...')
       const el = document.createElement('audio')
       el.loop = true
-      el.volume = 0.5
-      // Use a longer, more noticeable beep pattern
-      // This is a 440Hz tone (A4 note) - standard phone ring frequency
-      const duration = 0.5 // seconds
+      el.volume = 0.8 // Louder volume (was 0.5)
+      // Use a longer, more noticeable beep pattern with two tones
+      // This creates a classic phone ring pattern: two tones alternating
+      const duration = 1.0 // seconds (longer)
       const sampleRate = 8000
-      const numSamples = duration * sampleRate
+      const numSamples = Math.floor(duration * sampleRate)
       const buffer = new ArrayBuffer(44 + numSamples)
       const view = new DataView(buffer)
 
@@ -238,10 +241,12 @@ class TelnyxWebRTCClient {
       writeString(36, 'data')
       view.setUint32(40, numSamples, true)
 
-      // Generate 440Hz sine wave
+      // Generate two-tone ring pattern (440Hz and 480Hz alternating - classic US phone ring)
       for (let i = 0; i < numSamples; i++) {
         const t = i / sampleRate
-        const value = Math.sin(2 * Math.PI * 440 * t)
+        // Alternate between 440Hz and 480Hz every 0.25 seconds
+        const freq = Math.floor(t / 0.25) % 2 === 0 ? 440 : 480
+        const value = Math.sin(2 * Math.PI * freq * t)
         view.setUint8(44 + i, (value * 127 + 128))
       }
 
@@ -256,7 +261,7 @@ class TelnyxWebRTCClient {
       this.ringtoneEl.play().then(() => {
         console.log('[RTC] ✓✓✓ Fallback ringtone IS PLAYING ✓✓✓')
       }).catch((err) => {
-        console.error('[RTC] ✗✗✗ Could not play fallback ringtone:', err)
+        console.error('[RTC] ✗✗✗ Could not play fallback ringtone (browser may require user interaction):', err)
       })
     } else {
       console.error('[RTC] ✗ ringtoneEl is null!')
@@ -518,6 +523,11 @@ class TelnyxWebRTCClient {
               this.audioEl.play().then(() => {
                 console.log('[RTC] ✓ Remote audio playing (from active state)')
               }).catch((err) => {
+                // AbortError is expected when a new audio source interrupts the previous one
+                if (err.name === 'AbortError') {
+                  console.log('[RTC] Audio play interrupted by new source - this is expected')
+                  return
+                }
                 console.error('[RTC] Failed to play remote audio:', err)
               })
             } catch (err) {
@@ -541,6 +551,11 @@ class TelnyxWebRTCClient {
             this.audioEl.volume = 1.0
             this.audioEl.muted = false
             this.audioEl.play().catch((err) => {
+              // AbortError is expected when a new audio source interrupts the previous one
+              if (err.name === 'AbortError') {
+                console.log('[RTC] Audio play interrupted by new source - this is expected')
+                return
+              }
               console.error('[RTC] Backup audio play failed:', err)
             })
           } catch (err) {
@@ -835,12 +850,21 @@ class TelnyxWebRTCClient {
         // Explicitly play the audio
         await this.audioEl.play()
         console.log('[RTC] ✓ Remote audio playing')
-      } catch (err) {
-        console.error('[RTC] Error setting up remote audio:', err)
-        // Try again without await
-        try {
-          this.audioEl.play().catch(e => console.error('[RTC] Audio play failed:', e))
-        } catch {}
+      } catch (err: any) {
+        // AbortError is expected when a new audio source interrupts the previous one
+        if (err.name === 'AbortError') {
+          console.log('[RTC] Audio play interrupted by new source - this is expected')
+        } else {
+          console.error('[RTC] Error setting up remote audio:', err)
+          // Try again without await
+          try {
+            this.audioEl.play().catch(e => {
+              if (e.name !== 'AbortError') {
+                console.error('[RTC] Audio play failed:', e)
+              }
+            })
+          } catch {}
+        }
       }
     } else {
       console.warn('[RTC] Remote stream not available immediately after answer')
@@ -854,7 +878,11 @@ class TelnyxWebRTCClient {
             this.audioEl.srcObject = stream
             this.audioEl.volume = 1.0
             this.audioEl.muted = false
-            this.audioEl.play().catch(e => console.error('[RTC] Delayed audio play failed:', e))
+            this.audioEl.play().catch(e => {
+              if (e.name !== 'AbortError') {
+                console.error('[RTC] Delayed audio play failed:', e)
+              }
+            })
           } catch (err) {
             console.error('[RTC] Error in delayed audio setup:', err)
           }
@@ -992,6 +1020,11 @@ class TelnyxWebRTCClient {
       this.audioEl.play().then(() => {
         console.log('[RTC] ✓ Remote audio manually started')
       }).catch((err) => {
+        // AbortError is expected when a new audio source interrupts the previous one
+        if (err.name === 'AbortError') {
+          console.log('[RTC] Audio play interrupted by new source - this is expected')
+          return
+        }
         console.error('[RTC] Failed to manually start audio:', err)
       })
       return true

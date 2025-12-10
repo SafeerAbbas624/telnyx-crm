@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Calendar, Clock, AlertCircle } from "lucide-react"
 import { format, addMinutes, setHours, setMinutes } from "date-fns"
 
@@ -104,6 +104,9 @@ export function ScheduleSendModal({
             <Clock className="h-5 w-5 text-blue-600" />
             Schedule {channel}
           </DialogTitle>
+          <DialogDescription>
+            Choose when to send this message
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">

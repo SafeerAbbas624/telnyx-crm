@@ -20,6 +20,7 @@ import { useContacts } from "@/lib/context/contacts-context"
 import { useToast } from "@/hooks/use-toast"
 import { TagInput } from "@/components/ui/tag-input"
 import type { Contact, Tag } from "@/lib/types"
+import { normalizePropertyType } from "@/lib/property-type-mapper"
 
 interface EditContactDialogProps {
   open: boolean
@@ -81,7 +82,7 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
       setCity(contact.city || "")
       setState(contact.state || "")
       setPropertyCounty(contact.propertyCounty || "")
-      setPropertyType(contact.propertyType || "")
+      setPropertyType(normalizePropertyType(contact.propertyType) || "")
       setBedrooms(contact.bedrooms ?? undefined)
       setTotalBathrooms(contact.totalBathrooms ?? undefined)
       setBuildingSqft(contact.buildingSqft ?? undefined)
@@ -249,7 +250,23 @@ export default function EditContactDialog({ open, onOpenChange, contact }: EditC
             </div>
             <div className="space-y-2">
               <Label htmlFor="propertyType">Property Type</Label>
-              <Input id="propertyType" value={propertyType} onChange={(e) => setPropertyType(e.target.value)} />
+              <Select value={propertyType} onValueChange={setPropertyType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Single-family (SFH)">Single-family (SFH)</SelectItem>
+                  <SelectItem value="Duplex">Duplex</SelectItem>
+                  <SelectItem value="Triplex">Triplex</SelectItem>
+                  <SelectItem value="Quadplex">Quadplex</SelectItem>
+                  <SelectItem value="Multi-family">Multi-family (5+)</SelectItem>
+                  <SelectItem value="Townhouse">Townhouse</SelectItem>
+                  <SelectItem value="Condo">Condo</SelectItem>
+                  <SelectItem value="Mobile Home">Mobile Home</SelectItem>
+                  <SelectItem value="Land">Land</SelectItem>
+                  <SelectItem value="Commercial">Commercial</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">

@@ -10,13 +10,14 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { X, Minimize2, Send, MessageSquare, RefreshCw, FileText, ChevronDown, Pencil, Plus, Clock } from "lucide-react"
+import { X, Minimize2, Send, MessageSquare, RefreshCw, FileText, ChevronDown, Pencil, Plus, Clock, Maximize2, GripVertical } from "lucide-react"
 import { useSmsUI, SmsSession } from "@/lib/context/sms-ui-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { TemplateVariableSelector } from "@/components/ui/template-variable-selector"
 import { ScheduleSendModal } from "@/components/ui/schedule-send-modal"
+import * as Portal from "@radix-ui/react-portal"
 
 interface TelnyxPhoneNumber {
   id: string
@@ -96,13 +97,58 @@ function SingleSmsPanel({
   const [savingTemplate, setSavingTemplate] = useState(false)
   // Schedule send state
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleMenuOpen, setScheduleMenuOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null)
   const templateContentRef = useRef<HTMLTextAreaElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
-  // Calculate position offset for stacking
-  const offsetX = index * 30
-  const offsetY = index * 30
+  // Dragging state - default position is bottom-left, offset by index for stacking
+  const defaultX = 16 + (index * 30)
+  const defaultY = window.innerHeight - 616 - (index * 30) // 600px height + 16px margin
+  const [position, setPosition] = useState({ x: defaultX, y: Math.max(16, defaultY) })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartPos = useRef({ x: 0, y: 0 })
+
+  // Dragging handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (!panelRef.current) return
+    setIsDragging(true)
+    const rect = panelRef.current.getBoundingClientRect()
+    dragStartPos.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    }
+    e.preventDefault()
+  }
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return
+    const newX = e.clientX - dragStartPos.current.x
+    const newY = e.clientY - dragStartPos.current.y
+    const maxX = window.innerWidth - 520
+    const maxY = window.innerHeight - 620
+    setPosition({
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY))
+    })
+  }, [isDragging])
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  // Attach/detach global mouse handlers for dragging
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove)
+      window.addEventListener('mouseup', handleDragEnd)
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove)
+      window.removeEventListener('mouseup', handleDragEnd)
+    }
+  }, [isDragging, handleDragMove, handleDragEnd])
 
   // Load available phone numbers, conversation history, and templates
   useEffect(() => {
@@ -192,8 +238,24 @@ function SingleSmsPanel({
         console.log('[SMS Panel] Loaded numbers:', activeNumbers.length, 'active out of', numbers.length)
         setAvailableNumbers(activeNumbers)
         if (activeNumbers.length > 0 && !selectedSenderNumber) {
-          console.log('[SMS Panel] Setting default sender:', activeNumbers[0].phoneNumber)
-          setSelectedSenderNumber(activeNumbers[0].phoneNumber)
+          // Priority: 1) session.fromNumber (from call), 2) first available number
+          if (session.fromNumber) {
+            // Find matching number in available numbers (compare last 10 digits)
+            const fromDigits = session.fromNumber.replace(/\D/g, '').slice(-10)
+            const matchingNumber = activeNumbers.find((n: TelnyxPhoneNumber) =>
+              n.phoneNumber.replace(/\D/g, '').slice(-10) === fromDigits
+            )
+            if (matchingNumber) {
+              console.log('[SMS Panel] Using fromNumber from call:', matchingNumber.phoneNumber)
+              setSelectedSenderNumber(matchingNumber.phoneNumber)
+            } else {
+              console.log('[SMS Panel] fromNumber not found in available numbers, using first:', activeNumbers[0].phoneNumber)
+              setSelectedSenderNumber(activeNumbers[0].phoneNumber)
+            }
+          } else {
+            console.log('[SMS Panel] Setting default sender:', activeNumbers[0].phoneNumber)
+            setSelectedSenderNumber(activeNumbers[0].phoneNumber)
+          }
         }
       } else {
         console.error('[SMS Panel] Failed to load numbers, status:', response.status)
@@ -429,24 +491,29 @@ function SingleSmsPanel({
     )
   }
 
-  // Full panel view - positioned with stacking offset
+  // Full panel view - draggable
   return (
     <div
+      ref={panelRef}
       className="fixed z-40 w-[500px] h-[600px]"
       style={{
-        bottom: `${16 + offsetY}px`,
-        left: `${16 + offsetX}px`
+        left: `${position.x}px`,
+        top: `${position.y}px`
       }}
     >
       <div className="bg-white border-4 border-blue-600 rounded-lg shadow-2xl h-full flex flex-col">
-        {/* Header */}
-        <div className="bg-blue-600 text-white p-3 rounded-t-md flex-shrink-0">
+        {/* Draggable Header */}
+        <div
+          className="bg-blue-600 text-white p-3 rounded-t-md flex-shrink-0 cursor-move select-none"
+          onMouseDown={handleDragStart}
+        >
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
+              <GripVertical className="h-4 w-4 opacity-60" />
               <MessageSquare className="h-5 w-5" />
               <span className="text-base font-semibold">SMS Conversation</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
               <Button
                 variant="ghost"
                 size="sm"
@@ -618,7 +685,7 @@ function SingleSmsPanel({
                   <Send className="h-5 w-5" />
                 )}
               </Button>
-              <DropdownMenu>
+              <DropdownMenu open={scheduleMenuOpen} onOpenChange={setScheduleMenuOpen} modal={false}>
                 <DropdownMenuTrigger asChild>
                   <Button
                     disabled={isSending || !message.trim()}
@@ -628,7 +695,11 @@ function SingleSmsPanel({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setShowScheduleModal(true)}>
+                  <DropdownMenuItem onClick={() => {
+                    setScheduleMenuOpen(false) // Close dropdown first
+                    // Use setTimeout to let dropdown close before modal opens
+                    setTimeout(() => setShowScheduleModal(true), 100)
+                  }}>
                     <Clock className="h-4 w-4 mr-2" />
                     Schedule send...
                   </DropdownMenuItem>
@@ -708,17 +779,21 @@ function SingleSmsPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Schedule Send Modal */}
-      <ScheduleSendModal
-        isOpen={showScheduleModal}
-        onClose={() => setShowScheduleModal(false)}
-        onSchedule={handleScheduleSend}
-        channel="SMS"
-        preview={{
-          to: formatPhoneNumberForDisplay(session.phoneNumber || ''),
-          bodyPreview: message.substring(0, 100),
-        }}
-      />
+      {/* Schedule Send Modal - rendered in portal to avoid aria-hidden issues */}
+      {showScheduleModal && (
+        <Portal.Root>
+          <ScheduleSendModal
+            isOpen={showScheduleModal}
+            onClose={() => setShowScheduleModal(false)}
+            onSchedule={handleScheduleSend}
+            channel="SMS"
+            preview={{
+              to: formatPhoneNumberForDisplay(session.phoneNumber || ''),
+              bodyPreview: message.substring(0, 100),
+            }}
+          />
+        </Portal.Root>
+      )}
     </div>
   )
 }

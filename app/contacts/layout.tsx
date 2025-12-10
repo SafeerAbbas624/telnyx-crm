@@ -1,13 +1,9 @@
-import Providers from "@/components/providers"
-
+// Contacts layout - no longer wraps with Providers
+// because root layout.tsx already provides all contexts globally
 export default function ContactsLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return (
-    <Providers>
-      {children}
-    </Providers>
-  )
+  return <>{children}</>
 }

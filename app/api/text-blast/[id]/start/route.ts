@@ -203,9 +203,40 @@ async function processTextBlast(blastId: string) {
         localFailedCount = 0
       }
 
-      // Apply delay between messages
+      // Apply delay between messages - break into smaller chunks to check for pause
       if (blast.delaySeconds > 0 && i < totalContacts - 1) {
-        await new Promise(resolve => setTimeout(resolve, blast.delaySeconds * 1000))
+        const totalDelayMs = blast.delaySeconds * 1000
+        const checkIntervalMs = 500 // Check every 500ms for pause
+        let elapsedMs = 0
+
+        while (elapsedMs < totalDelayMs) {
+          // Check for pause/cancel during delay
+          const pauseCheck = await prisma.textBlast.findUnique({
+            where: { id: blastId },
+            select: { status: true, isPaused: true }
+          })
+
+          if (!pauseCheck || pauseCheck.status !== 'running' || pauseCheck.isPaused) {
+            // Flush any pending updates before stopping
+            if (localSentCount > 0 || localFailedCount > 0) {
+              await prisma.textBlast.update({
+                where: { id: blastId },
+                data: {
+                  sentCount: { increment: localSentCount },
+                  failedCount: { increment: localFailedCount },
+                  currentIndex: i + 1,
+                },
+              })
+            }
+            console.log(`[TextBlast ${blastId}] Paused during delay at index ${i + 1}`)
+            return
+          }
+
+          // Wait for the smaller interval
+          const waitTime = Math.min(checkIntervalMs, totalDelayMs - elapsedMs)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+          elapsedMs += waitTime
+        }
       }
     }
 

@@ -6,6 +6,7 @@ import type { Contact } from "@/lib/types"
 export type SmsSession = {
   contact?: Partial<Contact> & { id: string }
   phoneNumber: string
+  fromNumber?: string // Our Telnyx number to use as sender (e.g., from a call)
   isMinimized: boolean
   sessionId: string // Unique ID for this SMS session
 }
@@ -15,7 +16,7 @@ type SmsUIContextType = {
   smsSessions: SmsSession[]
   // Legacy single-session support
   smsSession: SmsSession | null
-  openSms: (opts: { contact?: Partial<Contact> & { id: string }, phoneNumber: string }) => void
+  openSms: (opts: { contact?: Partial<Contact> & { id: string }, phoneNumber: string, fromNumber?: string }) => void
   minimizeSession: (sessionId: string) => void
   maximizeSession: (sessionId: string) => void
   closeSession: (sessionId: string) => void
@@ -30,12 +31,15 @@ const SmsUIContext = createContext<SmsUIContextType | undefined>(undefined)
 export function SmsUIProvider({ children }: { children: React.ReactNode }) {
   const [smsSessions, setSmsSessions] = useState<SmsSession[]>([])
 
-  const openSms = useCallback(async ({ contact, phoneNumber }: { contact?: Partial<Contact> & { id: string }, phoneNumber: string }) => {
+  const openSms = useCallback(async ({ contact, phoneNumber, fromNumber }: { contact?: Partial<Contact> & { id: string }, phoneNumber: string, fromNumber?: string }) => {
     // Check if already open for same number - maximize instead of creating new
     const existingSession = smsSessions.find(s => s.phoneNumber === phoneNumber)
     if (existingSession) {
+      // Update fromNumber if provided and different
       setSmsSessions(prev => prev.map(s =>
-        s.sessionId === existingSession.sessionId ? { ...s, isMinimized: false } : s
+        s.sessionId === existingSession.sessionId
+          ? { ...s, isMinimized: false, fromNumber: fromNumber || s.fromNumber }
+          : s
       ))
       return
     }
@@ -70,6 +74,7 @@ export function SmsUIProvider({ children }: { children: React.ReactNode }) {
     const newSession: SmsSession = {
       contact: resolvedContact,
       phoneNumber,
+      fromNumber, // Pass through the fromNumber (our Telnyx number)
       isMinimized: false,
       sessionId: `sms-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     }

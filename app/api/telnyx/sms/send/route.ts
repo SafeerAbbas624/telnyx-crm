@@ -232,8 +232,31 @@ export async function POST(request: NextRequest) {
 
     if (!telnyxResponse.ok) {
       console.error('Telnyx API error:', telnyxData);
+
+      // Parse Telnyx error for better user-facing messages
+      let errorMessage = 'Failed to send SMS via Telnyx';
+      let errorCode = 'UNKNOWN_ERROR';
+
+      if (telnyxData.errors && telnyxData.errors.length > 0) {
+        const telnyxError = telnyxData.errors[0];
+        errorCode = telnyxError.code || 'UNKNOWN_ERROR';
+
+        // Common Telnyx error codes with user-friendly messages
+        if (errorCode === '40300' || telnyxError.title?.toLowerCase().includes('opt') || telnyxError.detail?.toLowerCase().includes('opt')) {
+          errorMessage = 'This contact has opted out (sent STOP). Cannot send messages until they opt back in.';
+          errorCode = 'OPTED_OUT';
+        } else if (errorCode === '40003' || telnyxError.title?.toLowerCase().includes('invalid')) {
+          errorMessage = `Invalid phone number: ${formattedToNumber}`;
+          errorCode = 'INVALID_NUMBER';
+        } else if (telnyxError.detail) {
+          errorMessage = telnyxError.detail;
+        } else if (telnyxError.title) {
+          errorMessage = telnyxError.title;
+        }
+      }
+
       return NextResponse.json(
-        { error: 'Failed to send SMS via Telnyx', details: telnyxData },
+        { error: errorMessage, code: errorCode, details: telnyxData },
         { status: 400 }
       );
     }

@@ -8,9 +8,10 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import {
-  Plus, Trash2, Edit, GripVertical, ThumbsUp, ThumbsDown, Calendar, Voicemail, Ban, PhoneMissed, PhoneOff, Check, Loader2
+  Plus, Trash2, Edit, GripVertical, ThumbsUp, ThumbsDown, Calendar, Voicemail, Ban, PhoneMissed, PhoneOff, Check, Loader2, MessageSquare, Mail, Clock
 } from 'lucide-react'
 
 interface DispositionAction {
@@ -28,6 +29,30 @@ interface Disposition {
   sortOrder: number
   isDefault: boolean
   actions: DispositionAction[]
+}
+
+interface SmsTemplate {
+  id: string
+  name: string
+  content: string
+}
+
+interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+}
+
+interface Sequence {
+  id: string
+  name: string
+}
+
+interface TeamMember {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
 }
 
 const ACTION_TYPES = [
@@ -73,9 +98,43 @@ export default function DispositionsSettings() {
   const [formIcon, setFormIcon] = useState('ThumbsUp')
   const [formActions, setFormActions] = useState<DispositionAction[]>([])
 
+  // Reference data for action configs
+  const [smsTemplates, setSmsTemplates] = useState<SmsTemplate[]>([])
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
+  const [sequences, setSequences] = useState<Sequence[]>([])
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+
   useEffect(() => {
     loadDispositions()
+    loadReferenceData()
   }, [])
+
+  const loadReferenceData = async () => {
+    // Load all reference data in parallel
+    const [smsRes, emailRes, seqRes, teamRes] = await Promise.all([
+      fetch('/api/templates').catch(() => null),
+      fetch('/api/email/templates').catch(() => null),
+      fetch('/api/sequences').catch(() => null),
+      fetch('/api/admin/team-users').catch(() => null)
+    ])
+
+    if (smsRes?.ok) {
+      const data = await smsRes.json()
+      setSmsTemplates(Array.isArray(data) ? data : [])
+    }
+    if (emailRes?.ok) {
+      const data = await emailRes.json()
+      setEmailTemplates(data.templates || [])
+    }
+    if (seqRes?.ok) {
+      const data = await seqRes.json()
+      setSequences(data.sequences || data || [])
+    }
+    if (teamRes?.ok) {
+      const data = await teamRes.json()
+      setTeamMembers(data.users || [])
+    }
+  }
 
   const loadDispositions = async () => {
     try {
@@ -253,24 +312,188 @@ export default function DispositionsSettings() {
                               ))}
                             </SelectContent>
                           </Select>
+                          {/* ADD/REMOVE TAG */}
                           {(action.actionType === 'ADD_TAG' || action.actionType === 'REMOVE_TAG') && (
                             <Input placeholder="Tag name" value={(action.config.tagName as string) || ''} onChange={(e) => updateAction(idx, 'tagName', e.target.value)} />
                           )}
+
+                          {/* ADD TO DNC */}
                           {action.actionType === 'ADD_TO_DNC' && (
                             <Input placeholder="Reason (optional)" value={(action.config.reason as string) || ''} onChange={(e) => updateAction(idx, 'reason', e.target.value)} />
                           )}
-                          {action.actionType === 'CREATE_TASK' && (
-                            <>
-                              <Input placeholder="Task title" value={(action.config.taskTitle as string) || ''} onChange={(e) => updateAction(idx, 'taskTitle', e.target.value)} />
-                              <Input type="number" placeholder="Due in days" value={(action.config.taskDueInDays as number) || ''} onChange={(e) => updateAction(idx, 'taskDueInDays', parseInt(e.target.value))} />
-                            </>
+
+                          {/* SEND SMS - Template selector + delay */}
+                          {action.actionType === 'SEND_SMS' && (
+                            <div className="space-y-2">
+                              <Select
+                                value={(action.config.templateId as string) || ''}
+                                onValueChange={(v) => updateAction(idx, 'templateId', v)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select SMS template..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {smsTemplates.map(t => (
+                                    <SelectItem key={t.id} value={t.id}>
+                                      <div className="flex items-center gap-2">
+                                        <MessageSquare className="h-3 w-3" />
+                                        {t.name}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {smsTemplates.length === 0 && (
+                                <p className="text-xs text-amber-600">No SMS templates found. Create templates in Settings → Templates.</p>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  type="number"
+                                  placeholder="Delay (minutes)"
+                                  className="w-32"
+                                  value={(action.config.delayMinutes as number) || ''}
+                                  onChange={(e) => updateAction(idx, 'delayMinutes', parseInt(e.target.value) || 0)}
+                                />
+                                <span className="text-xs text-muted-foreground">0 = send immediately</span>
+                              </div>
+                            </div>
                           )}
+
+                          {/* SEND EMAIL - Template selector + delay */}
+                          {action.actionType === 'SEND_EMAIL' && (
+                            <div className="space-y-2">
+                              <Select
+                                value={(action.config.templateId as string) || ''}
+                                onValueChange={(v) => updateAction(idx, 'templateId', v)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select email template..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {emailTemplates.map(t => (
+                                    <SelectItem key={t.id} value={t.id}>
+                                      <div className="flex items-center gap-2">
+                                        <Mail className="h-3 w-3" />
+                                        {t.name}
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {emailTemplates.length === 0 && (
+                                <p className="text-xs text-amber-600">No email templates found. Create templates in Settings → Templates.</p>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-muted-foreground" />
+                                <Input
+                                  type="number"
+                                  placeholder="Delay (minutes)"
+                                  className="w-32"
+                                  value={(action.config.delayMinutes as number) || ''}
+                                  onChange={(e) => updateAction(idx, 'delayMinutes', parseInt(e.target.value) || 0)}
+                                />
+                                <span className="text-xs text-muted-foreground">0 = send immediately</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* CREATE TASK - Full fields */}
+                          {action.actionType === 'CREATE_TASK' && (
+                            <div className="space-y-2">
+                              <Input
+                                placeholder="Task title (e.g., Follow up with {firstName})"
+                                value={(action.config.taskTitle as string) || ''}
+                                onChange={(e) => updateAction(idx, 'taskTitle', e.target.value)}
+                              />
+                              <Textarea
+                                placeholder="Task description (optional). Use {firstName}, {phone}, etc."
+                                value={(action.config.taskDescription as string) || ''}
+                                onChange={(e) => updateAction(idx, 'taskDescription', e.target.value)}
+                                rows={2}
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-xs">Due in days</Label>
+                                  <Input
+                                    type="number"
+                                    placeholder="1"
+                                    value={(action.config.taskDueInDays as number) || ''}
+                                    onChange={(e) => updateAction(idx, 'taskDueInDays', parseInt(e.target.value))}
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Priority</Label>
+                                  <Select
+                                    value={(action.config.taskPriority as string) || 'medium'}
+                                    onValueChange={(v) => updateAction(idx, 'taskPriority', v)}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="low">Low</SelectItem>
+                                      <SelectItem value="medium">Medium</SelectItem>
+                                      <SelectItem value="high">High</SelectItem>
+                                      <SelectItem value="urgent">Urgent</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-xs">Assign to</Label>
+                                <Select
+                                  value={(action.config.assignToUserId as string) || ''}
+                                  onValueChange={(v) => updateAction(idx, 'assignToUserId', v)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="(Unassigned)" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="">Unassigned</SelectItem>
+                                    {teamMembers.map(m => (
+                                      <SelectItem key={m.id} value={m.id}>
+                                        {m.firstName} {m.lastName}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* TRIGGER SEQUENCE */}
+                          {action.actionType === 'TRIGGER_SEQUENCE' && (
+                            <div className="space-y-2">
+                              <Select
+                                value={(action.config.sequenceId as string) || ''}
+                                onValueChange={(v) => updateAction(idx, 'sequenceId', v)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select sequence..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {sequences.map(s => (
+                                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {sequences.length === 0 && (
+                                <p className="text-xs text-amber-600">No sequences found. Create sequences first.</p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* REQUEUE CONTACT */}
                           {action.actionType === 'REQUEUE_CONTACT' && (
                             <Input type="number" placeholder="Delay in hours (0 = immediate)" value={(action.config.delayHours as number) || 0} onChange={(e) => updateAction(idx, 'delayHours', parseInt(e.target.value) || 0)} />
                           )}
+
+                          {/* MARK BAD NUMBER */}
                           {action.actionType === 'MARK_BAD_NUMBER' && (
                             <Input placeholder="Reason (e.g., disconnected, wrong number)" value={(action.config.reason as string) || ''} onChange={(e) => updateAction(idx, 'reason', e.target.value)} />
                           )}
+
                           {/* Show description for actions without config */}
                           {['REMOVE_FROM_QUEUE', 'REMOVE_FROM_DNC'].includes(action.actionType) && (
                             <p className="text-xs text-muted-foreground">

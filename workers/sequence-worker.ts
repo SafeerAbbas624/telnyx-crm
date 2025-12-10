@@ -36,6 +36,11 @@ let scheduledProcessCount = 0
 let scheduledTotalSent = 0
 let scheduledTotalFailed = 0
 
+// Power dialer list sync stats
+let isProcessingDialerSync = false
+let dialerSyncProcessCount = 0
+let dialerSyncTotalAdded = 0
+
 async function processSequences() {
   if (isProcessingSequences) {
     console.log("[Worker] Sequences: Already processing, skipping...")
@@ -137,11 +142,54 @@ async function processScheduledMessages() {
   }
 }
 
+async function processPowerDialerSync() {
+  if (isProcessingDialerSync) {
+    console.log("[Worker] DialerSync: Already processing, skipping...")
+    return
+  }
+
+  isProcessingDialerSync = true
+
+  try {
+    console.log(`[Worker] DialerSync: Starting sync cycle #${++dialerSyncProcessCount}`)
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+    if (INTERNAL_API_KEY) {
+      headers["x-api-key"] = INTERNAL_API_KEY
+    }
+
+    const response = await fetch(`${APP_URL}/api/cron/sync-power-dialer-lists`, {
+      method: "POST",
+      headers,
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      throw new Error(`HTTP ${response.status}: ${text}`)
+    }
+
+    const result = await response.json()
+    if (result.totalAdded > 0) {
+      dialerSyncTotalAdded += result.totalAdded
+      console.log(
+        `[Worker] DialerSync: Processed ${result.listsProcessed} lists, added ${result.totalAdded} contacts`
+      )
+    }
+  } catch (error: any) {
+    console.error(`[Worker] DialerSync: Error -`, error.message)
+  } finally {
+    isProcessingDialerSync = false
+  }
+}
+
 async function runAllProcessors() {
-  // Run both in parallel since they're independent
+  // Run all in parallel since they're independent
   await Promise.all([
     processSequences(),
-    processScheduledMessages()
+    processScheduledMessages(),
+    processPowerDialerSync()
   ])
 }
 
@@ -150,7 +198,8 @@ setInterval(() => {
   console.log(
     `[Worker] Status - ` +
     `Sequences: Cycles=${sequenceProcessCount}, Processed=${sequenceTotalProcessed}, Failed=${sequenceTotalFailed} | ` +
-    `Scheduled: Cycles=${scheduledProcessCount}, Sent=${scheduledTotalSent}, Failed=${scheduledTotalFailed}`
+    `Scheduled: Cycles=${scheduledProcessCount}, Sent=${scheduledTotalSent}, Failed=${scheduledTotalFailed} | ` +
+    `DialerSync: Cycles=${dialerSyncProcessCount}, Added=${dialerSyncTotalAdded}`
   )
 }, 300000)
 
@@ -159,6 +208,7 @@ console.log(`[Worker] Starting with ${PROCESS_INTERVAL}ms interval`)
 console.log(`[Worker] API URLs:`)
 console.log(`  - Sequences: ${APP_URL}/api/sequences/process`)
 console.log(`  - Scheduled: ${APP_URL}/api/cron/process-scheduled-messages`)
+console.log(`  - DialerSync: ${APP_URL}/api/cron/sync-power-dialer-lists`)
 
 // Run immediately on start
 runAllProcessors()

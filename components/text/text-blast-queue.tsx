@@ -34,7 +34,7 @@ import {
   Loader2,
   ChevronUp,
   ChevronDown,
-  RefreshCw,
+  Shuffle,
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatPhoneNumberForDisplay, getBestPhoneNumber } from "@/lib/phone-utils"
@@ -67,8 +67,23 @@ interface TextBlastQueueProps {
 // Telnyx SMS pricing (as of Dec 2024):
 // - Telnyx platform fee: ~$0.004/message
 // - Carrier fees (10DLC registered): ~$0.003/message (T-Mobile/AT&T/Verizon average)
-// Total: ~$0.007 per outbound SMS
-const SMS_COST_PER_MESSAGE = 0.007
+// Total: ~$0.007 per outbound SMS segment
+// SMS segments: 1-160 chars = 1 segment, 161-320 = 2 segments, 321-480 = 3 segments, etc.
+const SMS_COST_PER_SEGMENT = 0.007
+
+// Calculate SMS cost based on message length (segments)
+function calculateSmsCost(messageLength: number): number {
+  if (messageLength <= 0) return 0
+  // Standard SMS: 160 chars per segment, multipart: 153 chars per segment (7 chars for header)
+  const segments = messageLength <= 160 ? 1 : Math.ceil(messageLength / 153)
+  return segments * SMS_COST_PER_SEGMENT
+}
+
+// Get number of SMS segments
+function getSmsSegments(messageLength: number): number {
+  if (messageLength <= 0) return 0
+  return messageLength <= 160 ? 1 : Math.ceil(messageLength / 153)
+}
 
 export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps) {
   // Tag & Contact Selection
@@ -112,15 +127,22 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
   const [failedCount, setFailedCount] = useState(0)
 
   // Load initial data and check for running blast
+  // IMPORTANT: checkForRunningBlast must complete before loadPhoneNumbers sets defaults
   useEffect(() => {
-    loadTags()
-    loadPhoneNumbers()
-    loadTemplates()
-    checkForRunningBlast()
+    const init = async () => {
+      loadTags()
+      loadTemplates()
+      // First check for running blast (which may have saved sender numbers)
+      const hasActiveBlast = await checkForRunningBlast()
+      // Then load phone numbers, passing whether we have an active blast
+      await loadPhoneNumbers(hasActiveBlast)
+    }
+    init()
   }, [])
 
   // Check if there's already a running/paused blast (for when user navigates away and back)
-  const checkForRunningBlast = async () => {
+  // Returns true if an active blast was found (so we don't override sender numbers)
+  const checkForRunningBlast = async (): Promise<boolean> => {
     try {
       const response = await fetch('/api/text-blast?checkRunning=true')
       const data = await response.json()
@@ -200,9 +222,12 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
 
         const statusText = blast.status === 'paused' ? 'Paused blast' : 'Running blast'
         toast.info(`${statusText}: ${blast.name} (${blast.sentCount}/${blast.totalContacts} sent)`)
+        return true // Active blast found
       }
+      return false // No active blast
     } catch (error) {
       console.error('Error checking for running blast:', error)
+      return false
     }
   }
 
@@ -240,13 +265,15 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     }
   }
 
-  const loadPhoneNumbers = async () => {
+  // Load phone numbers - only set default selection if no active blast
+  const loadPhoneNumbers = async (hasActiveBlast: boolean = false) => {
     try {
       const res = await fetch('/api/telnyx/phone-numbers')
       const data = await res.json()
       const numbers = Array.isArray(data) ? data : data.phoneNumbers || []
       setPhoneNumbers(numbers)
-      if (numbers.length > 0) {
+      // Only set default selection if there's no active blast (which already has saved numbers)
+      if (numbers.length > 0 && !hasActiveBlast) {
         setSelectedNumbers([numbers[0].id])
       }
     } catch (error) {
@@ -354,6 +381,33 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     })
   }
 
+  // Shuffle queue - randomize pending contacts using Fisher-Yates algorithm
+  const shuffleQueue = () => {
+    if (isRunning) {
+      toast.error("Cannot shuffle while blast is running")
+      return
+    }
+
+    const pending = queueContacts.filter(c => c.status === 'pending')
+    const nonPending = queueContacts.filter(c => c.status !== 'pending')
+
+    if (pending.length <= 1) {
+      toast.info("Not enough contacts to shuffle")
+      return
+    }
+
+    // Fisher-Yates shuffle
+    const shuffled = [...pending]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+
+    // Keep non-pending contacts at their positions, put shuffled pending at the end
+    setQueueContacts([...nonPending, ...shuffled])
+    toast.success(`Shuffled ${pending.length} contacts`)
+  }
+
   // Get next phone number (rotation)
   const getNextPhoneNumber = useCallback(() => {
     if (selectedNumbers.length === 0) return null
@@ -407,10 +461,28 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     }
   }, [])
 
+  // Track last known counts to avoid spamming console with duplicate updates
+  const lastKnownStatusRef = useRef<{ sentCount: number; status: string }>({ sentCount: 0, status: '' })
+
   // Update blast status from real-time or polling data
   const updateBlastStatus = useCallback((blast: any) => {
-    console.log('🔄 Updating blast status:', blast)
-    setSentCount(blast.sentCount || 0)
+    const newSentCount = blast.sentCount || 0
+    const newStatus = blast.status || ''
+
+    // Only log if something actually changed
+    const hasChanged = lastKnownStatusRef.current.sentCount !== newSentCount ||
+                       lastKnownStatusRef.current.status !== newStatus
+
+    if (hasChanged) {
+      console.log('🔄 Blast status update:', {
+        status: newStatus,
+        sent: newSentCount,
+        failed: blast.failedCount || 0
+      })
+      lastKnownStatusRef.current = { sentCount: newSentCount, status: newStatus }
+    }
+
+    setSentCount(newSentCount)
     setFailedCount(blast.failedCount || 0)
     setCurrentIndex(blast.currentIndex || 0)
 
@@ -450,8 +522,8 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     }
   }, [onBlastComplete, scrollToCurrentContact])
 
-  // Poll for blast status updates (fallback)
-  const pollBlastStatus = async (blastId: string) => {
+  // Poll for blast status updates (fallback) - wrapped in useCallback for use in useEffect deps
+  const pollBlastStatus = useCallback(async (blastId: string) => {
     try {
       const response = await fetch(`/api/text-blast/${blastId}`)
       if (!response.ok) return
@@ -465,68 +537,107 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     } catch (error) {
       console.error('Error polling blast status:', error)
     }
-  }
+  }, [updateBlastStatus])
 
-  // Listen for real-time updates via SSE
+  // Listen for real-time updates via SSE with reconnection logic
   useEffect(() => {
     if (!activeBlastId) return
 
-    console.log('🔌 Connecting to SSE for blast:', activeBlastId)
-    const es = new EventSource('/api/events')
+    let es: EventSource | null = null
+    let reconnectAttempts = 0
+    let reconnectTimeout: NodeJS.Timeout | null = null
+    const maxReconnectAttempts = 10
+    const baseReconnectDelay = 1000
 
-    es.onopen = () => {
-      console.log('✅ SSE connected for blast:', activeBlastId)
-    }
+    const connect = () => {
+      console.log('🔌 Connecting to SSE for blast:', activeBlastId)
+      es = new EventSource('/api/events')
 
-    const onProgress = (evt: MessageEvent) => {
-      try {
-        const data = JSON.parse(evt.data || '{}')
-        console.log('📡 SSE progress event received:', data)
-        if (data.blastId === activeBlastId) {
-          console.log('📡 Matched blast ID, updating UI:', data)
-          updateBlastStatus(data)
+      es.onopen = () => {
+        console.log('✅ SSE connected for blast:', activeBlastId)
+        reconnectAttempts = 0 // Reset attempts on successful connection
+        // Immediately poll to sync state after reconnection
+        pollBlastStatus(activeBlastId)
+      }
+
+      const onProgress = (evt: MessageEvent) => {
+        try {
+          const data = JSON.parse(evt.data || '{}')
+          console.log('📡 SSE progress event received:', data)
+          if (data.blastId === activeBlastId) {
+            console.log('📡 Matched blast ID, updating UI:', data)
+            updateBlastStatus(data)
+          }
+        } catch (error) {
+          console.error('Error parsing SSE event:', error)
         }
-      } catch (error) {
-        console.error('Error parsing SSE event:', error)
+      }
+
+      const onCompleted = (evt: MessageEvent) => {
+        try {
+          const data = JSON.parse(evt.data || '{}')
+          console.log('✅ SSE completed event received:', data)
+          if (data.blastId === activeBlastId) {
+            console.log('✅ Blast completed, updating UI:', data)
+            updateBlastStatus(data)
+          }
+        } catch (error) {
+          console.error('Error parsing SSE event:', error)
+        }
+      }
+
+      // Listen for generic message events as well
+      es.onmessage = (evt) => {
+        console.log('📩 SSE generic message:', evt.data)
+      }
+
+      es.addEventListener('text-blast:progress', onProgress as any)
+      es.addEventListener('text-blast:completed', onCompleted as any)
+
+      es.onerror = (err) => {
+        console.log('❌ SSE connection error:', err)
+
+        // Clean up current connection
+        if (es) {
+          es.close()
+          es = null
+        }
+
+        // Attempt reconnection with exponential backoff
+        if (reconnectAttempts < maxReconnectAttempts) {
+          const delay = Math.min(baseReconnectDelay * Math.pow(2, reconnectAttempts), 30000)
+          console.log(`🔄 Reconnecting SSE in ${delay}ms (attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`)
+
+          // Poll for status while disconnected
+          pollBlastStatus(activeBlastId)
+
+          reconnectTimeout = setTimeout(() => {
+            reconnectAttempts++
+            connect()
+          }, delay)
+        } else {
+          console.log('❌ Max SSE reconnection attempts reached, falling back to polling')
+          toast.error('Live updates disconnected - using polling mode')
+        }
       }
     }
 
-    const onCompleted = (evt: MessageEvent) => {
-      try {
-        const data = JSON.parse(evt.data || '{}')
-        console.log('✅ SSE completed event received:', data)
-        if (data.blastId === activeBlastId) {
-          console.log('✅ Blast completed, updating UI:', data)
-          updateBlastStatus(data)
-        }
-      } catch (error) {
-        console.error('Error parsing SSE event:', error)
-      }
-    }
-
-    // Listen for generic message events as well
-    es.onmessage = (evt) => {
-      console.log('📩 SSE generic message:', evt.data)
-    }
-
-    es.addEventListener('text-blast:progress', onProgress as any)
-    es.addEventListener('text-blast:completed', onCompleted as any)
-
-    es.onerror = (err) => {
-      console.log('❌ SSE connection error, will auto-reconnect', err)
-    }
+    connect()
 
     return () => {
       console.log('🔌 Disconnecting SSE for blast:', activeBlastId)
-      try {
-        es.removeEventListener('text-blast:progress', onProgress as any)
-        es.removeEventListener('text-blast:completed', onCompleted as any)
-        es.close()
-      } catch (error) {
-        console.error('Error cleaning up SSE:', error)
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout)
+      }
+      if (es) {
+        try {
+          es.close()
+        } catch (error) {
+          console.error('Error cleaning up SSE:', error)
+        }
       }
     }
-  }, [activeBlastId, updateBlastStatus])
+  }, [activeBlastId, updateBlastStatus, pollBlastStatus])
 
   // Start blast using backend API
   const startBlast = async () => {
@@ -605,14 +716,20 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
         method: 'POST',
       })
 
+      const data = await response.json().catch(() => ({}))
+
       if (response.ok) {
         setIsPaused(true)
         setIsRunning(false)
-        toast.info("Blast paused")
+        toast.info(data.alreadyPaused ? "Blast is already paused" : "Blast paused")
       } else {
-        toast.error('Failed to pause blast')
+        // Even if pause fails, try to sync state by polling
+        console.error('Pause failed:', data.error)
+        await pollBlastStatus(activeBlastId)
+        toast.error(data.error || 'Failed to pause blast - syncing state...')
       }
     } catch (error) {
+      console.error('Pause error:', error)
       toast.error('Failed to pause blast')
     }
   }
@@ -667,15 +784,17 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     }
 
     try {
-      // Use pause endpoint to stop the blast
+      // Use pause endpoint with force option to stop the blast regardless of current status
       const response = await fetch(`/api/text-blast/${activeBlastId}/pause`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true, stop: true }),
       })
 
       setIsRunning(false)
       setIsPaused(false)
       setActiveBlastId(null)
-      toast.info("Blast killed")
+      toast.info("Blast stopped")
     } catch (error) {
       toast.error('Failed to stop blast')
     }
@@ -690,9 +809,15 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
     }
   }, [])
 
-  // Calculate costs
+  // Calculate costs based on actual message length for each contact
   const pendingContacts = queueContacts.filter(c => c.status === 'pending')
-  const totalCost = pendingContacts.length * SMS_COST_PER_MESSAGE
+
+  // Calculate total cost by evaluating each pending contact's formatted message length
+  const totalCost = pendingContacts.reduce((acc, contact) => {
+    const formattedMessage = message ? formatMessage(message, contact) : ''
+    return acc + calculateSmsCost(formattedMessage.length)
+  }, 0)
+
   const estimatedTime = pendingContacts.length * delaySeconds
 
   // Kill all running blasts (text and email)
@@ -974,28 +1099,6 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
           </CardContent>
         </Card>
 
-        {/* Start Position */}
-        {queueContacts.length > 0 && !isRunning && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Start Position</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3">
-                <Label className="whitespace-nowrap">Start from contact #:</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={queueContacts.length}
-                  value={startIndex + 1}
-                  onChange={(e) => setStartIndex(Math.max(0, parseInt(e.target.value) - 1) || 0)}
-                  className="w-24"
-                />
-                <span className="text-sm text-muted-foreground">of {queueContacts.length}</span>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Action Buttons */}
         <div className="flex gap-2">
@@ -1011,10 +1114,16 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
             </Button>
           )}
           {isRunning && (
-            <Button onClick={pauseBlast} variant="outline" className="flex-1" size="lg">
-              <Pause className="h-5 w-5 mr-2" />
-              Pause
-            </Button>
+            <>
+              <Button onClick={pauseBlast} variant="outline" className="flex-1" size="lg">
+                <Pause className="h-5 w-5 mr-2" />
+                Pause
+              </Button>
+              <Button onClick={stopBlast} variant="destructive" size="lg">
+                <Square className="h-5 w-5 mr-2" />
+                Stop
+              </Button>
+            </>
           )}
           {isPaused && (
             <>
@@ -1037,10 +1146,10 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
               <div className="flex items-center justify-between">
                 <span className="font-medium">Progress</span>
                 <span className="text-sm">
-                  {sentCount} / {queueContacts.length} sent
+                  {sentCount + failedCount} / {queueContacts.length} processed
                 </span>
               </div>
-              <Progress value={(sentCount / queueContacts.length) * 100} />
+              <Progress value={((sentCount + failedCount) / queueContacts.length) * 100} />
               <div className="flex gap-4 text-sm">
                 <span className="text-green-600">✓ {sentCount} sent</span>
                 <span className="text-red-600">✗ {failedCount} failed</span>
@@ -1054,9 +1163,22 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
       <div className="w-[450px] flex flex-col border rounded-lg bg-card">
         {/* Queue Header */}
         <div className="p-4 border-b">
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            <h3 className="font-semibold">Next Up in Queue</h3>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              <h3 className="font-semibold">Next Up in Queue</h3>
+            </div>
+            {queueContacts.length > 1 && !isRunning && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={shuffleQueue}
+                title="Shuffle queue order"
+              >
+                <Shuffle className="h-4 w-4 mr-1" />
+                Shuffle
+              </Button>
+            )}
           </div>
           {queueContacts.length > 0 && (
             <p className="text-sm text-muted-foreground mt-1">
@@ -1207,13 +1329,25 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
                       </div>
                     </div>
 
-                    {/* Cost badge */}
-                    {contact.status === 'pending' && (
-                      <div className="mt-2 flex justify-end">
-                        <Badge variant="outline" className="text-xs">
-                          <DollarSign className="h-3 w-3 mr-0.5" />
-                          {SMS_COST_PER_MESSAGE.toFixed(3)}
-                        </Badge>
+                    {/* Cost badge - shows actual cost based on formatted message length */}
+                    {contact.status === 'pending' && message && (
+                      <div className="mt-2 flex justify-end gap-1">
+                        {(() => {
+                          const formattedMsg = formatMessage(message, contact)
+                          const segments = getSmsSegments(formattedMsg.length)
+                          const cost = calculateSmsCost(formattedMsg.length)
+                          return (
+                            <>
+                              <Badge variant="outline" className="text-xs">
+                                {formattedMsg.length} chars / {segments} {segments === 1 ? 'segment' : 'segments'}
+                              </Badge>
+                              <Badge variant={segments > 1 ? "destructive" : "outline"} className="text-xs">
+                                <DollarSign className="h-3 w-3 mr-0.5" />
+                                {cost.toFixed(3)}
+                              </Badge>
+                            </>
+                          )
+                        })()}
                       </div>
                     )}
                   </div>
@@ -1222,22 +1356,6 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
             </div>
           )}
         </ScrollArea>
-
-        {/* Queue Footer with Refresh */}
-        {queueContacts.length > 0 && (
-          <div className="p-3 border-t bg-muted/30">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => selectedTag && loadContactsByTag(selectedTag)}
-              disabled={isRunning || loadingContacts}
-              className="w-full"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${loadingContacts ? 'animate-spin' : ''}`} />
-              Refresh Queue
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   )

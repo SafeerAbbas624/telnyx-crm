@@ -1,6 +1,6 @@
 "use client"
 
-import Providers from "@/components/providers"
+// Note: Do not wrap with Providers - root layout.tsx already provides all contexts globally
 import Sidebar from "@/components/sidebar"
 import Header from "@/components/header"
 import Footer from "@/components/footer"
@@ -44,43 +44,41 @@ export default function ImportV2Layout({
   }
 
   return (
-    <Providers>
-      <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
-        {/* Desktop header spans full width */}
-        {!isMobile && <Header />}
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+      {/* Desktop header spans full width */}
+      {!isMobile && <Header />}
 
-        {/* Body: Sidebar + Main content below header */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <Sidebar
-            activeTab="import"
-            setActiveTab={handleSetActiveTab}
-            isOpen={sidebarOpen}
-            onClose={() => setSidebarOpen(false)}
-          />
+      {/* Body: Sidebar + Main content below header */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <Sidebar
+          activeTab="import"
+          setActiveTab={handleSetActiveTab}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
 
-          {/* Main content */}
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Mobile header (only on small screens) */}
-            {isMobile && (
-              <MobileHeader
-                activeTab="import"
-                setActiveTab={handleSetActiveTab}
-                setSidebarOpen={setSidebarOpen}
-              />
-            )}
+        {/* Main content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Mobile header (only on small screens) */}
+          {isMobile && (
+            <MobileHeader
+              activeTab="import"
+              setActiveTab={handleSetActiveTab}
+              setSidebarOpen={setSidebarOpen}
+            />
+          )}
 
-            {/* Import content */}
-            <main className="flex-1 overflow-auto bg-background">
-              {children}
-            </main>
+          {/* Import content */}
+          <main className="flex-1 overflow-auto bg-background">
+            {children}
+          </main>
 
-            {/* Footer */}
-            <Footer />
-          </div>
+          {/* Footer */}
+          <Footer />
         </div>
       </div>
-    </Providers>
+    </div>
   )
 }
 

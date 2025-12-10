@@ -26,7 +26,7 @@ interface InlineTagEditorProps {
 }
 
 export default function InlineTagEditor({ contactId, initialTags, onTagsChange }: InlineTagEditorProps) {
-  const [tags, setTags] = useState<Tag[]>(initialTags);
+  const [tags, setTags] = useState<Tag[]>(Array.isArray(initialTags) ? initialTags : []);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,10 +42,12 @@ export default function InlineTagEditor({ contactId, initialTags, onTagsChange }
       const response = await fetch('/api/tags');
       if (response.ok) {
         const data = await response.json();
-        setAvailableTags(data);
+        // API returns { tags: [...] } so extract the array
+        setAvailableTags(Array.isArray(data.tags) ? data.tags : Array.isArray(data) ? data : []);
       }
     } catch (error) {
       console.error('Error loading tags:', error);
+      setAvailableTags([]);
     }
   };
 
@@ -111,12 +113,12 @@ export default function InlineTagEditor({ contactId, initialTags, onTagsChange }
     }
   };
 
-  const filteredTags = availableTags.filter(tag =>
-    !tags.some(t => t.id === tag.id) &&
+  const filteredTags = (Array.isArray(availableTags) ? availableTags : []).filter(tag =>
+    !(Array.isArray(tags) ? tags : []).some(t => t.id === tag.id) &&
     tag.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const exactMatch = availableTags.find(
+  const exactMatch = (Array.isArray(availableTags) ? availableTags : []).find(
     tag => tag.name.toLowerCase() === searchQuery.toLowerCase()
   );
 

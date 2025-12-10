@@ -4,6 +4,7 @@ import { redisClient } from '@/lib/cache/redis-client';
 import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
 import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
 import { getToken } from 'next-auth/jwt';
+import { PROPERTY_TYPE_MAP, normalizePropertyType } from '@/lib/property-type-mapper';
 
 interface Contact {
   id: string;
@@ -210,34 +211,39 @@ export async function GET(request: NextRequest) {
       const trimmedSearch = search.trim();
 
       if (trimmedSearch) {
-        // Check if search contains multiple words (like "Eunice Choi")
-        const searchWords = trimmedSearch.split(/\s+/);
+        // Check if search contains multiple words (like "Daniel Adler")
+        const searchWords = trimmedSearch.split(/\s+/).filter(w => w.length > 0);
+
+        // Helper function to create OR condition for a single word across all searchable fields
+        const createWordCondition = (word: string) => ({
+          OR: [
+            { fullName: { contains: word, mode: 'insensitive' } },
+            { firstName: { contains: word, mode: 'insensitive' } },
+            { lastName: { contains: word, mode: 'insensitive' } },
+            { llcName: { contains: word, mode: 'insensitive' } },
+            { phone1: { contains: word } },
+            { phone2: { contains: word } },
+            { phone3: { contains: word } },
+            { email1: { contains: word, mode: 'insensitive' } },
+            { email2: { contains: word, mode: 'insensitive' } },
+            { email3: { contains: word, mode: 'insensitive' } },
+            { propertyAddress: { contains: word, mode: 'insensitive' } },
+            { city: { contains: word, mode: 'insensitive' } },
+            { state: { contains: word, mode: 'insensitive' } },
+            { zipCode: { contains: word } },
+            { propertyCounty: { contains: word, mode: 'insensitive' } },
+            { propertyType: { contains: word, mode: 'insensitive' } },
+            { notes: { contains: word, mode: 'insensitive' } },
+          ]
+        });
 
         if (searchWords.length > 1) {
-          // Multi-word search: search in fullName or across firstName+lastName
-          where.OR = [
-            { fullName: { contains: trimmedSearch, mode: 'insensitive' } },
-            // Also search each word individually across all fields
-            ...searchWords.flatMap(word => [
-              { firstName: { contains: word, mode: 'insensitive' } },
-              { lastName: { contains: word, mode: 'insensitive' } },
-            ]),
-            { llcName: { contains: trimmedSearch, mode: 'insensitive' } },
-            { phone1: { contains: trimmedSearch } },
-            { email1: { contains: trimmedSearch, mode: 'insensitive' } },
-            { propertyAddress: { contains: trimmedSearch, mode: 'insensitive' } },
-          ]
+          // Multi-word search: ALL words must match somewhere (AND logic)
+          // e.g., "Daniel Adler" matches if "Daniel" is in firstName AND "Adler" is in lastName
+          where.AND = searchWords.map(word => createWordCondition(word));
         } else {
-          // Single word search: search across all fields
-          where.OR = [
-            { fullName: { contains: trimmedSearch, mode: 'insensitive' } },
-            { firstName: { contains: trimmedSearch, mode: 'insensitive' } },
-            { lastName: { contains: trimmedSearch, mode: 'insensitive' } },
-            { llcName: { contains: trimmedSearch, mode: 'insensitive' } },
-            { phone1: { contains: trimmedSearch } },
-            { email1: { contains: trimmedSearch, mode: 'insensitive' } },
-            { propertyAddress: { contains: trimmedSearch, mode: 'insensitive' } },
-          ]
+          // Single word search: match in any searchable field
+          where.OR = createWordCondition(searchWords[0]).OR;
         }
       }
     }
@@ -251,8 +257,23 @@ export async function GET(request: NextRequest) {
     }
 
     if (propertyType) {
-      const list = splitCsv(propertyType)
-      where.propertyType = list.length > 1 ? { in: list } : list[0]
+      const requestedTypes = splitCsv(propertyType)
+      // Expand each requested type to include all raw values that normalize to it
+      const expandedTypes: string[] = []
+      for (const reqType of requestedTypes) {
+        // Add the requested type itself
+        expandedTypes.push(reqType)
+        // Also add any raw values from PROPERTY_TYPE_MAP that normalize to this type
+        for (const [rawValue, normalizedValue] of Object.entries(PROPERTY_TYPE_MAP)) {
+          if (normalizedValue.toLowerCase() === reqType.toLowerCase() ||
+              normalizePropertyType(rawValue).toLowerCase() === reqType.toLowerCase()) {
+            expandedTypes.push(rawValue)
+          }
+        }
+      }
+      // Remove duplicates
+      const uniqueTypes = [...new Set(expandedTypes)]
+      where.propertyType = uniqueTypes.length > 1 ? { in: uniqueTypes } : uniqueTypes[0]
     }
 
     if (city) {

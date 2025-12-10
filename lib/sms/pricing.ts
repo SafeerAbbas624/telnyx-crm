@@ -8,23 +8,25 @@
 import { calculateSmsSegments, type SmsSegmentInfo } from './segments';
 
 // Default pricing (USD) - can be overridden by environment variables
+// Includes Telnyx platform fee + carrier fees (10DLC registered)
+// Telnyx ~$0.004 + Carrier fees ~$0.003 = ~$0.007 total per segment
 export const SMS_PRICING = {
-  // Outbound SMS pricing per segment
+  // Outbound SMS pricing per segment (platform + carrier fees)
   outbound: {
-    us: parseFloat(process.env.SMS_PRICE_OUTBOUND_US || '0.004'),
-    ca: parseFloat(process.env.SMS_PRICE_OUTBOUND_CA || '0.006'),
-    international: parseFloat(process.env.SMS_PRICE_OUTBOUND_INTL || '0.015'),
+    us: parseFloat(process.env.SMS_PRICE_OUTBOUND_US || '0.007'),
+    ca: parseFloat(process.env.SMS_PRICE_OUTBOUND_CA || '0.009'),
+    international: parseFloat(process.env.SMS_PRICE_OUTBOUND_INTL || '0.020'),
   },
   // Inbound SMS pricing per segment
   inbound: {
-    us: parseFloat(process.env.SMS_PRICE_INBOUND_US || '0.003'),
-    ca: parseFloat(process.env.SMS_PRICE_INBOUND_CA || '0.005'),
-    international: parseFloat(process.env.SMS_PRICE_INBOUND_INTL || '0.010'),
+    us: parseFloat(process.env.SMS_PRICE_INBOUND_US || '0.004'),
+    ca: parseFloat(process.env.SMS_PRICE_INBOUND_CA || '0.006'),
+    international: parseFloat(process.env.SMS_PRICE_INBOUND_INTL || '0.012'),
   },
   // MMS pricing (flat rate per message, not per segment)
   mms: {
-    outbound: parseFloat(process.env.MMS_PRICE_OUTBOUND || '0.015'),
-    inbound: parseFloat(process.env.MMS_PRICE_INBOUND || '0.010'),
+    outbound: parseFloat(process.env.MMS_PRICE_OUTBOUND || '0.020'),
+    inbound: parseFloat(process.env.MMS_PRICE_INBOUND || '0.012'),
   },
 };
 

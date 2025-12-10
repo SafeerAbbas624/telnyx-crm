@@ -58,6 +58,15 @@ export function TagInput({
     if (contactId && showSuggestions) {
       loadSuggestions()
     }
+
+    // Listen for tags-updated event to refresh available tags
+    const handleTagsUpdated = () => {
+      loadAvailableTags()
+    }
+    window.addEventListener('tags-updated', handleTagsUpdated)
+    return () => {
+      window.removeEventListener('tags-updated', handleTagsUpdated)
+    }
   }, [contactId, showSuggestions])
 
   useEffect(() => {

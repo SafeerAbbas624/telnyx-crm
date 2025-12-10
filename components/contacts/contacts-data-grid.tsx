@@ -92,8 +92,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import type { Contact } from '@/lib/types';
-import ContactSidePanel from './contact-side-panel';
 import SmartFilterPanel from './smart-filter-panel';
+import { useContactPanel } from '@/lib/context/contact-panel-context';
 
 // LinkedIn icon component
 const LinkedInIcon = ({ className }: { className?: string }) => (
@@ -194,6 +194,7 @@ export default function ContactsDataGrid({
   const { openEmail } = useEmailUI();
   const { openTask } = useTaskUI();
   const { selectedPhoneNumber } = usePhoneNumber();
+  const { openContactPanel } = useContactPanel();
 
   // Contacts context for filter options
   const { filterOptions, refreshFilterOptions } = useContacts();
@@ -230,6 +231,10 @@ export default function ContactsDataGrid({
   const [defaultView, setDefaultView] = useState<string>('default');
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
 
+  // Save view dialog state
+  const [showSaveViewDialog, setShowSaveViewDialog] = useState(false);
+  const [newViewName, setNewViewName] = useState('');
+
   // Available tags for bulk assignment
   const [availableTags, setAvailableTags] = useState<any[]>([]);
 
@@ -256,10 +261,6 @@ export default function ContactsDataGrid({
 
   // Column visibility dropdown state
   const [columnDropdownOpen, setColumnDropdownOpen] = useState(false);
-
-  // Side panel state
-  const [sidePanelOpen, setSidePanelOpen] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
 
   // Task types for reference (used in other places)
   const [savedTaskTypes, setSavedTaskTypes] = useState<string[]>([]);
@@ -381,6 +382,24 @@ export default function ContactsDataGrid({
     fetchTaskTypes();
   }, []);
 
+  // Listen for contact updates from side panel
+  useEffect(() => {
+    const handleContactUpdate = (event: CustomEvent) => {
+      const { contactId, updatedContact } = event.detail;
+      console.log('[ContactsDataGrid] Contact updated event received', { contactId });
+
+      // Update the contact in the local state without full refresh
+      setContacts(prev => prev.map(c =>
+        c.id === contactId ? { ...c, ...updatedContact } : c
+      ));
+    };
+
+    window.addEventListener('contact-updated', handleContactUpdate as EventListener);
+    return () => {
+      window.removeEventListener('contact-updated', handleContactUpdate as EventListener);
+    };
+  }, []);
+
   const fetchTaskTypes = async () => {
     try {
       const response = await fetch('/api/settings/task-types');
@@ -466,6 +485,12 @@ export default function ContactsDataGrid({
         setColumnFilters(defaultViewData.columnFilters || []);
         setSorting(defaultViewData.sorting || []);
         setColumnOrder(defaultViewData.columnOrder || []);
+        // Load advanced filters and apply them
+        if (defaultViewData.activeFilters && Object.keys(defaultViewData.activeFilters).length > 0) {
+          setActiveFilters(defaultViewData.activeFilters);
+          // Fetch contacts with these filters
+          fetchContacts(true, defaultViewData.activeFilters);
+        }
         setCurrentView(savedDefault);
       }
     }
@@ -479,6 +504,7 @@ export default function ContactsDataGrid({
       columnFilters,
       sorting,
       columnOrder,
+      activeFilters, // Include toolbar filters
     };
     const updated = [...savedViews.filter(v => v.name !== viewName), view];
     setSavedViews(updated);
@@ -487,7 +513,7 @@ export default function ContactsDataGrid({
     toast.success(`View "${viewName}" saved`);
   };
 
-  const loadView = (viewName: string) => {
+  const loadView = async (viewName: string) => {
     const view = savedViews.find(v => v.name === viewName);
     if (view) {
       setColumnVisibility(view.columnVisibility || {});
@@ -495,6 +521,10 @@ export default function ContactsDataGrid({
       setColumnFilters(view.columnFilters || []);
       setSorting(view.sorting || []);
       setColumnOrder(view.columnOrder || []);
+      // Load and apply advanced filters
+      const filters = view.activeFilters || {};
+      setActiveFilters(filters);
+      await fetchContacts(true, filters);
       setCurrentView(viewName);
       toast.success(`View "${viewName}" loaded`);
     }
@@ -674,6 +704,7 @@ export default function ContactsDataGrid({
       setBulkTagIds([]);
       setNewTagName('');
       setNewTagColor('#3b82f6');
+      setRowSelection({}); // Clear selection after operation
       onRefresh();
     } catch (error) {
       console.error('Bulk tag assignment error:', error);
@@ -699,20 +730,25 @@ export default function ContactsDataGrid({
     try {
       const contactIds = selectedRowsForRemoval.map((row: any) => row.original.id);
 
+      console.log('[TagRemoval] Removing tags:', { contactIds, tagIds: bulkTagIds });
+
       const response = await fetch('/api/contacts/bulk-remove-tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contactIds, tagIds: bulkTagIds })
       });
 
+      const result = await response.json();
+      console.log('[TagRemoval] Response:', result);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.details || 'Failed to remove tags');
+        throw new Error(result.error || result.details || 'Failed to remove tags');
       }
 
-      toast.success(`Tags removed from ${selectedRowsForRemoval.length} contacts`);
+      toast.success(`Tags removed from ${selectedRowsForRemoval.length} contacts (${result.relationsDeleted} tag relations deleted)`);
       setShowBulkTagDialog(false);
       setBulkTagIds([]);
+      setRowSelection({}); // Clear selection after operation
       onRefresh();
     } catch (error) {
       console.error('Bulk tag removal error:', error);
@@ -733,20 +769,25 @@ export default function ContactsDataGrid({
     try {
       const contactIds = selectedRowsForRemoval.map((row: any) => row.original.id);
 
+      console.log('[RemoveAllTags] Removing all tags from:', { contactIds });
+
       const response = await fetch('/api/contacts/bulk-remove-tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contactIds, removeAll: true })
       });
 
+      const result = await response.json();
+      console.log('[RemoveAllTags] Response:', result);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.details || 'Failed to remove all tags');
+        throw new Error(result.error || result.details || 'Failed to remove all tags');
       }
 
-      toast.success(`All tags removed from ${selectedRowsForRemoval.length} contacts`);
+      toast.success(`All tags removed from ${selectedRowsForRemoval.length} contacts (${result.relationsDeleted} tags deleted)`);
       setShowBulkTagDialog(false);
       setBulkTagIds([]);
+      setRowSelection({}); // Clear selection after operation
       onRefresh();
     } catch (error) {
       console.error('Remove all tags error:', error);
@@ -921,8 +962,7 @@ export default function ContactsDataGrid({
           <div
             className="font-medium cursor-pointer hover:text-primary hover:underline"
             onClick={() => {
-              setSelectedContact(row.original);
-              setSidePanelOpen(true);
+              openContactPanel(row.original.id);
             }}
           >
             {row.getValue('fullName') || `${row.original.firstName || ''} ${row.original.lastName || ''}`.trim()}
@@ -1096,13 +1136,16 @@ export default function ContactsDataGrid({
           const propertyType = row.getValue('propertyType') as string;
           const normalizedType = normalizePropertyType(propertyType);
           const propertyTypes = [
-            "Single-family (SFR)",
+            "Single-family (SFH)",
             "Duplex",
             "Triplex",
             "Quadplex",
-            "Multifamily (5+ units)",
+            "Multi-family",
             "Townhouse",
-            "Condominium (Condo)",
+            "Condo",
+            "Mobile Home",
+            "Land",
+            "Commercial",
           ];
 
           return (
@@ -1993,7 +2036,7 @@ export default function ContactsDataGrid({
                 Views
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="w-64">
               <DropdownMenuLabel>Saved Views</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <div className="p-2">
@@ -2002,11 +2045,11 @@ export default function ContactsDataGrid({
                   size="sm"
                   className="w-full"
                   onClick={() => {
-                    const name = prompt('Enter view name:');
-                    if (name) saveCurrentView(name);
+                    setNewViewName('');
+                    setShowSaveViewDialog(true);
                   }}
                 >
-                  <Save className="h-4 w-4 mr-2" />
+                  <Plus className="h-4 w-4 mr-2" />
                   Save Current View
                 </Button>
               </div>
@@ -2014,38 +2057,53 @@ export default function ContactsDataGrid({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className="text-xs text-muted-foreground">My Views</DropdownMenuLabel>
-                  {savedViews.map((view) => (
-                    <div key={view.name} className="space-y-1">
-                      <div className="flex items-center justify-between px-2 py-1 hover:bg-muted rounded">
-                        <button
-                          className={`flex-1 text-left text-sm px-2 py-1 rounded ${
-                            currentView === view.name
-                              ? 'bg-primary text-primary-foreground font-medium'
-                              : 'hover:bg-muted'
-                          }`}
-                          onClick={() => loadView(view.name)}
-                        >
-                          {currentView === view.name && '✓ '}
-                          {view.name}
-                          {defaultView === view.name && ' (Default)'}
-                        </button>
-                        <button
-                          className="text-destructive hover:text-destructive/80 px-2"
-                          onClick={() => deleteView(view.name)}
-                        >
-                          ×
-                        </button>
+                  <div className="max-h-64 overflow-y-auto">
+                    {savedViews.map((view) => (
+                      <div key={view.name} className="px-2 py-1.5 hover:bg-muted/50 rounded-md mx-1">
+                        <div className="flex items-center justify-between">
+                          <button
+                            className={cn(
+                              "flex-1 text-left text-sm px-2 py-1 rounded transition-colors",
+                              currentView === view.name
+                                ? 'bg-primary text-primary-foreground font-medium'
+                                : 'hover:bg-muted'
+                            )}
+                            onClick={() => loadView(view.name)}
+                          >
+                            <div className="flex items-center gap-2">
+                              {currentView === view.name && <Check className="h-3 w-3" />}
+                              <span className="truncate">{view.name}</span>
+                              {defaultView === view.name && (
+                                <Badge variant="secondary" className="text-[10px] px-1 py-0">Default</Badge>
+                              )}
+                            </div>
+                          </button>
+                          <button
+                            className="text-destructive hover:text-destructive/80 p-1 hover:bg-destructive/10 rounded"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteView(view.name);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        {defaultView !== view.name && (
+                          <button
+                            className="w-full text-xs text-left pl-7 py-0.5 text-muted-foreground hover:text-primary transition-colors"
+                            onClick={() => setAsDefaultView(view.name)}
+                          >
+                            Set as Default
+                          </button>
+                        )}
+                        {view.activeFilters && Object.keys(view.activeFilters).length > 0 && (
+                          <div className="text-[10px] text-muted-foreground pl-7 mt-0.5">
+                            {Object.keys(view.activeFilters).length} filter(s) saved
+                          </div>
+                        )}
                       </div>
-                      {defaultView !== view.name && (
-                        <button
-                          className="w-full text-xs text-left px-4 py-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
-                          onClick={() => setAsDefaultView(view.name)}
-                        >
-                          Set as Default
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </>
               )}
             </DropdownMenuContent>
@@ -2383,42 +2441,79 @@ export default function ContactsDataGrid({
               </div>
 
               {/* Tags List - Sorted alphabetically and filtered */}
-              <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-background min-h-[100px] max-h-[200px] overflow-y-auto">
-                {!Array.isArray(availableTags) || availableTags.length === 0 ? (
-                  <span className="text-sm text-muted-foreground">No tags available. Create tags first.</span>
-                ) : (
-                  [...availableTags]
-                    .filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()))
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant={bulkTagIds.includes(tag.id) ? "default" : "outline"}
-                        className={cn(
-                          "cursor-pointer transition-all hover:scale-105",
-                          bulkTagIds.includes(tag.id) && tagOperationMode === 'remove' && "bg-red-500 hover:bg-red-600"
-                        )}
-                        style={bulkTagIds.includes(tag.id) && tagOperationMode === 'assign' ? { backgroundColor: tag.color } : {}}
-                        onClick={() => {
-                          setBulkTagIds(prev =>
-                            prev.includes(tag.id)
-                              ? prev.filter(t => t !== tag.id)
-                              : [...prev, tag.id]
-                          );
-                        }}
-                      >
-                        {tag.name}
-                        {bulkTagIds.includes(tag.id) && <Check className="h-3 w-3 ml-1" />}
-                      </Badge>
-                    ))
-                )}
-                {Array.isArray(availableTags) && availableTags.length > 0 &&
-                  availableTags.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).length === 0 && (
-                  <span className="text-sm text-muted-foreground">No tags match "{tagSearchQuery}"</span>
-                )}
-              </div>
+              {/* In remove mode, only show tags that are assigned to selected contacts */}
+              {(() => {
+                const selectedRows = table.getFilteredSelectedRowModel().rows;
+                const tagsToShow = tagOperationMode === 'remove'
+                  ? (() => {
+                      // Get unique tags from selected contacts
+                      const selectedContactTags = new Map<string, any>();
+                      selectedRows.forEach((row: any) => {
+                        const contactTags = row.original.tags || [];
+                        contactTags.forEach((tag: any) => {
+                          if (!selectedContactTags.has(tag.id)) {
+                            selectedContactTags.set(tag.id, tag);
+                          }
+                        });
+                      });
+                      return Array.from(selectedContactTags.values());
+                    })()
+                  : availableTags;
+
+                return (
+                  <div className="flex flex-wrap gap-2 p-3 border rounded-md bg-background min-h-[100px] max-h-[200px] overflow-y-auto">
+                    {!Array.isArray(tagsToShow) || tagsToShow.length === 0 ? (
+                      <span className="text-sm text-muted-foreground">
+                        {tagOperationMode === 'remove'
+                          ? 'No tags assigned to selected contacts.'
+                          : 'No tags available. Create tags first.'}
+                      </span>
+                    ) : (
+                      [...tagsToShow]
+                        .filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()))
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map((tag) => (
+                          <Badge
+                            key={tag.id}
+                            variant={bulkTagIds.includes(tag.id) ? "default" : "outline"}
+                            className={cn(
+                              "cursor-pointer transition-all hover:scale-105",
+                              bulkTagIds.includes(tag.id) && tagOperationMode === 'remove' && "bg-red-500 hover:bg-red-600"
+                            )}
+                            style={bulkTagIds.includes(tag.id) && tagOperationMode === 'assign' ? { backgroundColor: tag.color } : {}}
+                            onClick={() => {
+                              setBulkTagIds(prev =>
+                                prev.includes(tag.id)
+                                  ? prev.filter(t => t !== tag.id)
+                                  : [...prev, tag.id]
+                              );
+                            }}
+                          >
+                            {tag.name}
+                            {bulkTagIds.includes(tag.id) && <Check className="h-3 w-3 ml-1" />}
+                          </Badge>
+                        ))
+                    )}
+                    {Array.isArray(tagsToShow) && tagsToShow.length > 0 &&
+                      tagsToShow.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).length === 0 && (
+                      <span className="text-sm text-muted-foreground">No tags match "{tagSearchQuery}"</span>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{availableTags.length} total tags</span>
+                <span>
+                  {tagOperationMode === 'remove'
+                    ? `${(() => {
+                        const selectedRows = table.getFilteredSelectedRowModel().rows;
+                        const uniqueTagIds = new Set<string>();
+                        selectedRows.forEach((row: any) => {
+                          (row.original.tags || []).forEach((tag: any) => uniqueTagIds.add(tag.id));
+                        });
+                        return uniqueTagIds.size;
+                      })()} tags on selected contacts`
+                    : `${availableTags.length} total tags`}
+                </span>
                 {bulkTagIds.length > 0 && (
                   <button
                     onClick={() => setBulkTagIds([])}
@@ -2486,64 +2581,69 @@ export default function ContactsDataGrid({
               </div>
             )}
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowBulkTagDialog(false);
-                setBulkTagIds([]);
-                setTagOperationMode('assign');
-              }}
-              disabled={assigningTags}
-            >
-              Cancel
-            </Button>
-            {tagOperationMode === 'remove' && (
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 pt-4 border-t">
+            <div className="flex gap-2 w-full sm:w-auto">
               <Button
-                onClick={handleRemoveAllTags}
+                variant="outline"
+                onClick={() => {
+                  setShowBulkTagDialog(false);
+                  setBulkTagIds([]);
+                  setTagOperationMode('assign');
+                }}
                 disabled={assigningTags}
-                variant="destructive"
-                className="bg-red-700 hover:bg-red-800"
+                className="flex-1 sm:flex-none"
+              >
+                Cancel
+              </Button>
+            </div>
+            <div className="flex gap-2 flex-1 justify-end">
+              {tagOperationMode === 'remove' && (
+                <Button
+                  onClick={handleRemoveAllTags}
+                  disabled={assigningTags}
+                  variant="outline"
+                  className="text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700"
+                >
+                  {assigningTags ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Removing...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Remove All
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button
+                onClick={tagOperationMode === 'assign' ? handleBulkTagAssignment : handleBulkTagRemoval}
+                disabled={assigningTags || bulkTagIds.length === 0}
+                variant={tagOperationMode === 'remove' ? 'destructive' : 'default'}
               >
                 {assigningTags ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Removing All...
+                    {tagOperationMode === 'assign' ? 'Assigning...' : 'Removing...'}
                   </>
                 ) : (
                   <>
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Remove All Tags
+                    {tagOperationMode === 'assign' ? (
+                      <>
+                        <Tag className="h-4 w-4 mr-2" />
+                        Assign Tags
+                      </>
+                    ) : (
+                      <>
+                        <X className="h-4 w-4 mr-2" />
+                        Remove Selected
+                      </>
+                    )}
                   </>
                 )}
               </Button>
-            )}
-            <Button
-              onClick={tagOperationMode === 'assign' ? handleBulkTagAssignment : handleBulkTagRemoval}
-              disabled={assigningTags || bulkTagIds.length === 0}
-              variant={tagOperationMode === 'remove' ? 'destructive' : 'default'}
-            >
-              {assigningTags ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  {tagOperationMode === 'assign' ? 'Assigning...' : 'Removing...'}
-                </>
-              ) : (
-                <>
-                  {tagOperationMode === 'assign' ? (
-                    <>
-                      <Tag className="h-4 w-4 mr-2" />
-                      Assign Tags
-                    </>
-                  ) : (
-                    <>
-                      <X className="h-4 w-4 mr-2" />
-                      Remove Selected Tags
-                    </>
-                  )}
-                </>
-              )}
-            </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2693,15 +2793,94 @@ export default function ContactsDataGrid({
         </DialogContent>
       </Dialog>
 
-      {/* Contact Side Panel */}
-      <ContactSidePanel
-        contact={selectedContact}
-        open={sidePanelOpen}
-        onClose={() => {
-          setSidePanelOpen(false);
-          setSelectedContact(null);
-        }}
-      />
+      {/* Save View Dialog */}
+      <Dialog open={showSaveViewDialog} onOpenChange={setShowSaveViewDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Save Current View</DialogTitle>
+            <DialogDescription>
+              Save your current filters, columns, and sort order as a reusable view.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="view-name">View Name</Label>
+              <Input
+                id="view-name"
+                placeholder="e.g., High Value Properties, Miami Duplexes..."
+                value={newViewName}
+                onChange={(e) => setNewViewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newViewName.trim()) {
+                    saveCurrentView(newViewName.trim());
+                    setShowSaveViewDialog(false);
+                    setNewViewName('');
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            {Object.keys(activeFilters).length > 0 && (
+              <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Filters to be saved:</p>
+                <div className="flex flex-wrap gap-1">
+                  {activeFilters.city && (
+                    <Badge variant="secondary" className="text-xs">Cities: {activeFilters.city.split(',').length}</Badge>
+                  )}
+                  {activeFilters.propertyCounty && (
+                    <Badge variant="secondary" className="text-xs">Counties: {activeFilters.propertyCounty.split(',').length}</Badge>
+                  )}
+                  {activeFilters.propertyType && (
+                    <Badge variant="secondary" className="text-xs">Property Types: {activeFilters.propertyType.split(',').length}</Badge>
+                  )}
+                  {activeFilters.tags && (
+                    <Badge variant="secondary" className="text-xs">Tags: {activeFilters.tags.split(',').length}</Badge>
+                  )}
+                  {(activeFilters.minValue || activeFilters.maxValue) && (
+                    <Badge variant="secondary" className="text-xs">Value Range</Badge>
+                  )}
+                  {(activeFilters.minEquity || activeFilters.maxEquity) && (
+                    <Badge variant="secondary" className="text-xs">Equity Range</Badge>
+                  )}
+                  {(activeFilters.minBedrooms || activeFilters.maxBedrooms) && (
+                    <Badge variant="secondary" className="text-xs">Beds</Badge>
+                  )}
+                  {(activeFilters.minBathrooms || activeFilters.maxBathrooms) && (
+                    <Badge variant="secondary" className="text-xs">Baths</Badge>
+                  )}
+                  {(activeFilters.createdAfter || activeFilters.createdBefore) && (
+                    <Badge variant="secondary" className="text-xs">Date Range</Badge>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSaveViewDialog(false);
+                setNewViewName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (newViewName.trim()) {
+                  saveCurrentView(newViewName.trim());
+                  setShowSaveViewDialog(false);
+                  setNewViewName('');
+                }
+              }}
+              disabled={!newViewName.trim()}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              Save View
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { X, Phone, Mail, Building2, Calendar, Tag, MessageSquare, PhoneCall, FileText, CheckSquare, User, Plus, Save, Loader2, Trash2, ChevronDown, ChevronUp, Edit2, Check, Cloud, CloudOff } from "lucide-react"
+import { X, Phone, Mail, Building2, Calendar, Tag, MessageSquare, PhoneCall, FileText, CheckSquare, User, Plus, Save, Loader2, Trash2, ChevronDown, ChevronUp, Edit2, Check, Cloud, CloudOff, GripHorizontal, Minimize2, Maximize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,12 +16,14 @@ import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { useCallUI } from "@/lib/context/call-ui-context"
 import { useTaskUI } from "@/lib/context/task-ui-context"
+import { usePhoneNumber } from "@/lib/context/phone-number-context"
 import Link from "next/link"
 
 import { TagInput } from "@/components/ui/tag-input"
 import { toast } from "sonner"
 import ContactSequences from "./contact-sequences"
 import { formatPhoneNumberForTelnyx, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
+import { normalizePropertyType, getStandardPropertyTypes } from "@/lib/property-type-mapper"
 
 interface ContactSidePanelProps {
   contact: Contact | null
@@ -105,18 +107,74 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastSavedDataRef = useRef<string>('')
 
-  // Telnyx phone numbers for calling
-  const [telnyxPhoneNumbers, setTelnyxPhoneNumbers] = useState<TelnyxPhoneNumber[]>([])
-  const [selectedTelnyxNumber, setSelectedTelnyxNumber] = useState<TelnyxPhoneNumber | null>(null)
+  // Removed local phone number state - now using global context
 
   // Task editing state
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTaskData, setEditingTaskData] = useState<Partial<Task>>({})
 
+  // Dragging state for non-modal floating panel
+  const [isMinimized, setIsMinimized] = useState(false)
+  const [position, setPosition] = useState({ x: 0, y: 0 }) // 0,0 means default right side
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartPos = useRef({ x: 0, y: 0 })
+  const panelRef = useRef<HTMLDivElement>(null)
+
   const { openSms } = useSmsUI()
   const { openEmail } = useEmailUI()
   const { openCall } = useCallUI()
   const { openTask, setOnTaskCreated } = useTaskUI()
+  const { selectedPhoneNumber } = usePhoneNumber() // Use global phone number
+
+  // Dragging handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (!panelRef.current) return
+    setIsDragging(true)
+    const rect = panelRef.current.getBoundingClientRect()
+    dragStartPos.current = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    }
+    // Prevent text selection while dragging
+    e.preventDefault()
+  }
+
+  const handleDragMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return
+    const newX = e.clientX - dragStartPos.current.x
+    const newY = e.clientY - dragStartPos.current.y
+    // Clamp to viewport
+    const maxX = window.innerWidth - 400 // panel width
+    const maxY = window.innerHeight - 100
+    setPosition({
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY))
+    })
+  }, [isDragging])
+
+  const handleDragEnd = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  // Attach/detach global mouse handlers
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleDragMove)
+      window.addEventListener('mouseup', handleDragEnd)
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleDragMove)
+      window.removeEventListener('mouseup', handleDragEnd)
+    }
+  }, [isDragging, handleDragMove, handleDragEnd])
+
+  // Reset position when opening
+  useEffect(() => {
+    if (open) {
+      setPosition({ x: 0, y: 0 })
+      setIsMinimized(false)
+    }
+  }, [open, contact?.id])
 
   // Initialize form when contact changes
   useEffect(() => {
@@ -148,7 +206,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
         state: c.state || "",
         zipCode: c.zipCode || "",
         llcName: c.llcName || "",
-        propertyType: c.propertyType || "",
+        propertyType: normalizePropertyType(c.propertyType) || "",
         bedrooms: c.bedrooms ?? undefined,
         totalBathrooms: c.totalBathrooms ?? undefined,
         buildingSqft: c.buildingSqft ?? undefined,
@@ -169,7 +227,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
           state: p.state || "",
           zipCode: p.zipCode || "",
           llcName: p.llcName || "",
-          propertyType: p.propertyType || "",
+          propertyType: normalizePropertyType(p.propertyType) || "",
           bedrooms: p.bedrooms,
           totalBathrooms: p.totalBathrooms,
           buildingSqft: p.buildingSqft,
@@ -212,7 +270,6 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
       loadActivities()
       loadTasks()
       loadDeals()
-      loadTelnyxPhoneNumbers()
     }
   }, [contact?.id, open])
 
@@ -228,24 +285,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     }
   }, [open, contact?.id, setOnTaskCreated])
 
-  // Load Telnyx phone numbers for calling
-  const loadTelnyxPhoneNumbers = async () => {
-    try {
-      const res = await fetch('/api/telnyx/phone-numbers')
-      if (res.ok) {
-        const data = await res.json()
-        const voiceNumbers = data.filter((pn: TelnyxPhoneNumber) =>
-          pn.capabilities.includes('VOICE') && pn.isActive
-        )
-        setTelnyxPhoneNumbers(voiceNumbers)
-        if (voiceNumbers.length > 0 && !selectedTelnyxNumber) {
-          setSelectedTelnyxNumber(voiceNumbers[0])
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load Telnyx phone numbers:', error)
-    }
-  }
+  // Removed loadTelnyxPhoneNumbers - now using global phone number context
 
   // Auto-save functionality with debounce
   const performAutoSave = useCallback(async () => {
@@ -314,6 +354,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     }
 
     setSaveStatus('saving')
+    console.log('[ContactPanel] Auto-saving...', { tags: payload.tags?.length })
     try {
       const res = await fetch(`/api/contacts/${currentContact.id}`, {
         method: 'PATCH',
@@ -323,18 +364,37 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
 
       if (res.ok) {
         const updated = await res.json()
+        console.log('[ContactPanel] Saved successfully', { tags: updated.tags?.length })
         setCurrentContact(updated)
+
+        // Update local state with server response to sync any new tag IDs
+        setSelectedTags(updated.tags || [])
+
         lastSavedDataRef.current = currentDataString
         setSaveStatus('saved')
         setHasChanges(false)
+        toast.success('Auto-saved ✓', { duration: 2000 })
+
+        // Emit event to notify contacts list to update this contact
+        window.dispatchEvent(new CustomEvent('contact-updated', {
+          detail: { contactId: currentContact.id, updatedContact: updated }
+        }))
+
+        // Emit event to notify tag components to refresh their data
+        window.dispatchEvent(new CustomEvent('tags-updated'))
+
         // Reset to idle after 2 seconds
         setTimeout(() => setSaveStatus('idle'), 2000)
       } else {
+        const errText = await res.text()
+        console.error('[ContactPanel] Save failed:', res.status, errText)
         setSaveStatus('error')
+        toast.error('Failed to save changes')
       }
     } catch (error) {
       console.error('Auto-save failed:', error)
       setSaveStatus('error')
+      toast.error('Failed to save changes')
     }
   }, [currentContact, firstName, lastName, phones, emails, properties, selectedTags, dealStatus])
 
@@ -351,6 +411,19 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     saveTimeoutRef.current = setTimeout(() => {
       performAutoSave()
     }, 800)
+  }, [performAutoSave])
+
+  // Instant save for tags (no debounce)
+  const saveTagsInstantly = useCallback(() => {
+    setHasChanges(true)
+
+    // Clear any pending debounced save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    // Save immediately
+    performAutoSave()
   }, [performAutoSave])
 
   // Cleanup timeout on unmount
@@ -373,8 +446,8 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
   const handleCall = async (phone: string) => {
     if (!currentContact) return
 
-    if (!selectedTelnyxNumber) {
-      toast.error('No phone number available for calling. Please configure Telnyx numbers.')
+    if (!selectedPhoneNumber) {
+      toast.error('Please select a phone number in the header to make calls.')
       return
     }
 
@@ -390,29 +463,29 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
       await rtcClient.ensureRegistered()
       const { sessionId } = await rtcClient.startCall({
         toNumber,
-        fromNumber: selectedTelnyxNumber.phoneNumber
+        fromNumber: selectedPhoneNumber.phoneNumber
       })
 
-      // Log the call to database
+      // Log the call to database (fire-and-forget)
       fetch('/api/telnyx/webrtc-calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           webrtcSessionId: sessionId,
           contactId: currentContact.id,
-          fromNumber: selectedTelnyxNumber.phoneNumber,
+          fromNumber: selectedPhoneNumber.phoneNumber,
           toNumber,
         })
       }).catch(err => console.error('Failed to log call:', err))
 
-      // Open call UI
-      openCall({
+      // Open call UI - MUST await to ensure it opens
+      await openCall({
         contact: {
           id: currentContact.id,
           firstName: currentContact.firstName,
           lastName: currentContact.lastName
         },
-        fromNumber: selectedTelnyxNumber.phoneNumber,
+        fromNumber: selectedPhoneNumber.phoneNumber,
         toNumber,
         mode: 'webrtc',
         webrtcSessionId: sessionId,
@@ -647,67 +720,97 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     }
   }
 
-  return (
-    <>
-      {/* Overlay */}
+  // Minimized pill view
+  if (isMinimized) {
+    return (
       <div
-        className="fixed inset-0 bg-black/20 z-40 transition-opacity"
-        onClick={onClose}
-      />
+        className="fixed bottom-4 right-4 z-50 shadow-lg border bg-white rounded-full px-4 py-2 flex items-center gap-3 cursor-pointer hover:shadow-xl transition-shadow"
+        onClick={() => setIsMinimized(false)}
+      >
+        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+          <User className="h-4 w-4 text-primary" />
+        </div>
+        <span className="text-sm font-medium">{firstName} {lastName}</span>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); setIsMinimized(false) }}>
+          <Maximize2 className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); onClose() }}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    )
+  }
 
-      {/* Side Panel */}
-      <div className="fixed right-0 top-0 h-full w-[500px] bg-white shadow-2xl z-50 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-3 border-b bg-gradient-to-r from-primary/5 to-primary/10">
-          <div className="flex items-center gap-3 flex-1">
-            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <User className="h-5 w-5 text-primary" />
-            </div>
-            <div className="flex gap-2 flex-1">
-              <Input
-                value={firstName}
-                onChange={(e) => { setFirstName(e.target.value); markChanged() }}
-                placeholder="First Name"
-                className="h-8 text-base font-semibold bg-white/50"
-              />
-              <Input
-                value={lastName}
-                onChange={(e) => { setLastName(e.target.value); markChanged() }}
-                placeholder="Last Name"
-                className="h-8 text-base font-semibold bg-white/50"
-              />
-            </div>
+  // Calculate panel position - default to right side, or use dragged position
+  const panelStyle = position.x === 0 && position.y === 0
+    ? { right: 0, top: 0 } // Default right-side position
+    : { left: position.x, top: position.y, right: 'auto' } // Dragged position
+
+  return (
+    // No overlay - panel is non-modal
+    <div
+      ref={panelRef}
+      className="fixed h-[calc(100vh-32px)] w-[420px] bg-white shadow-2xl z-50 flex flex-col rounded-lg border overflow-hidden"
+      style={{ ...panelStyle, maxHeight: 'calc(100vh - 32px)', margin: position.x === 0 && position.y === 0 ? '16px' : 0 }}
+    >
+      {/* Draggable Header */}
+      <div
+        className="flex items-center justify-between p-2 border-b bg-gradient-to-r from-primary/5 to-primary/10 cursor-move select-none"
+        onMouseDown={handleDragStart}
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <GripHorizontal className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <User className="h-4 w-4 text-primary" />
           </div>
-          <div className="flex items-center gap-2 ml-2">
-            {/* Auto-save status indicator */}
-            <div className="flex items-center gap-1.5 text-xs">
-              {saveStatus === 'saving' && (
-                <span className="flex items-center gap-1 text-gray-500">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Saving...
-                </span>
-              )}
-              {saveStatus === 'saved' && (
-                <span className="flex items-center gap-1 text-green-600">
-                  <Cloud className="h-3 w-3" />
-                  Saved
-                </span>
-              )}
-              {saveStatus === 'error' && (
-                <span className="flex items-center gap-1 text-red-600 cursor-pointer" onClick={performAutoSave}>
-                  <CloudOff className="h-3 w-3" />
-                  Error - Retry
-                </span>
-              )}
-            </div>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-              <X className="h-5 w-5" />
-            </Button>
+          <div className="flex gap-1 flex-1 min-w-0" onMouseDown={(e) => e.stopPropagation()}>
+            <Input
+              value={firstName}
+              onChange={(e) => { setFirstName(e.target.value); markChanged() }}
+              placeholder="First"
+              className="h-7 text-sm font-semibold bg-white/50 min-w-0"
+            />
+            <Input
+              value={lastName}
+              onChange={(e) => { setLastName(e.target.value); markChanged() }}
+              placeholder="Last"
+              className="h-7 text-sm font-semibold bg-white/50 min-w-0"
+            />
           </div>
         </div>
+        <div className="flex items-center gap-1 ml-1 flex-shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+          {/* Auto-save status indicator */}
+          <div className="flex items-center gap-1 text-xs mr-2">
+            {saveStatus === 'saving' && (
+              <span className="flex items-center gap-1 text-gray-600 bg-gray-100 px-2 py-0.5 rounded">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span className="font-medium">Saving...</span>
+              </span>
+            )}
+            {saveStatus === 'saved' && (
+              <span className="flex items-center gap-1 text-green-700 bg-green-50 px-2 py-0.5 rounded">
+                <Cloud className="h-3 w-3" />
+                <span className="font-medium">Saved</span>
+              </span>
+            )}
+            {saveStatus === 'error' && (
+              <span className="flex items-center gap-1 text-red-700 bg-red-50 px-2 py-0.5 rounded cursor-pointer" onClick={performAutoSave} title="Click to retry">
+                <CloudOff className="h-3 w-3" />
+                <span className="font-medium">Error</span>
+              </span>
+            )}
+          </div>
+          <Button variant="ghost" size="icon" onClick={() => setIsMinimized(true)} className="h-6 w-6">
+            <Minimize2 className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-6 w-6">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
-        {/* Content */}
-        <ScrollArea className="flex-1">
+      {/* Content */}
+      <ScrollArea className="flex-1">
           <div className="p-3 space-y-3">
             {/* Contact Information - Phones & Emails */}
             <Card>
@@ -859,7 +962,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
                       placeholder="LLC Name (optional)"
                       className="h-7 text-sm"
                     />
-                    {/* Property Type - display friendly label */}
+                    {/* Property Type - using normalized standard values */}
                     <Select
                       value={prop.propertyType || ''}
                       onValueChange={(v) => updateProperty(idx, 'propertyType', v)}
@@ -870,11 +973,11 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Single-family">Single-family</SelectItem>
+                        <SelectItem value="Single-family (SFH)">Single-family (SFH)</SelectItem>
                         <SelectItem value="Duplex">Duplex</SelectItem>
                         <SelectItem value="Triplex">Triplex</SelectItem>
                         <SelectItem value="Quadplex">Quadplex</SelectItem>
-                        <SelectItem value="Multifamily">Multifamily (5+)</SelectItem>
+                        <SelectItem value="Multi-family">Multi-family (5+)</SelectItem>
                         <SelectItem value="Townhouse">Townhouse</SelectItem>
                         <SelectItem value="Condo">Condo</SelectItem>
                         <SelectItem value="Mobile Home">Mobile Home</SelectItem>
@@ -977,7 +1080,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
               <CardContent className="px-3 pb-3">
                 <TagInput
                   value={selectedTags}
-                  onChange={(tags) => { setSelectedTags(tags); markChanged() }}
+                  onChange={(tags) => { setSelectedTags(tags); saveTagsInstantly() }}
                   contactId={currentContact?.id}
                   placeholder="Add tags..."
                   showSuggestions={true}
@@ -1238,7 +1341,6 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
           </div>
         </ScrollArea>
       </div>
-    </>
   )
 }
 

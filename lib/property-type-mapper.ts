@@ -8,6 +8,9 @@ export const PROPERTY_TYPE_MAP: Record<string, string> = {
   'Single Family': 'Single-family (SFH)',
   'SFR': 'Single-family (SFH)',
   'Single-Family': 'Single-family (SFH)',
+  'Residential (General) (Single)': 'Single-family (SFH)',
+  'Single Family Residence': 'Single-family (SFH)',
+  'Single-family (SFR)': 'Single-family (SFH)',
   
   // Duplex
   'Duplex (2 units, any combination)': 'Duplex',
@@ -17,11 +20,13 @@ export const PROPERTY_TYPE_MAP: Record<string, string> = {
   
   // Triplex
   'Triplex': 'Triplex',
+  'Triplex (3 units, any combination)': 'Triplex',
   '3 Unit': 'Triplex',
   'Three Unit': 'Triplex',
-  
+
   // Quadplex
   'Quadplex': 'Quadplex',
+  'Quadruplex (4 units, any combination)': 'Quadplex',
   '4 Unit': 'Quadplex',
   'Four Unit': 'Quadplex',
   'Fourplex': 'Quadplex',

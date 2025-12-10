@@ -210,8 +210,8 @@ export default function EnhancedTextBlast() {
         const blast = data.blast
         setCurrentBlast(blast)
 
-        // Update detailed progress
-        const remainingCount = blast.totalContacts - blast.sentCount
+        // Update detailed progress - remaining = total - sent - failed
+        const remainingCount = blast.totalContacts - blast.sentCount - (blast.failedCount || 0)
         const estimatedTimeRemaining = remainingCount * blast.delaySeconds
 
         setBlastProgress({
@@ -358,7 +358,9 @@ export default function EnhancedTextBlast() {
 
   const getProgress = () => {
     if (!currentBlast) return 0
-    return (currentBlast.sentCount / currentBlast.totalContacts) * 100
+    // Progress should include both sent AND failed (total processed)
+    const processed = currentBlast.sentCount + (currentBlast.failedCount || 0)
+    return (processed / currentBlast.totalContacts) * 100
   }
 
   // Use the shared formatMessageTemplate utility for consistent template processing
@@ -425,7 +427,7 @@ export default function EnhancedTextBlast() {
             {/* Progress Bar */}
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <span>Progress: {currentBlast.sentCount} of {currentBlast.totalContacts} sent</span>
+                <span>Progress: {currentBlast.sentCount + (currentBlast.failedCount || 0)} of {currentBlast.totalContacts} processed</span>
                 <span>{Math.round(getProgress())}% complete</span>
               </div>
               <Progress value={getProgress()} className="h-2" />
@@ -443,7 +445,7 @@ export default function EnhancedTextBlast() {
               </div>
               <div className="bg-white p-3 rounded-lg">
                 <div className="font-medium text-blue-600">Remaining</div>
-                <div className="text-xl font-bold">{blastProgress?.remainingCount || (currentBlast.totalContacts - currentBlast.sentCount)}</div>
+                <div className="text-xl font-bold">{blastProgress?.remainingCount || (currentBlast.totalContacts - currentBlast.sentCount - (currentBlast.failedCount || 0))}</div>
               </div>
               <div className="bg-white p-3 rounded-lg">
                 <div className="font-medium text-purple-600">Est. Time</div>

@@ -3,10 +3,8 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import { Phone, Search, X, Filter, ChevronLeft, ChevronRight } from "lucide-react"
 import { useCallUI } from "@/lib/context/call-ui-context"
@@ -46,7 +44,8 @@ interface TelnyxCall {
 export default function ManualDialingTab() {
   const { toast } = useToast()
   const { openCall } = useCallUI()
-  const { isLoading: contactsLoading } = useContacts()
+  // Use shared contacts context for instant search (cached globally)
+  const { allContacts, allContactsLoading, loadAllContacts } = useContacts()
 
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [phoneNumbers, setPhoneNumbers] = useState<TelnyxPhoneNumber[]>([])
@@ -55,21 +54,6 @@ export default function ManualDialingTab() {
   const [isLoading, setIsLoading] = useState(true)
   const [dialpadNumber, setDialpadNumber] = useState("")
 
-  // Server-side pagination state
-  const [contacts, setContacts] = useState<Contact[]>([])
-  const [loadingContacts, setLoadingContacts] = useState(false)
-  const [pagination, setPagination] = useState<{
-    page: number
-    limit: number
-    totalCount: number
-    totalPages: number
-    hasMore: boolean
-  } | null>(null)
-
-  // All contacts for filtering
-  const [allContactsFromContext, setAllContactsFromContext] = useState<Contact[]>([])
-  const [loadingAllContacts, setLoadingAllContacts] = useState(false)
-
   // Local filter state for this tab only
   const [localFilteredContacts, setLocalFilteredContacts] = useState<Contact[]>([])
   const [hasActiveFilters, setHasActiveFilters] = useState(false)
@@ -77,9 +61,59 @@ export default function ManualDialingTab() {
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([])
   const [searchQuery, setSearchQuery] = useState("")
 
-  // Pagination for contacts
+  // Pagination for contacts (client-side)
   const [contactsPage, setContactsPage] = useState(1)
   const contactsPerPage = 50
+
+  // Client-side search filter function (matches contacts data grid globalFilterFn)
+  const filterContactsBySearch = (contacts: Contact[], query: string): Contact[] => {
+    if (!query || query.trim() === '') return contacts
+
+    const searchWords = query.toLowerCase().trim().split(/\s+/).filter(word => word.length > 0)
+
+    return contacts.filter(contact => {
+      // Build combined searchable text from all relevant fields
+      const searchableFields = [
+        contact.firstName,
+        contact.lastName,
+        (contact as any).fullName,
+        contact.email1,
+        contact.email2,
+        contact.email3,
+        contact.phone1,
+        contact.phone2,
+        contact.phone3,
+        contact.propertyAddress,
+        contact.city,
+        contact.state,
+        contact.zipCode,
+        contact.llcName,
+        contact.propertyType,
+        contact.propertyCounty,
+        contact.notes,
+      ]
+
+      let combinedText = ''
+      for (const field of searchableFields) {
+        if (field) {
+          combinedText += ' ' + String(field).toLowerCase()
+        }
+      }
+
+      // Include tags in searchable text
+      const tags = (contact.tags || []) as any[]
+      for (const tag of tags) {
+        if (typeof tag === 'object' && tag?.name) {
+          combinedText += ' ' + String(tag.name).toLowerCase()
+        } else if (typeof tag === 'string') {
+          combinedText += ' ' + tag.toLowerCase()
+        }
+      }
+
+      // ALL words must match somewhere (same as contacts data grid)
+      return searchWords.every(word => combinedText.includes(word))
+    })
+  }
 
   // Pagination for calls
   const [callsPage, setCallsPage] = useState(1)
@@ -90,64 +124,11 @@ export default function ManualDialingTab() {
   const [contactsMap, setContactsMap] = useState<Map<string, Contact>>(new Map())
   const [isFiltersOpen, setIsFiltersOpen] = useState(false)
 
-  // Load ALL contacts for filtering (only once on mount)
-  const loadAllContacts = async () => {
-    try {
-      setLoadingAllContacts(true)
-      console.log(`📊 [MANUAL DIALING] Loading all contacts for filtering...`)
-
-      const response = await fetch('/api/contacts?limit=10000')
-      if (response.ok) {
-        const data = await response.json()
-        const contacts = data.contacts || []
-        setAllContactsFromContext(contacts)
-        console.log(`📊 [MANUAL DIALING] Loaded ${contacts.length} contacts for filtering`)
-      }
-    } catch (error) {
-      console.error('📊 [MANUAL DIALING] Error loading all contacts:', error)
-    } finally {
-      setLoadingAllContacts(false)
-    }
-  }
-
-  // Load contacts with server-side pagination
-  const loadContacts = async (page = 1) => {
-    try {
-      setLoadingContacts(true)
-      console.log(`📊 [MANUAL DIALING] Loading contacts page ${page}...`)
-
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: contactsPerPage.toString(),
-        ...(searchQuery && { search: searchQuery }),
-      })
-
-      const response = await fetch(`/api/contacts?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        setContacts(data.contacts || [])
-        setPagination(data.pagination)
-        console.log(`📊 [MANUAL DIALING] Loaded ${data.contacts?.length || 0} contacts`)
-      } else {
-        console.error(`📊 [MANUAL DIALING] Failed to load contacts: ${response.status}`)
-      }
-    } catch (error) {
-      console.error('📊 [MANUAL DIALING] Error loading contacts:', error)
-      toast({ title: 'Error', description: 'Failed to load contacts', variant: 'destructive' })
-    } finally {
-      setLoadingContacts(false)
-    }
-  }
-
+  // Load contacts from context on mount (uses global cache)
   useEffect(() => {
     loadData()
-    loadAllContacts() // Load all contacts once for filtering
+    loadAllContacts() // Uses shared context cache - instant if already loaded
   }, [])
-
-  // Load contacts when page or search changes
-  useEffect(() => {
-    loadContacts(contactsPage)
-  }, [contactsPage, searchQuery])
 
   // Reset to page 1 when search changes
   useEffect(() => {
@@ -339,10 +320,27 @@ export default function ManualDialingTab() {
     ['*', '0', '#']
   ]
 
-  // Use server-loaded contacts (already paginated)
-  const displayContacts = hasActiveFilters ? localFilteredContacts : contacts
+  // Client-side filtering and pagination (instant search like contacts data grid)
+  const filteredAndPaginatedContacts = useMemo(() => {
+    // Start with all contacts or advanced-filtered contacts
+    let baseContacts = hasActiveFilters ? localFilteredContacts : allContacts
 
-  const totalContactPages = pagination?.totalPages || 1
+    // Apply search filter (client-side, instant)
+    if (searchQuery.trim()) {
+      baseContacts = filterContactsBySearch(baseContacts, searchQuery)
+    }
+
+    return baseContacts
+  }, [allContacts, localFilteredContacts, hasActiveFilters, searchQuery])
+
+  // Paginate the filtered results
+  const displayContacts = useMemo(() => {
+    const start = (contactsPage - 1) * contactsPerPage
+    const end = start + contactsPerPage
+    return filteredAndPaginatedContacts.slice(start, end)
+  }, [filteredAndPaginatedContacts, contactsPage, contactsPerPage])
+
+  const totalContactPages = Math.max(1, Math.ceil(filteredAndPaginatedContacts.length / contactsPerPage))
 
   // Paginated calls
   const paginatedCalls = useMemo(() => {
@@ -365,7 +363,7 @@ export default function ManualDialingTab() {
   return (
     <LocalFilterWrapper
       instanceId="manual-dialing"
-      allContacts={allContactsFromContext}
+      allContacts={allContacts}
       onFilteredContactsChange={(filtered, hasFilters) => {
         setLocalFilteredContacts(filtered)
         setHasActiveFilters(hasFilters)
@@ -406,7 +404,7 @@ export default function ManualDialingTab() {
 
           <div className="flex-1 overflow-y-auto">
             <div className="p-2">
-              {loadingContacts ? (
+              {allContactsLoading ? (
                 <div className="text-center py-8 text-gray-500">
                   <p className="text-sm">Loading contacts...</p>
                 </div>

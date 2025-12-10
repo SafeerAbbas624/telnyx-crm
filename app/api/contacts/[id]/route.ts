@@ -202,6 +202,15 @@ export async function PATCH(
     // Map frontend field names to database field names
     if (body.firstName !== undefined) updateData.firstName = body.firstName;
     if (body.lastName !== undefined) updateData.lastName = body.lastName;
+
+    // Auto-update fullName when firstName or lastName changes
+    if (body.firstName !== undefined || body.lastName !== undefined) {
+      // Get current contact to merge with updated values
+      const currentContact = await prisma.contact.findUnique({ where: { id }, select: { firstName: true, lastName: true } });
+      const newFirstName = body.firstName !== undefined ? body.firstName : (currentContact?.firstName || '');
+      const newLastName = body.lastName !== undefined ? body.lastName : (currentContact?.lastName || '');
+      updateData.fullName = `${newFirstName} ${newLastName}`.trim() || null;
+    }
     if (body.llcName !== undefined) updateData.llcName = body.llcName;
     if (body.phone1 !== undefined) updateData.phone1 = formatPhoneNumberForTelnyx(body.phone1 || '') || null;
     if (body.phone2 !== undefined) updateData.phone2 = formatPhoneNumberForTelnyx(body.phone2 || '') || null;

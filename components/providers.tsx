@@ -8,10 +8,12 @@ import { SmsUIProvider } from "@/lib/context/sms-ui-context"
 import { EmailUIProvider } from "@/lib/context/email-ui-context"
 import { TaskUIProvider } from "@/lib/context/task-ui-context"
 import { PhoneNumberProvider } from "@/lib/context/phone-number-context"
+import { ContactPanelProvider } from "@/lib/context/contact-panel-context"
 import RedesignedCallPopup from "@/components/call/redesigned-call-popup"
 import InlineSmsPanel from "@/components/sms/inline-sms-panel"
 import InlineEmailPanel from "@/components/email/inline-email-panel"
 import GlobalTaskModal from "@/components/tasks/global-task-modal"
+import GlobalContactPanel from "@/components/contacts/global-contact-panel"
 import InboundCallNotification from "@/components/call/inbound-call-notification"
 import WebRTCAutoRegister from "@/components/call/webrtc-auto-register"
 import InboundMessageToast from "@/components/notifications/inbound-message-toast"
@@ -112,23 +114,27 @@ export default function Providers({ children }: ProvidersProps) {
                 <SmsUIProvider>
                   <EmailUIProvider>
                     <TaskUIProvider>
-                      {children}
-                      {/* Auto-register WebRTC for inbound calls */}
-                      <WebRTCAutoRegister />
-                      {/* Global events listener for toasts/notifications */}
-                      <GlobalEventsListener />
-                      {/* Global call popup */}
-                      <RedesignedCallPopup />
-                      {/* Inbound call notification */}
-                      <InboundCallHandler />
-                      {/* Global SMS panel */}
-                      <InlineSmsPanel />
-                      {/* Global Email panel */}
-                      <InlineEmailPanel />
-                      {/* Global Task Modal */}
-                      <GlobalTaskModal />
-                      {/* Inbound message notifications (SMS/Email) */}
-                      <InboundMessageToast />
+                      <ContactPanelProvider>
+                        {children}
+                        {/* Auto-register WebRTC for inbound calls */}
+                        <WebRTCAutoRegister />
+                        {/* Global events listener for toasts/notifications */}
+                        <GlobalEventsListener />
+                        {/* Global call popup */}
+                        <RedesignedCallPopup />
+                        {/* Inbound call notification */}
+                        <InboundCallHandler />
+                        {/* Global SMS panel */}
+                        <InlineSmsPanel />
+                        {/* Global Email panel */}
+                        <InlineEmailPanel />
+                        {/* Global Task Modal */}
+                        <GlobalTaskModal />
+                        {/* Global Contact Side Panel */}
+                        <GlobalContactPanel />
+                        {/* Inbound message notifications (SMS/Email) */}
+                        <InboundMessageToast />
+                      </ContactPanelProvider>
                     </TaskUIProvider>
                   </EmailUIProvider>
                 </SmsUIProvider>

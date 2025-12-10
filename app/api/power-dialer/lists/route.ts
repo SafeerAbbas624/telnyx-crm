@@ -48,7 +48,26 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json(lists)
+    // Get tag names for lists with syncTagIds
+    const allTagIds = lists.flatMap(l => l.syncTagIds || [])
+    const uniqueTagIds = [...new Set(allTagIds)]
+
+    const tags = uniqueTagIds.length > 0
+      ? await prisma.tag.findMany({
+          where: { id: { in: uniqueTagIds } },
+          select: { id: true, name: true, color: true }
+        })
+      : []
+
+    const tagMap = new Map(tags.map(t => [t.id, t]))
+
+    // Enrich lists with tag details
+    const enrichedLists = lists.map(list => ({
+      ...list,
+      syncTags: (list.syncTagIds || []).map(id => tagMap.get(id)).filter(Boolean)
+    }))
+
+    return NextResponse.json(enrichedLists)
   } catch (error) {
     console.error('Error fetching power dialer lists:', error)
     return NextResponse.json(
@@ -68,36 +87,81 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, description, contactIds, scriptId } = body
+    const { name, description, contactIds, scriptId, syncTagIds, autoSync } = body
 
-    console.log('[POWER DIALER LIST] Creating list:', { name, contactCount: contactIds?.length, scriptId })
+    console.log('[POWER DIALER LIST] Creating list:', {
+      name,
+      contactCount: contactIds?.length,
+      scriptId,
+      syncTagIds,
+      autoSync
+    })
 
-    if (!name || !Array.isArray(contactIds)) {
-      console.error('[POWER DIALER LIST] Validation failed:', { name, isArray: Array.isArray(contactIds) })
+    // Validate: need either contactIds OR syncTagIds
+    const hasContacts = Array.isArray(contactIds) && contactIds.length > 0
+    const hasTags = Array.isArray(syncTagIds) && syncTagIds.length > 0
+
+    if (!name) {
+      return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    }
+
+    if (!hasContacts && !hasTags) {
       return NextResponse.json(
-        { error: 'Name and contact IDs are required' },
+        { error: 'Either contacts or tags must be provided' },
         { status: 400 }
       )
     }
 
-    if (contactIds.length === 0) {
-      console.error('[POWER DIALER LIST] No contacts provided')
+    // If tags provided, fetch matching contacts
+    let finalContactIds = hasContacts ? contactIds : []
+
+    if (hasTags) {
+      const contactsWithTags = await prisma.contact.findMany({
+        where: {
+          contact_tags: {
+            some: {
+              tag_id: { in: syncTagIds }
+            }
+          },
+          dnc: false,
+          deletedAt: null,
+          OR: [
+            { phone1: { not: null } },
+            { phone2: { not: null } },
+            { phone3: { not: null } }
+          ]
+        },
+        select: { id: true }
+      })
+
+      // Merge with any manually added contacts, remove duplicates
+      const tagContactIds = contactsWithTags.map(c => c.id)
+      const allIds = [...new Set([...finalContactIds, ...tagContactIds])]
+      finalContactIds = allIds
+
+      console.log(`[POWER DIALER LIST] Found ${tagContactIds.length} contacts with specified tags`)
+    }
+
+    if (finalContactIds.length === 0) {
       return NextResponse.json(
-        { error: 'At least one contact is required' },
+        { error: 'No contacts found with the specified criteria' },
         { status: 400 }
       )
     }
 
     console.log('[POWER DIALER LIST] Creating list in database...')
-    // Create list
+    // Create list with tag sync settings
     const list = await prisma.powerDialerList.create({
       data: {
         userId: session.user.id,
         name,
         description,
         scriptId: scriptId || null,
-        totalContacts: contactIds.length,
+        totalContacts: finalContactIds.length,
         status: 'ACTIVE',
+        syncTagIds: hasTags ? syncTagIds : [],
+        autoSync: hasTags ? (autoSync ?? true) : false, // Default to true if tags provided
+        lastSyncAt: hasTags ? new Date() : null,
       }
     })
 
@@ -106,7 +170,7 @@ export async function POST(request: NextRequest) {
     console.log('[POWER DIALER LIST] Adding contacts to list...')
     // Add contacts to list
     const listContacts = await prisma.powerDialerListContact.createMany({
-      data: contactIds.map((contactId: string) => ({
+      data: finalContactIds.map((contactId: string) => ({
         listId: list.id,
         contactId,
         status: 'PENDING',
@@ -118,6 +182,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       list,
       addedCount: listContacts.count,
+      syncEnabled: hasTags && (autoSync ?? true),
     })
   } catch (error) {
     console.error('[POWER DIALER LIST] Error creating list:', error)

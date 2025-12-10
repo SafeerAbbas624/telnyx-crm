@@ -79,8 +79,13 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
   }, [contact])
 
   useEffect(() => {
-    loadMessages()
-    loadPhoneNumbers()
+    // Load messages first to get the suggested sender number, then pass it to loadPhoneNumbers
+    // This avoids race condition where loadPhoneNumbers sets fallback before suggestedSenderNumber arrives
+    const initialize = async () => {
+      const suggestedNumber = await loadMessages()
+      await loadPhoneNumbers(suggestedNumber)
+    }
+    initialize()
   }, [contact.id])
 
   // Handler for adding a new contact from conversation (for unknown callers)
@@ -190,8 +195,10 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
     }
   }, [contact.id])
 
-  const loadMessages = async () => {
+  // Returns the suggested sender number from the API so we can pass it to loadPhoneNumbers
+  const loadMessages = async (): Promise<string | null> => {
     setIsLoading(true)
+    let suggestedNumber: string | null = null
     try {
       const response = await fetch(`/api/conversations/${contact.id}/messages`)
       if (response.ok) {
@@ -211,6 +218,7 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
         // Use suggested sender number from API (smart selection logic)
         if (data.suggestedSenderNumber) {
           setSelectedSenderNumber(data.suggestedSenderNumber)
+          suggestedNumber = data.suggestedSenderNumber
           const reasonText = data.selectionReason === 'inbound_response'
             ? '(they responded to this number)'
             : data.selectionReason === 'last_outbound'
@@ -240,9 +248,11 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
     } finally {
       setIsLoading(false)
     }
+    return suggestedNumber
   }
 
-  const loadPhoneNumbers = async () => {
+  // suggestedNumber is passed from loadMessages to avoid race condition with React state
+  const loadPhoneNumbers = async (suggestedNumber?: string | null) => {
     try {
       const response = await fetch('/api/telnyx/phone-numbers')
       if (response.ok) {
@@ -252,14 +262,20 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
         console.log('Filtered active numbers:', activeNumbers)
         setAvailableNumbers(activeNumbers)
 
+        // Use the passed suggestedNumber (from loadMessages) to avoid stale state
+        const currentSenderNumber = suggestedNumber || selectedSenderNumber
+        console.log('Current sender number for validation:', currentSenderNumber)
+
         // Validate that the selected sender number is available
-        if (selectedSenderNumber) {
-          const isNumberAvailable = activeNumbers.some((num: TelnyxPhoneNumber) => num.phoneNumber === selectedSenderNumber)
+        if (currentSenderNumber) {
+          const isNumberAvailable = activeNumbers.some((num: TelnyxPhoneNumber) => num.phoneNumber === currentSenderNumber)
           if (!isNumberAvailable) {
-            console.warn(`Previously used number ${selectedSenderNumber} is no longer available, falling back to first available`)
+            console.warn(`Previously used number ${currentSenderNumber} is no longer available, falling back to first available`)
             if (activeNumbers.length > 0) {
               setSelectedSenderNumber(activeNumbers[0].phoneNumber)
             }
+          } else {
+            console.log(`Keeping suggested sender number: ${currentSenderNumber}`)
           }
         } else if (activeNumbers.length > 0) {
           // Set default sender number if none selected
@@ -306,9 +322,9 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
         }),
       })
 
-      if (response.ok) {
-        const data = await response.json()
+      const data = await response.json()
 
+      if (response.ok) {
         // Add message to local state immediately
         const newMsg: Message = {
           id: data.messageId,
@@ -328,12 +344,17 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
           description: "Your message has been sent successfully",
         })
       } else {
-        throw new Error('Failed to send message')
+        // Show specific error from API
+        toast({
+          title: "Cannot send message",
+          description: data.error || 'Failed to send message',
+          variant: "destructive",
+        })
       }
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Error sending message",
-        description: "Failed to send the message. Please try again.",
+        description: error?.message || "Failed to send the message. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -651,7 +672,9 @@ export default function EnhancedConversation({ contact, onBack, onConversationRe
           </div>
 
           {/* Warning if using different number than the recommended one */}
-          {conversationOurNumber && selectedSenderNumber && selectedSenderNumber !== conversationOurNumber && (
+          {conversationOurNumber && selectedSenderNumber &&
+           // Compare normalized phone numbers (last 10 digits) to avoid false positives from formatting differences
+           conversationOurNumber.replace(/\D/g, '').slice(-10) !== selectedSenderNumber.replace(/\D/g, '').slice(-10) && (
             <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
               <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="text-xs text-amber-800">
@@ -833,13 +856,16 @@ function AddContactDialogWithPhone({
   }, [open, prefillPhone])
 
   const propertyTypes = [
-    "Single-family (SFR)",
+    "Single-family (SFH)",
     "Duplex",
     "Triplex",
     "Quadplex",
-    "Multifamily (5+ units)",
+    "Multi-family",
     "Townhouse",
-    "Condominium (Condo)",
+    "Condo",
+    "Mobile Home",
+    "Land",
+    "Commercial",
   ]
 
   const formatPhone = (value: string) => {

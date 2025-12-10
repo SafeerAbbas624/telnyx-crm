@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { normalizePropertyType } from '@/lib/property-type-mapper';
 
 // Disable Next.js caching for this route - always fetch fresh data
 export const dynamic = 'force-dynamic';
@@ -133,12 +134,18 @@ export async function GET() {
       tags: (tags as any[]).length
     })
 
+    // Normalize property types and get unique values
+    const rawPropertyTypes = propertyTypes.map(p => p.propertyType).filter(Boolean);
+    const normalizedPropertyTypes = Array.from(new Set(
+      rawPropertyTypes.map(pt => normalizePropertyType(pt) || pt)
+    )).filter(Boolean).sort();
+
     // Format the response
     const filterOptions = {
       cities: cities.map(c => c.city).filter(Boolean),
       states: states.map(s => s.state).filter(Boolean),
       counties: counties.map(c => c.propertyCounty).filter(Boolean),
-      propertyTypes: propertyTypes.map(p => p.propertyType).filter(Boolean),
+      propertyTypes: normalizedPropertyTypes,
       dealStatuses: dealStatuses.map(d => d.dealStatus).filter(Boolean),
       tags: (tags as any[]).map(t => ({
         id: t.id,

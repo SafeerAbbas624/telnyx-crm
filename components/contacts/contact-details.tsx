@@ -90,7 +90,7 @@ export default function ContactDetails({ contact, onBack }: ContactDetailsProps)
   }
 
   const getTagInfo = (tagId: string) => {
-    return tags.find((tag) => tag.id === tagId)
+    return (Array.isArray(tags) ? tags : []).find((tag) => tag.id === tagId)
   }
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

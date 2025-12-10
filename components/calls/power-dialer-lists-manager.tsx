@@ -11,10 +11,11 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { formatDistanceToNow } from 'date-fns'
-import { Trash2, Play, Plus, Tag, Shuffle, ArrowUpDown, Phone, Users, Clock, FileText } from 'lucide-react'
-import { SimplePowerDialer } from './simple-power-dialer'
+import { Trash2, Play, Plus, Tag, Shuffle, ArrowUpDown, Phone, Users, Clock, FileText, Edit } from 'lucide-react'
+import { PowerDialerViewRedesign } from './power-dialer-view-redesign'
 import type { CallerIdStrategy } from '@/lib/dialer/types'
 
 interface PowerDialerList {
@@ -35,6 +36,11 @@ interface PowerDialerList {
   createdAt: string
   lastWorkedOn?: string
   completedAt?: string
+  // Tag sync fields
+  syncTagIds?: string[]
+  autoSync?: boolean
+  lastSyncAt?: string
+  syncTags?: { id: string; name: string; color: string }[]
 }
 
 interface TagOption {
@@ -82,10 +88,13 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
   const [matchingContacts, setMatchingContacts] = useState<Contact[]>([])
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'random'>('newest')
   const [contactsLoading, setContactsLoading] = useState(false)
+  const [autoSync, setAutoSync] = useState(true) // Auto-sync enabled by default
 
   // Scripts
   const [scripts, setScripts] = useState<CallScript[]>([])
   const [selectedScriptId, setSelectedScriptId] = useState<string>('')
+  const [customScriptContent, setCustomScriptContent] = useState<string>('')
+  const [useCustomScript, setUseCustomScript] = useState(false)
 
   // Active list queue
   const [activeListId, setActiveListId] = useState<string | null>(null)
@@ -203,13 +212,36 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
       setIsCreating(true)
       const contactIds = matchingContacts.map(c => c.id)
 
+      let finalScriptId = selectedScriptId || undefined
+
+      // If using custom script, create it first
+      if (useCustomScript && customScriptContent.trim()) {
+        const scriptResponse = await fetch('/api/call-scripts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: `${newListName} Script`,
+            content: customScriptContent,
+            variables: ['firstName', 'lastName', 'propertyAddress'],
+          })
+        })
+
+        if (scriptResponse.ok) {
+          const scriptData = await scriptResponse.json()
+          finalScriptId = scriptData.id
+        }
+      }
+
       const response = await fetch('/api/power-dialer/lists', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newListName,
           contactIds,
-          scriptId: selectedScriptId || undefined,
+          scriptId: finalScriptId,
+          // Pass tag sync settings if tags are selected
+          syncTagIds: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+          autoSync: selectedTagIds.length > 0 ? autoSync : false,
         })
       })
 
@@ -218,16 +250,13 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
         throw new Error(responseData.error || 'Failed to create list')
       }
 
-      const { list } = responseData
+      const { list, syncEnabled } = responseData
       setLists([list, ...lists])
-      setNewListName('')
-      setSelectedTagIds([])
-      setMatchingContacts([])
-      setSortOrder('newest')
-      setSelectedScriptId('')
+      resetCreateForm()
       setIsCreateOpen(false)
 
-      toast.success(`Call list created with ${contactIds.length} contacts`)
+      const syncMessage = syncEnabled ? ' (auto-sync enabled)' : ''
+      toast.success(`Call list created with ${contactIds.length} contacts${syncMessage}`)
       if (onCreateList) onCreateList(list)
     } catch (error) {
       console.error('Error creating list:', error)
@@ -251,6 +280,9 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
     setMatchingContacts([])
     setSortOrder('newest')
     setSelectedScriptId('')
+    setAutoSync(true)
+    setUseCustomScript(false)
+    setCustomScriptContent('')
   }
 
   // Load queue for active list
@@ -309,13 +341,12 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
     return <div className="text-center py-8">Loading call lists...</div>
   }
 
-  // Show simple power dialer when a list is selected
+  // Show redesigned power dialer when a list is selected
   if (selectedList) {
     return (
-      <SimplePowerDialer
+      <PowerDialerViewRedesign
         listId={selectedList.id}
         listName={selectedList.name}
-        scriptId={selectedList.scriptId}
         onBack={() => {
           setSelectedList(null)
           loadLists() // Refresh lists when returning
@@ -442,28 +473,102 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                 <FileText className="w-4 h-4" />
                 Call Script (Optional)
               </Label>
-              <Select
-                value={selectedScriptId || 'none'}
-                onValueChange={(v) => setSelectedScriptId(v === 'none' ? '' : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="No script selected" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No script</SelectItem>
-                  {scripts.map(script => (
-                    <SelectItem key={script.id} value={script.id}>
-                      {script.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {scripts.length === 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  No scripts available. Create scripts in Settings.
-                </p>
+
+              {/* Option to use existing script or write custom */}
+              <div className="flex gap-2 mb-2">
+                <Button
+                  type="button"
+                  variant={!useCustomScript ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setUseCustomScript(false)}
+                >
+                  Use Existing
+                </Button>
+                <Button
+                  type="button"
+                  variant={useCustomScript ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setUseCustomScript(true)}
+                >
+                  <Edit className="w-3 h-3 mr-1" />
+                  Write Custom
+                </Button>
+              </div>
+
+              {!useCustomScript ? (
+                <>
+                  <Select
+                    value={selectedScriptId || 'none'}
+                    onValueChange={(v) => {
+                      setSelectedScriptId(v === 'none' ? '' : v)
+                      // Load selected script content for preview
+                      const script = scripts.find(s => s.id === v)
+                      if (script) {
+                        setCustomScriptContent(script.content)
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="No script selected" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No script</SelectItem>
+                      {scripts.map(script => (
+                        <SelectItem key={script.id} value={script.id}>
+                          {script.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {scripts.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No scripts available. Create scripts in Settings.
+                    </p>
+                  )}
+                  {/* Show preview of selected script */}
+                  {selectedScriptId && customScriptContent && (
+                    <div className="mt-2 p-3 bg-gray-50 rounded-md text-sm max-h-32 overflow-y-auto">
+                      <p className="text-xs text-muted-foreground mb-1">Preview:</p>
+                      <p className="whitespace-pre-wrap text-gray-700">{customScriptContent}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Textarea
+                    placeholder="Write your call script here... Use {{firstName}}, {{lastName}}, {{propertyAddress}} for dynamic fields."
+                    value={customScriptContent}
+                    onChange={(e) => setCustomScriptContent(e.target.value)}
+                    rows={6}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Available variables: {'{{firstName}}'}, {'{{lastName}}'}, {'{{propertyAddress}}'}
+                  </p>
+                </>
               )}
             </div>
+
+            {/* Auto-Sync Option (when tags selected) */}
+            {selectedTagIds.length > 0 && (
+              <div className="border rounded-lg p-3 bg-blue-50 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="autoSync"
+                    checked={autoSync}
+                    onCheckedChange={(checked) => setAutoSync(checked === true)}
+                  />
+                  <Label htmlFor="autoSync" className="text-sm font-medium cursor-pointer">
+                    Auto-sync new contacts with these tags
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground ml-6">
+                  {autoSync
+                    ? "✓ New contacts tagged with the selected tags will be automatically added to this list every minute."
+                    : "New contacts won't be added automatically. You can manually sync later."}
+                </p>
+              </div>
+            )}
 
             {/* Preview */}
             {selectedTagIds.length > 0 && (
@@ -570,6 +675,21 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                     <Progress value={progress} className="h-2" />
                   </div>
 
+                  {/* Tag Sync Status */}
+                  {list.syncTags && list.syncTags.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs">
+                      <Tag className="w-3 h-3 text-blue-500" />
+                      <span className="text-muted-foreground">
+                        Synced tags: {list.syncTags.map(t => t.name).join(', ')}
+                      </span>
+                      {list.autoSync && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 bg-green-50 text-green-700 border-green-200">
+                          Auto-sync
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
                   {list.lastWorkedOn && (
                     <p className="text-xs text-gray-500">
                       Last worked on: {formatDistanceToNow(new Date(list.lastWorkedOn), { addSuffix: true })}
@@ -588,6 +708,30 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                       <Play className="w-4 h-4 mr-1" />
                       Open Dialer
                     </Button>
+                    {list.syncTagIds && list.syncTagIds.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`/api/power-dialer/lists/${list.id}/sync`, { method: 'POST' })
+                            const data = await res.json()
+                            if (res.ok) {
+                              toast.success(`Synced! Added ${data.addedCount} new contacts`)
+                              loadLists() // Refresh lists
+                            } else {
+                              toast.error(data.error || 'Sync failed')
+                            }
+                          } catch (err) {
+                            toast.error('Failed to sync')
+                          }
+                        }}
+                        title="Manually sync new contacts with matching tags"
+                      >
+                        <Clock className="w-4 h-4 mr-1" />
+                        Sync
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"

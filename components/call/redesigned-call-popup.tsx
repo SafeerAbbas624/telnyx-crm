@@ -459,7 +459,7 @@ export default function RedesignedCallPopup() {
 
   if (call.isMinimized) {
     return (
-      <div className="fixed bottom-4 right-4 z-50">
+      <div className="fixed bottom-4 right-4 z-[60]">
         <div className={`${borderColor} ${bgColor} border-2 rounded-lg p-3 shadow-lg flex items-center gap-3 cursor-pointer`} onClick={maximize}>
           <div className={`${statusBadgeColor} text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
             <Phone className="h-3 w-3" />
@@ -479,7 +479,7 @@ export default function RedesignedCallPopup() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[380px]">
+    <div className="fixed bottom-4 left-4 z-[60] w-[380px]">
       <div className={`${borderColor} border-2 rounded-lg bg-white shadow-2xl overflow-hidden`}>
         {/* Compact Header */}
         <div className={`${bgColor} px-3 py-2`}>
@@ -514,7 +514,8 @@ export default function RedesignedCallPopup() {
               size="sm"
               className="h-8 w-8 p-0 hover:bg-green-100"
               onClick={() => {
-                openSms({ contact: call?.contact || undefined, phoneNumber })
+                // Pass the call's fromNumber so SMS opens with the same sender number we called from
+                openSms({ contact: call?.contact || undefined, phoneNumber, fromNumber: call?.fromNumber })
               }}
               title="Send SMS"
             >

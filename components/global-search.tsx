@@ -8,6 +8,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
+import { useContactPanel } from '@/lib/context/contact-panel-context';
 
 interface SearchResult {
   id: string;
@@ -19,6 +20,7 @@ interface SearchResult {
 
 export default function GlobalSearch() {
   const router = useRouter();
+  const { openContactPanel } = useContactPanel();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -59,9 +61,10 @@ export default function GlobalSearch() {
     setSearchQuery('');
     setResults([]);
 
-    // Navigate based on type
+    // Handle based on type
     if (result.type === 'contact') {
-      router.push(`/contacts/${result.id}`);
+      // Open contact in side panel instead of navigating
+      openContactPanel(result.id);
     } else if (result.type === 'task') {
       router.push(`/tasks?taskId=${result.id}`);
     } else if (result.type === 'deal') {

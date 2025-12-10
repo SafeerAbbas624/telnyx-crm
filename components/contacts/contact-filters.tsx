@@ -67,16 +67,16 @@ export default function ContactFilters({ filters = {}, onFiltersChange }: Contac
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
   const propertyTypes = [
-    { id: "Single Family", label: "Single Family" },
+    { id: "Single-family (SFH)", label: "Single-family (SFH)" },
     { id: "Duplex", label: "Duplex" },
     { id: "Triplex", label: "Triplex" },
     { id: "Quadplex", label: "Quadplex" },
-    { id: "Multi-Family", label: "Multi-Family (5+ units)" },
+    { id: "Multi-family", label: "Multi-family (5+ units)" },
     { id: "Condo", label: "Condo" },
     { id: "Townhouse", label: "Townhouse" },
     { id: "Commercial", label: "Commercial" },
     { id: "Land", label: "Land" },
-    { id: "Other", label: "Other" },
+    { id: "Mobile Home", label: "Mobile Home" },
   ]
 
   const dealStatuses = [

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +34,8 @@ import { formatPhoneNumberForDisplay, formatPhoneNumberForTelnyx, getBestPhoneNu
 import { useCallUI } from '@/lib/context/call-ui-context';
 import CallRecordingPlayer from '@/components/calls/call-recording-player';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { useContacts } from '@/lib/context/contacts-context';
+import { usePhoneNumber } from '@/lib/context/phone-number-context';
 
 interface TelnyxPhoneNumber {
   id: string;
@@ -73,54 +75,64 @@ interface Contact {
   propertyAddress?: string;
 }
 
+// Client-side contact search filter (instant, no API calls)
+function filterContactsBySearch(contacts: Contact[], searchTerm: string): Contact[] {
+  if (!searchTerm || searchTerm.length < 2) return [];
+
+  const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
+
+  return contacts.filter(contact => {
+    const searchableFields = [
+      contact.firstName,
+      contact.lastName,
+      contact.phone1,
+      contact.phone2,
+      contact.phone3,
+      contact.email1,
+      contact.propertyAddress,
+    ].filter(Boolean).map(f => f!.toLowerCase());
+
+    const fullText = searchableFields.join(' ');
+    return terms.every(term => fullText.includes(term));
+  }).slice(0, 8); // Limit to 8 results
+}
+
 export default function CallsCenterModern() {
   const { openCall } = useCallUI();
-  const [phoneNumbers, setPhoneNumbers] = useState<TelnyxPhoneNumber[]>([]);
-  const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<TelnyxPhoneNumber | null>(null);
+  const { allContacts, loadAllContacts, allContactsLoading } = useContacts();
+  const { selectedPhoneNumber, availablePhoneNumbers } = usePhoneNumber(); // Use global phone number context
   const [dialNumber, setDialNumber] = useState('');
   const [quickSearch, setQuickSearch] = useState('');
-  const [quickSearchResults, setQuickSearchResults] = useState<Contact[]>([]);
   const [recentCalls, setRecentCalls] = useState<TelnyxCall[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCalling, setIsCalling] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [activeRecording, setActiveRecording] = useState<TelnyxCall | null>(null);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const quickSearchRef = useRef<HTMLInputElement>(null);
   const searchResultsRef = useRef<HTMLDivElement>(null);
 
-  // Auto-focus the quick search on page load
+  // Instant client-side search results (no API calls, no debounce)
+  const quickSearchResults = useMemo(() => {
+    return filterContactsBySearch(allContacts, quickSearch);
+  }, [allContacts, quickSearch]);
+
+  // Auto-focus the quick search on page load and load all contacts for instant search
   useEffect(() => {
     if (quickSearchRef.current) {
       quickSearchRef.current.focus();
     }
     loadData();
+    loadAllContacts(); // Pre-load all contacts for instant search
   }, []);
 
-  // Search contacts as user types
+  // Show/hide search results based on search term
   useEffect(() => {
-    const searchTimer = setTimeout(async () => {
-      if (quickSearch.length >= 2) {
-        setIsSearching(true);
-        try {
-          const response = await fetch(`/api/contacts?search=${encodeURIComponent(quickSearch)}&limit=8`);
-          if (response.ok) {
-            const data = await response.json();
-            setQuickSearchResults(data.contacts || []);
-            setShowSearchResults(true);
-          }
-        } catch (error) {
-          console.error('Error searching contacts:', error);
-        } finally {
-          setIsSearching(false);
-        }
-      } else {
-        setQuickSearchResults([]);
-        setShowSearchResults(false);
-      }
-    }, 200);
-    return () => clearTimeout(searchTimer);
+    if (quickSearch.length >= 2) {
+      setShowSearchResults(true);
+    } else {
+      setShowSearchResults(false);
+    }
   }, [quickSearch]);
 
   // Close search results when clicking outside
@@ -138,21 +150,7 @@ export default function CallsCenterModern() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const [phoneNumbersRes, callsRes] = await Promise.all([
-        fetch('/api/telnyx/phone-numbers'),
-        fetch('/api/telnyx/calls'),
-      ]);
-
-      if (phoneNumbersRes.ok) {
-        const phoneNumbersData = await phoneNumbersRes.json();
-        const voiceNumbers = phoneNumbersData.filter(
-          (pn: TelnyxPhoneNumber) => pn.capabilities.includes('VOICE') && pn.isActive
-        );
-        setPhoneNumbers(voiceNumbers);
-        if (voiceNumbers.length > 0 && !selectedPhoneNumber) {
-          setSelectedPhoneNumber(voiceNumbers[0]);
-        }
-      }
+      const callsRes = await fetch('/api/telnyx/calls');
 
       if (callsRes.ok) {
         const callsData = await callsRes.json();
@@ -328,7 +326,7 @@ export default function CallsCenterModern() {
                   <X className="h-4 w-4" />
                 </Button>
               )}
-              {isSearching && (
+              {allContactsLoading && quickSearch.length >= 2 && (
                 <Loader2 className="absolute right-10 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-gray-400" />
               )}
             </div>
@@ -374,32 +372,23 @@ export default function CallsCenterModern() {
             )}
           </div>
 
-          {/* Phone Number Selector */}
+          {/* Phone Number Info - Controlled by global header selector */}
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-600 whitespace-nowrap">Call from:</span>
-            <Select
-              value={selectedPhoneNumber?.id || ''}
-              onValueChange={(value) => {
-                const number = phoneNumbers.find((pn) => pn.id === value);
-                setSelectedPhoneNumber(number || null);
-              }}
-            >
-              <SelectTrigger className="w-[240px]">
-                <SelectValue placeholder="Select number" />
-              </SelectTrigger>
-              <SelectContent>
-                {phoneNumbers.map((pn) => (
-                  <SelectItem key={pn.id} value={pn.id}>
-                    <div className="flex flex-col">
-                      <span>{formatPhoneNumberForDisplay(pn.phoneNumber)}</span>
-                      {pn.friendlyName && (
-                        <span className="text-xs text-muted-foreground">{pn.friendlyName}</span>
-                      )}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <span className="text-sm text-gray-600 whitespace-nowrap">Calling from:</span>
+            <span className="text-sm font-medium">
+              {selectedPhoneNumber ? (
+                <>
+                  {selectedPhoneNumber.friendlyName || formatPhoneNumberForDisplay(selectedPhoneNumber.phoneNumber)}
+                  {selectedPhoneNumber.friendlyName && (
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {formatPhoneNumberForDisplay(selectedPhoneNumber.phoneNumber)}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-orange-600">Select a number in the header</span>
+              )}
+            </span>
           </div>
         </div>
       </div>
@@ -563,8 +552,8 @@ export default function CallsCenterModern() {
                                   {formatPhoneNumberForDisplay(call.fromNumber)}
                                 </div>
 
-                                {/* To Number */}
-                                <div className="col-span-2 text-gray-600 truncate text-xs">
+                                {/* To Number - Bold for visibility */}
+                                <div className="col-span-2 text-gray-900 font-semibold truncate text-xs">
                                   {formatPhoneNumberForDisplay(call.toNumber)}
                                 </div>
 

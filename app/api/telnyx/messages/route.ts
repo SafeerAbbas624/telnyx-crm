@@ -88,10 +88,11 @@ export async function GET(request: NextRequest) {
       messages: sortedMessages,
       total: messages.length,
     });
-  } catch (error) {
-    console.error('Error fetching messages:', error);
+  } catch (error: any) {
+    console.error('Error fetching messages:', error?.message || error);
+    console.error('Stack:', error?.stack);
     return NextResponse.json(
-      { error: 'Failed to fetch messages' },
+      { error: 'Failed to fetch messages', details: error?.message || 'Unknown error' },
       { status: 500 }
     );
   }
