@@ -16,20 +16,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { contactId, disposition, notes, calledAt, callerIdNumber, duration } = body
+    let body: any
+    try {
+      body = await request.json()
+    } catch (parseError) {
+      console.error('[call-history/note] JSON parse error:', parseError)
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
+    const { contactId, disposition, notes, calledAt, callerIdNumber, duration } = body || {}
+
+    console.log('[call-history/note] Received:', { contactId, disposition, notes: notes?.slice(0, 50), callerIdNumber })
 
     if (!contactId) {
+      console.error('[call-history/note] Missing contactId in body:', body)
       return NextResponse.json({ error: 'contactId is required' }, { status: 400 })
     }
 
     // Verify contact exists and get current customFields
-    const contact = await prisma.contact.findUnique({
-      where: { id: contactId },
-      select: { id: true, firstName: true, lastName: true, phone1: true, customFields: true }
-    })
+    let contact
+    try {
+      contact = await prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { id: true, firstName: true, lastName: true, phone1: true, customFields: true }
+      })
+    } catch (dbError) {
+      console.error('[call-history/note] DB error finding contact:', dbError)
+      return NextResponse.json({ error: 'Database error' }, { status: 500 })
+    }
 
     if (!contact) {
+      console.error('[call-history/note] Contact not found:', contactId)
       return NextResponse.json({ error: 'Contact not found' }, { status: 404 })
     }
 
@@ -52,33 +69,43 @@ export async function POST(request: NextRequest) {
     const currentDialAttempts = currentCustomFields.dialAttempts || 0
     const newDialAttempts = currentDialAttempts + 1
 
-    await prisma.contact.update({
-      where: { id: contactId },
-      data: {
-        customFields: {
-          ...currentCustomFields,
-          dialAttempts: newDialAttempts,
-          lastDialedAt: new Date().toISOString(),
-          lastDisposition: disposition || null,
+    try {
+      await prisma.contact.update({
+        where: { id: contactId },
+        data: {
+          customFields: {
+            ...currentCustomFields,
+            dialAttempts: newDialAttempts,
+            lastDialedAt: new Date().toISOString(),
+            lastDisposition: disposition || null,
+          }
         }
-      }
-    })
-
-    console.log(`[call-history/note] Updated contact ${contactId} dialAttempts: ${newDialAttempts}`)
+      })
+      console.log(`[call-history/note] Updated contact ${contactId} dialAttempts: ${newDialAttempts}`)
+    } catch (updateError) {
+      console.error('[call-history/note] Error updating contact customFields:', updateError)
+      // Continue anyway - activity creation is more important
+    }
 
     // Create activity record (this shows in contact timeline)
-    const activity = await prisma.activity.create({
-      data: {
-        contact_id: contactId,
-        type: 'call',
-        title: `Power Dialer Call - ${disposition || 'Completed'}`,
-        description: activityDescription,
-        status: 'completed',
-        priority: 'medium',
-        created_by: session.user.id,
-        duration_minutes: duration ? Math.ceil(duration / 60) : undefined,
-      }
-    })
+    let activity
+    try {
+      activity = await prisma.activity.create({
+        data: {
+          contact_id: contactId,
+          type: 'call',
+          title: `Power Dialer Call - ${disposition || 'Completed'}`,
+          description: activityDescription,
+          status: 'completed',
+          priority: 'medium',
+          created_by: session.user.id,
+          duration_minutes: duration ? Math.ceil(duration / 60) : undefined,
+        }
+      })
+    } catch (activityError) {
+      console.error('[call-history/note] Error creating activity:', activityError)
+      return NextResponse.json({ error: 'Failed to create activity record' }, { status: 500 })
+    }
 
     // Also try to update the Call record if we have one (for WebRTC calls)
     // This is optional - won't fail if no call record exists
