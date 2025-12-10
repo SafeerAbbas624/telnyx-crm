@@ -48,7 +48,7 @@ interface Contact {
 interface CallLine {
   lineNumber: number
   contact: Contact | null
-  status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up'
+  status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up' | 'ended' // 'ended' = call over, waiting for disposition
   startedAt?: Date
   callId?: string
   callerIdNumber?: string // The number we're using to call
@@ -85,6 +85,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const [availableScripts, setAvailableScripts] = useState<{ id: string; name: string; content: string }[]>([])
   const [showScriptSelector, setShowScriptSelector] = useState(false)
   const [waitingForDisposition, setWaitingForDisposition] = useState(false) // True when hang up clicked, waiting for disposition
+  const [endedLineNumber, setEndedLineNumber] = useState<number | null>(null) // Track line with 'ended' call waiting for disposition
 
   // Contact panel context for opening contact details
   const { openContactPanel } = useContactPanel()
@@ -292,6 +293,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           : l
       ))
       setConnectedLine(null)
+      setEndedLineNumber(null) // Clear the ended line tracker
       setDispositionNotes('')
 
       // CLEAR the waiting flag - disposition was clicked, OK to continue
@@ -536,84 +538,107 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         {/* Center: Active Call Windows */}
         <div className="flex-1 p-6 overflow-auto">
 
-          {/* DISPOSITION & NOTES SECTION - Shows DURING connected call (CallTools style) */}
-          {connectedLine && (
-            <Card className="mb-4 border-2 border-green-500 bg-green-50/30">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <Badge className="bg-green-600 text-white text-sm px-3 py-1 animate-pulse">🔴 Live Call</Badge>
-                    <span className="text-sm font-medium text-green-800">
-                      {(() => {
-                        const contact = getConnectedContact()
-                        return contact ? `${contact.firstName} ${contact.lastName}` : ''
-                      })()}
+          {/* DISPOSITION & NOTES SECTION - Shows DURING connected call OR after hang up (waiting for disposition) */}
+          {(connectedLine || endedLineNumber) && (() => {
+            const activeLineNumber = connectedLine || endedLineNumber
+            const activeLine = callLines.find(l => l.lineNumber === activeLineNumber)
+            const contact = activeLine?.contact
+            const isEnded = activeLine?.status === 'ended'
+
+            return (
+              <Card className={cn(
+                "mb-4 border-2",
+                isEnded ? "border-red-500 bg-red-50/30" : "border-green-500 bg-green-50/30"
+              )}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <Badge className={cn(
+                        "text-white text-sm px-3 py-1",
+                        isEnded ? "bg-red-600" : "bg-green-600 animate-pulse"
+                      )}>
+                        {isEnded ? '📝 Call Ended' : '🔴 Live Call'}
+                      </Badge>
+                      <span className={cn(
+                        "text-sm font-medium",
+                        isEnded ? "text-red-800" : "text-green-800"
+                      )}>
+                        {contact ? `${contact.firstName} ${contact.lastName}` : ''}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {isEnded ? 'Write notes & select disposition to continue' : 'Click a disposition to end call & continue dialing'}
                     </span>
                   </div>
-                  <span className="text-xs text-gray-500">Click a disposition to end call & continue dialing</span>
-                </div>
 
-                {/* Call Notes - can type during the call */}
-                <div className="mb-3">
-                  <label className="text-sm font-medium text-green-800">📝 Call Notes</label>
-                  <Textarea
-                    value={dispositionNotes}
-                    onChange={(e) => setDispositionNotes(e.target.value)}
-                    placeholder="Type notes during the call... These will be saved when you select a disposition."
-                    rows={2}
-                    className="resize-none mt-1 border-green-300 focus:border-green-500"
-                  />
-                </div>
+                  {/* Call Notes - can type during the call */}
+                  <div className="mb-3">
+                    <label className={cn(
+                      "text-sm font-medium",
+                      isEnded ? "text-red-800" : "text-green-800"
+                    )}>📝 Call Notes</label>
+                    <Textarea
+                      value={dispositionNotes}
+                      onChange={(e) => setDispositionNotes(e.target.value)}
+                      placeholder={isEnded ? "Add your call notes here before selecting disposition..." : "Type notes during the call... These will be saved when you select a disposition."}
+                      rows={2}
+                      className={cn(
+                        "resize-none mt-1",
+                        isEnded ? "border-red-300 focus:border-red-500" : "border-green-300 focus:border-green-500"
+                      )}
+                    />
+                  </div>
 
-                {/* Disposition Buttons - clicking any will hang up + save + continue */}
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => handleDisposition('interested', connectedLine)}
-                  >
-                    ✅ Interested
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                    onClick={() => handleDisposition('not_interested', connectedLine)}
-                  >
-                    ❌ Not Interested
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                    onClick={() => handleDisposition('callback', connectedLine)}
-                  >
-                    📞 Callback
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="bg-orange-600 hover:bg-orange-700 text-white"
-                    onClick={() => handleDisposition('no_answer', connectedLine)}
-                  >
-                    📵 No Answer
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="bg-purple-600 hover:bg-purple-700 text-white"
-                    onClick={() => handleDisposition('voicemail', connectedLine)}
-                  >
-                    📧 Voicemail
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-gray-400"
-                    onClick={() => handleDisposition('other', connectedLine)}
-                  >
-                    Other
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                  {/* Disposition Buttons - clicking any will save + continue */}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => handleDisposition('interested', activeLineNumber!)}
+                    >
+                      ✅ Interested
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      onClick={() => handleDisposition('not_interested', activeLineNumber!)}
+                    >
+                      ❌ Not Interested
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                      onClick={() => handleDisposition('callback', activeLineNumber!)}
+                    >
+                      📞 Callback
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-orange-600 hover:bg-orange-700 text-white"
+                      onClick={() => handleDisposition('no_answer', activeLineNumber!)}
+                    >
+                      📵 No Answer
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                      onClick={() => handleDisposition('voicemail', activeLineNumber!)}
+                    >
+                      📧 Voicemail
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-gray-400"
+                      onClick={() => handleDisposition('other', activeLineNumber!)}
+                    >
+                      Other
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })()}
 
           {/* Call Windows Grid */}
           <div className={cn(
@@ -639,31 +664,34 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                   }
                 }}
                 onHangup={() => {
-                  console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber, '- waiting for disposition before continuing')
+                  console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber, '- keeping contact visible for disposition')
 
                   // SET FLAG: Wait for disposition before dialing next
                   setWaitingForDisposition(true)
 
-                  // Mark line as hanging up
+                  // Mark line as hanging up briefly, then switch to 'ended' status
+                  // KEEP the contact visible so user can write notes and select disposition
                   setCallLines(prev => prev.map(l =>
                     l.lineNumber === line.lineNumber
                       ? { ...l, status: 'hanging_up' as const }
                       : l
                   ))
+
+                  // Clear connected line but track that we're waiting for disposition on this line
                   if (line.lineNumber === connectedLine) {
                     setConnectedLine(null)
                   }
-                  // After short delay, clear the line BUT DON'T auto-continue
-                  // User must click a disposition to continue dialing
+                  setEndedLineNumber(line.lineNumber) // Track which line needs disposition
+
+                  // After brief animation, set to 'ended' status (RED) - contact stays visible
                   setTimeout(() => {
                     setCallLines(prev => prev.map(l =>
                       l.lineNumber === line.lineNumber
-                        ? { ...l, contact: null, status: 'idle' as const, callerIdNumber: undefined }
+                        ? { ...l, status: 'ended' as const } // Contact stays, just change status to ended
                         : l
                     ))
-                    // DO NOT auto-resume - wait for user to click disposition
-                    toast.info('Click a disposition to save notes & continue dialing', { duration: 4000 })
-                  }, 500)
+                    toast.info('Write notes & click a disposition to continue', { duration: 4000 })
+                  }, 300)
                 }}
               />
             ))}

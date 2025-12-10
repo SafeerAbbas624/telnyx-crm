@@ -29,7 +29,7 @@ interface CallWindowProps {
     zipCode?: string
     llcName?: string
   } | null
-  status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up'
+  status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up' | 'ended'
   startedAt?: Date
   onHangup?: () => void
   onEditContact?: () => void // Open contact panel for editing
@@ -81,6 +81,8 @@ export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, 
         return 'border-2 border-green-500 bg-green-50 shadow-xl'
       case 'hanging_up':
         return 'border-2 border-red-400 bg-red-50 shadow-lg'
+      case 'ended':
+        return 'border-2 border-red-500 bg-red-100 shadow-lg' // Red - call ended, waiting for disposition
       default:
         return 'border-2 border-gray-300 bg-white'
     }
@@ -99,6 +101,8 @@ export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, 
         return <Badge className="bg-green-600 text-white text-xs">● CONNECTED</Badge>
       case 'hanging_up':
         return <Badge className="bg-red-500 text-white text-xs">Hanging Up...</Badge>
+      case 'ended':
+        return <Badge className="bg-red-600 text-white text-xs">📝 Select Disposition</Badge>
       default:
         return null
     }
@@ -115,6 +119,8 @@ export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, 
         return <Phone className="h-5 w-5 text-green-600" />
       case 'hanging_up':
         return <PhoneOff className="h-5 w-5 text-red-600" />
+      case 'ended':
+        return <PhoneOff className="h-5 w-5 text-red-700" />
       default:
         return <User className="h-5 w-5 text-gray-400" />
     }
