@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { PowerDialerCallWindow } from './power-dialer-call-window'
-import { ArrowLeft, Play, Pause, Square, User, Phone, Save, Edit2, UserCog } from 'lucide-react'
+import { ArrowLeft, Play, Pause, Square, User, Phone, Save, Edit2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useContactPanel } from '@/lib/context/contact-panel-context'
@@ -84,6 +84,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const [queueAnimation, setQueueAnimation] = useState<string[]>([]) // IDs being animated
   const [availableScripts, setAvailableScripts] = useState<{ id: string; name: string; content: string }[]>([])
   const [showScriptSelector, setShowScriptSelector] = useState(false)
+  const [waitingForDisposition, setWaitingForDisposition] = useState(false) // True when hang up clicked, waiting for disposition
 
   // Contact panel context for opening contact details
   const { openContactPanel } = useContactPanel()
@@ -93,12 +94,14 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const isPausedRef = useRef(isPaused)
   const queueRef = useRef(queue)
   const callLinesRef = useRef(callLines)
+  const waitingForDispositionRef = useRef(waitingForDisposition)
 
   // Keep refs updated
   useEffect(() => { isRunningRef.current = isRunning }, [isRunning])
   useEffect(() => { isPausedRef.current = isPaused }, [isPaused])
   useEffect(() => { queueRef.current = queue }, [queue])
   useEffect(() => { callLinesRef.current = callLines }, [callLines])
+  useEffect(() => { waitingForDispositionRef.current = waitingForDisposition }, [waitingForDisposition])
 
   // Initialize call lines
   useEffect(() => {
@@ -291,6 +294,9 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
       setConnectedLine(null)
       setDispositionNotes('')
 
+      // CLEAR the waiting flag - disposition was clicked, OK to continue
+      setWaitingForDisposition(false)
+
       // 4. Resume calling if still running and not paused (use refs to get latest state)
       if (isRunningRef.current && !isPausedRef.current) {
         console.log('[PowerDialer] ▶️ Resuming dialing after disposition...')
@@ -305,8 +311,13 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     const currentQueue = queueRef.current
     const currentLines = callLinesRef.current
 
-    // Allow starting new calls even when a call is connected (user can still disposition it)
-    if (isPausedRef.current || currentQueue.length === 0) return
+    // Don't start new calls if paused OR waiting for user to click disposition
+    if (isPausedRef.current || waitingForDispositionRef.current || currentQueue.length === 0) {
+      if (waitingForDispositionRef.current) {
+        console.log('[PowerDialer] ⏸️ Waiting for disposition before dialing next batch')
+      }
+      return
+    }
 
     console.log('[PowerDialer] 📞 Starting batch dial, queue size:', currentQueue.length)
 
@@ -368,6 +379,9 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           // First call connects
           updated[ringingIdx].status = 'connected'
           setConnectedLine(updated[ringingIdx].lineNumber)
+
+          // CLEAR notes when a NEW contact connects (notes are per-call, not shared)
+          setDispositionNotes('')
 
           // Other calls hang up (they get cleared and contacts returned to queue)
           updated.forEach((line, idx) => {
@@ -451,13 +465,29 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
 
         {/* Controls */}
         <div className="flex items-center gap-3">
-          {/* Line Selector */}
+          {/* Line Selector - can change when paused or stopped */}
           <div className="flex items-center gap-2">
             <Label className="text-sm font-medium text-gray-600">Lines:</Label>
             <Select
               value={maxLines.toString()}
-              onValueChange={(v) => setMaxLines(parseInt(v))}
-              disabled={isRunning}
+              onValueChange={(v) => {
+                const newLines = parseInt(v)
+                setMaxLines(newLines)
+                // Update the call lines array to match new count
+                setCallLines(prev => {
+                  const updated: CallLine[] = []
+                  for (let i = 1; i <= newLines; i++) {
+                    const existing = prev.find(l => l.lineNumber === i)
+                    updated.push(existing || {
+                      lineNumber: i,
+                      contact: null,
+                      status: 'idle'
+                    })
+                  }
+                  return updated
+                })
+              }}
+              disabled={isRunning && !isPaused}
             >
               <SelectTrigger className="w-20">
                 <SelectValue />
@@ -610,6 +640,10 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                 }}
                 onHangup={() => {
                   console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber, '- waiting for disposition before continuing')
+
+                  // SET FLAG: Wait for disposition before dialing next
+                  setWaitingForDisposition(true)
+
                   // Mark line as hanging up
                   setCallLines(prev => prev.map(l =>
                     l.lineNumber === line.lineNumber
@@ -628,7 +662,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                         : l
                     ))
                     // DO NOT auto-resume - wait for user to click disposition
-                    toast.info('Use disposition buttons to continue dialing', { duration: 3000 })
+                    toast.info('Click a disposition to save notes & continue dialing', { duration: 4000 })
                   }, 500)
                 }}
               />

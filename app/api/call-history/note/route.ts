@@ -7,6 +7,7 @@ import prisma from '@/lib/prisma'
  * POST /api/call-history/note
  * Save a call note/disposition for a power dialer call
  * Creates an activity record linked to the contact
+ * Also increments dialAttempts counter on the contact
  */
 export async function POST(request: NextRequest) {
   try {
@@ -22,10 +23,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'contactId is required' }, { status: 400 })
     }
 
-    // Verify contact exists
+    // Verify contact exists and get current customFields
     const contact = await prisma.contact.findUnique({
       where: { id: contactId },
-      select: { id: true, firstName: true, lastName: true, phone1: true }
+      select: { id: true, firstName: true, lastName: true, phone1: true, customFields: true }
     })
 
     if (!contact) {
@@ -45,6 +46,25 @@ export async function POST(request: NextRequest) {
     }
 
     const activityDescription = noteParts.join('\n') || 'Power Dialer call'
+
+    // Increment dialAttempts counter on the contact's customFields
+    const currentCustomFields = (contact.customFields as Record<string, any>) || {}
+    const currentDialAttempts = currentCustomFields.dialAttempts || 0
+    const newDialAttempts = currentDialAttempts + 1
+
+    await prisma.contact.update({
+      where: { id: contactId },
+      data: {
+        customFields: {
+          ...currentCustomFields,
+          dialAttempts: newDialAttempts,
+          lastDialedAt: new Date().toISOString(),
+          lastDisposition: disposition || null,
+        }
+      }
+    })
+
+    console.log(`[call-history/note] Updated contact ${contactId} dialAttempts: ${newDialAttempts}`)
 
     // Create activity record (this shows in contact timeline)
     const activity = await prisma.activity.create({
