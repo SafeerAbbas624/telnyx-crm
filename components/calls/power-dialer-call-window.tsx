@@ -9,7 +9,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, PhoneCall, PhoneOff, User, Building2, MapPin, Clock } from 'lucide-react'
+import { Phone, PhoneCall, PhoneOff, User, Building2, MapPin, Clock, UserCog } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface CallWindowProps {
@@ -32,6 +32,7 @@ interface CallWindowProps {
   status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up'
   startedAt?: Date
   onHangup?: () => void
+  onEditContact?: () => void // Open contact panel for editing
   callerIdNumber?: string // The number we're calling FROM
 }
 
@@ -46,7 +47,7 @@ function formatPhoneDisplay(phone: string): string {
   return phone
 }
 
-export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, onHangup, callerIdNumber }: CallWindowProps) {
+export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, onHangup, onEditContact, callerIdNumber }: CallWindowProps) {
   const [duration, setDuration] = useState('0:00')
 
   // Update duration timer
@@ -155,9 +156,22 @@ export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, 
           <div className="flex items-center gap-3">
             {getIcon()}
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-lg truncate">
-                {contact.firstName} {contact.lastName}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-lg truncate">
+                  {contact.firstName} {contact.lastName}
+                </h3>
+                {onEditContact && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 w-6 p-0 hover:bg-blue-100"
+                    onClick={onEditContact}
+                    title="Edit contact details"
+                  >
+                    <UserCog className="h-4 w-4 text-blue-600" />
+                  </Button>
+                )}
+              </div>
               <p className="text-sm text-gray-600 font-mono">
                 {formatPhoneDisplay(contact.phone)}
               </p>

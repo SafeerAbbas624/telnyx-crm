@@ -20,9 +20,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { PowerDialerCallWindow } from './power-dialer-call-window'
-import { ArrowLeft, Play, Pause, Square, User, Phone, Save, Edit2 } from 'lucide-react'
+import { ArrowLeft, Play, Pause, Square, User, Phone, Save, Edit2, UserCog } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useContactPanel } from '@/lib/context/contact-panel-context'
 
 interface Contact {
   id: string
@@ -83,6 +84,9 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const [queueAnimation, setQueueAnimation] = useState<string[]>([]) // IDs being animated
   const [availableScripts, setAvailableScripts] = useState<{ id: string; name: string; content: string }[]>([])
   const [showScriptSelector, setShowScriptSelector] = useState(false)
+
+  // Contact panel context for opening contact details
+  const { openContactPanel } = useContactPanel()
 
   // Refs for latest state values (to avoid closure issues in setTimeout callbacks)
   const isRunningRef = useRef(isRunning)
@@ -598,10 +602,15 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                 status={line.status}
                 startedAt={line.startedAt}
                 callerIdNumber={line.callerIdNumber}
+                onEditContact={() => {
+                  // Open contact side panel to edit contact details
+                  if (line.contact) {
+                    openContactPanel(line.contact.id)
+                  }
+                }}
                 onHangup={() => {
-                  console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber)
-                  // Just clear the line - no waiting for disposition needed
-                  // User should use disposition buttons instead
+                  console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber, '- waiting for disposition before continuing')
+                  // Mark line as hanging up
                   setCallLines(prev => prev.map(l =>
                     l.lineNumber === line.lineNumber
                       ? { ...l, status: 'hanging_up' as const }
@@ -610,17 +619,16 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                   if (line.lineNumber === connectedLine) {
                     setConnectedLine(null)
                   }
-                  // After short delay, clear the line
+                  // After short delay, clear the line BUT DON'T auto-continue
+                  // User must click a disposition to continue dialing
                   setTimeout(() => {
                     setCallLines(prev => prev.map(l =>
                       l.lineNumber === line.lineNumber
                         ? { ...l, contact: null, status: 'idle' as const, callerIdNumber: undefined }
                         : l
                     ))
-                    // Resume dialing if not paused
-                    if (isRunning && !isPaused) {
-                      setTimeout(() => startDialingBatch(), 300)
-                    }
+                    // DO NOT auto-resume - wait for user to click disposition
+                    toast.info('Use disposition buttons to continue dialing', { duration: 3000 })
                   }, 500)
                 }}
               />
