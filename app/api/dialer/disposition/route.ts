@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 import { executeDispositionActions } from '@/lib/dispositions/execute-actions'
 
 /**
@@ -55,18 +55,41 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Update contact notes
+    // Update contact notes and customFields (dialAttempts counter)
     const contact = await prisma.contact.findUnique({
       where: { id: contactId },
-      select: { notes: true }
+      select: { notes: true, customFields: true }
     })
     const dispositionNote = `[${new Date().toISOString()}] Disposition: ${disposition.name}${notes ? ` - ${notes}` : ''}`
+
+    // Increment dialAttempts counter
+    const currentCustomFields = (contact?.customFields as Record<string, any>) || {}
+    const currentDialAttempts = currentCustomFields.dialAttempts || 0
+
     await prisma.contact.update({
       where: { id: contactId },
       data: {
         notes: contact?.notes
           ? `${contact.notes}\n${dispositionNote}`
-          : dispositionNote
+          : dispositionNote,
+        customFields: {
+          ...currentCustomFields,
+          dialAttempts: currentDialAttempts + 1,
+          lastDialedAt: new Date().toISOString(),
+          lastDisposition: disposition.name
+        }
+      }
+    })
+
+    // Create Activity record for contact timeline
+    await prisma.activity.create({
+      data: {
+        contact_id: contactId,
+        type: 'call',
+        title: `Power Dialer Call - ${disposition.name}`,
+        description: notes ? `Notes: ${notes}` : `Disposition: ${disposition.name}`,
+        status: 'completed',
+        priority: 'medium'
       }
     })
 

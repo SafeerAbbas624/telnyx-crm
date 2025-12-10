@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/db'
 import type { DispositionActionType } from '@prisma/client'
 
 interface ActionConfig {

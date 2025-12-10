@@ -86,6 +86,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const [showScriptSelector, setShowScriptSelector] = useState(false)
   const [waitingForDisposition, setWaitingForDisposition] = useState(false) // True when hang up clicked, waiting for disposition
   const [endedLineNumber, setEndedLineNumber] = useState<number | null>(null) // Track line with 'ended' call waiting for disposition
+  const [dispositions, setDispositions] = useState<{ id: string; name: string; color: string; icon?: string; actions: any[] }[]>([])
 
   // Contact panel context for opening contact details
   const { openContactPanel } = useContactPanel()
@@ -203,6 +204,35 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     loadAvailableScripts()
   }, [])
 
+  // Load dispositions from database (with automations)
+  useEffect(() => {
+    const loadDispositions = async () => {
+      try {
+        const res = await fetch('/api/dispositions')
+        if (res.ok) {
+          const data = await res.json()
+          if (Array.isArray(data) && data.length > 0) {
+            setDispositions(data)
+            console.log('[PowerDialer] 📋 Loaded', data.length, 'dispositions from database')
+          } else {
+            // Seed default dispositions if none exist
+            console.log('[PowerDialer] No dispositions found, seeding defaults...')
+            await fetch('/api/dispositions/seed', { method: 'POST' })
+            // Reload after seeding
+            const res2 = await fetch('/api/dispositions')
+            if (res2.ok) {
+              const data2 = await res2.json()
+              setDispositions(Array.isArray(data2) ? data2 : [])
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[PowerDialer] Failed to load dispositions:', err)
+      }
+    }
+    loadDispositions()
+  }, [])
+
   // Handle selecting a script template - saves to campaign for persistence
   const handleSelectScript = async (selectedScript: { id: string; name: string; content: string }) => {
     setScriptId(selectedScript.id)
@@ -272,12 +302,12 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     console.log('[PowerDialer] ✏️ Script saved')
   }
 
-  // Handle disposition selection - auto-hangs up, saves notes, continues dialing (CallTools style)
-  const handleDisposition = async (disposition: string, lineNumber: number) => {
+  // Handle disposition selection - auto-hangs up, saves notes, executes automations, continues dialing
+  const handleDisposition = async (dispositionId: string, dispositionName: string, lineNumber: number) => {
     const line = callLines.find(l => l.lineNumber === lineNumber)
     const contact = line?.contact
 
-    console.log('[PowerDialer] 📝 Disposition:', disposition, 'for line', lineNumber, 'notes:', dispositionNotes)
+    console.log('[PowerDialer] 📝 Disposition:', dispositionName, '(id:', dispositionId, ') for line', lineNumber, 'notes:', dispositionNotes)
 
     // 1. First, hang up the call (visual transition)
     setCallLines(prev => prev.map(l =>
@@ -286,24 +316,36 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         : l
     ))
 
-    // 2. Save notes and disposition to call history (API call)
+    // 2. Save notes, disposition, and execute automations (API call)
     if (contact) {
       try {
-        await fetch('/api/call-history/note', {
+        // Call the disposition API that executes automations
+        const res = await fetch('/api/dialer/disposition', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contactId: contact.id,
-            disposition,
+            dispositionId,
             notes: dispositionNotes || '',
+            listId,
             calledAt: line?.startedAt?.toISOString(),
             callerIdNumber: line?.callerIdNumber
           })
         })
-        console.log('[PowerDialer] ✅ Notes saved to call history')
-        toast.success(`Saved: ${disposition}`, { description: contact.firstName + ' ' + contact.lastName })
+
+        if (res.ok) {
+          const result = await res.json()
+          console.log('[PowerDialer] ✅ Disposition saved, actions executed:', result.actionsExecuted || 0)
+          toast.success(`${dispositionName}`, {
+            description: `${contact.firstName} ${contact.lastName}${result.actionsExecuted ? ` • ${result.actionsExecuted} automation(s) run` : ''}`
+          })
+        } else {
+          console.error('[PowerDialer] ❌ Disposition API error:', await res.text())
+          toast.error('Failed to save disposition')
+        }
       } catch (err) {
-        console.error('[PowerDialer] ❌ Failed to save notes:', err)
+        console.error('[PowerDialer] ❌ Failed to save disposition:', err)
+        toast.error('Failed to save disposition')
       }
     }
 
@@ -611,51 +653,44 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                     />
                   </div>
 
-                  {/* Disposition Buttons - clicking any will save + continue */}
+                  {/* Disposition Buttons - dynamically loaded from database with automations */}
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      className="bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => handleDisposition('interested', activeLineNumber!)}
-                    >
-                      ✅ Interested
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-red-600 hover:bg-red-700 text-white"
-                      onClick={() => handleDisposition('not_interested', activeLineNumber!)}
-                    >
-                      ❌ Not Interested
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                      onClick={() => handleDisposition('callback', activeLineNumber!)}
-                    >
-                      📞 Callback
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-orange-600 hover:bg-orange-700 text-white"
-                      onClick={() => handleDisposition('no_answer', activeLineNumber!)}
-                    >
-                      📵 No Answer
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-purple-600 hover:bg-purple-700 text-white"
-                      onClick={() => handleDisposition('voicemail', activeLineNumber!)}
-                    >
-                      📧 Voicemail
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-gray-400"
-                      onClick={() => handleDisposition('other', activeLineNumber!)}
-                    >
-                      Other
-                    </Button>
+                    {dispositions.length > 0 ? (
+                      dispositions.map((dispo) => {
+                        // Map icon names to emojis
+                        const iconMap: Record<string, string> = {
+                          'ThumbsUp': '✅',
+                          'ThumbsDown': '❌',
+                          'Calendar': '📞',
+                          'PhoneMissed': '📵',
+                          'Voicemail': '📧',
+                          'PhoneOff': '📴',
+                          'Ban': '🚫',
+                          'Check': '✓'
+                        }
+                        const emoji = iconMap[dispo.icon || ''] || '📋'
+
+                        return (
+                          <Button
+                            key={dispo.id}
+                            size="sm"
+                            className="text-white"
+                            style={{ backgroundColor: dispo.color }}
+                            onClick={() => handleDisposition(dispo.id, dispo.name, activeLineNumber!)}
+                          >
+                            {emoji} {dispo.name}
+                            {dispo.actions?.length > 0 && (
+                              <span className="ml-1 text-xs opacity-75">⚡</span>
+                            )}
+                          </Button>
+                        )
+                      })
+                    ) : (
+                      // Fallback if no dispositions loaded yet
+                      <>
+                        <Button size="sm" className="bg-green-600 text-white" disabled>Loading...</Button>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>
