@@ -5,13 +5,17 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Maximize2, Building, MapPin, Plus, Send, Clock, CheckCircle, Calendar, FileText, User } from "lucide-react"
-import { useMultiCall, ManualDialerCall, MultiCallStatus } from "@/lib/context/multi-call-context"
+import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2 } from "lucide-react"
+import { useMultiCall, ManualDialerCall } from "@/lib/context/multi-call-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { useToast } from "@/hooks/use-toast"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 
 function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60)
@@ -35,11 +39,11 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const [isMinimized, setIsMinimized] = useState(false)
   const [activeTab, setActiveTab] = useState("details")
   const [contactDetails, setContactDetails] = useState<any>(null)
-  const [activities, setActivities] = useState<any[]>([])
-  const [tasks, setTasks] = useState<any[]>([])
   const [notes, setNotes] = useState("")
-  const [smsMessage, setSmsMessage] = useState("")
-  const [smsTemplates, setSmsTemplates] = useState<any[]>([])
+  const [showQuickTask, setShowQuickTask] = useState(false)
+  const [quickTaskTitle, setQuickTaskTitle] = useState("")
+  const [quickTaskDueDate, setQuickTaskDueDate] = useState("")
+  const [creatingTask, setCreatingTask] = useState(false)
   const { toast } = useToast()
   const { openEmail } = useEmailUI()
 
@@ -73,56 +77,6 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
     }
     loadContact()
   }, [call.contactId])
-
-  // Load activities
-  useEffect(() => {
-    if (!call.contactId) return
-    const loadActivities = async () => {
-      try {
-        const res = await fetch(`/api/activities?contactId=${call.contactId}&limit=5`)
-        if (res.ok) {
-          const data = await res.json()
-          setActivities(data.activities || [])
-        }
-      } catch (error) {
-        console.error('Error loading activities:', error)
-      }
-    }
-    loadActivities()
-  }, [call.contactId])
-
-  // Load tasks
-  useEffect(() => {
-    if (!call.contactId) return
-    const loadTasks = async () => {
-      try {
-        const res = await fetch(`/api/tasks?contactId=${call.contactId}&limit=5`)
-        if (res.ok) {
-          const data = await res.json()
-          setTasks(data.tasks || [])
-        }
-      } catch (error) {
-        console.error('Error loading tasks:', error)
-      }
-    }
-    loadTasks()
-  }, [call.contactId])
-
-  // Load SMS templates
-  useEffect(() => {
-    const loadTemplates = async () => {
-      try {
-        const res = await fetch('/api/templates')
-        if (res.ok) {
-          const data = await res.json()
-          setSmsTemplates(Array.isArray(data) ? data : data.templates || [])
-        }
-      } catch (error) {
-        console.error('Error loading templates:', error)
-      }
-    }
-    loadTemplates()
-  }, [])
 
   // Status-based styling
   const getStatusStyles = () => {
@@ -171,32 +125,6 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const contactName = call.contactName || 'Unknown'
   const phoneNumber = call.phoneNumber
 
-  // Handle sending SMS
-  const handleSendSms = async () => {
-    if (!smsMessage.trim()) return
-    try {
-      const res = await fetch('/api/sms/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: phoneNumber,
-          from: call.fromNumber,
-          message: smsMessage,
-          contactId: call.contactId,
-        }),
-      })
-      if (res.ok) {
-        toast({ title: 'SMS Sent', description: 'Message sent successfully' })
-        setSmsMessage('')
-      } else {
-        const err = await res.json()
-        toast({ title: 'Error', description: err.error || 'Failed to send SMS', variant: 'destructive' })
-      }
-    } catch (error: any) {
-      toast({ title: 'Error', description: error.message || 'Failed to send SMS', variant: 'destructive' })
-    }
-  }
-
   // Handle saving notes
   const handleSaveNotes = async () => {
     if (!notes.trim() || !call.contactId) return
@@ -214,15 +142,40 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
       if (res.ok) {
         toast({ title: 'Note Saved', description: 'Note added to contact' })
         setNotes('')
-        // Reload activities
-        const actRes = await fetch(`/api/activities?contactId=${call.contactId}&limit=5`)
-        if (actRes.ok) {
-          const data = await actRes.json()
-          setActivities(data.activities || [])
-        }
       }
     } catch (error: any) {
       toast({ title: 'Error', description: error.message || 'Failed to save note', variant: 'destructive' })
+    }
+  }
+
+  // Handle quick task creation
+  const handleCreateQuickTask = async () => {
+    if (!quickTaskTitle.trim() || !call.contactId) return
+    setCreatingTask(true)
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: quickTaskTitle,
+          contactId: call.contactId,
+          dueDate: quickTaskDueDate || undefined,
+          status: 'pending',
+        }),
+      })
+      if (res.ok) {
+        toast({ title: 'Task Created', description: 'Task added to contact' })
+        setQuickTaskTitle('')
+        setQuickTaskDueDate('')
+        setShowQuickTask(false)
+      } else {
+        const error = await res.json()
+        toast({ title: 'Error', description: error.error || 'Failed to create task', variant: 'destructive' })
+      }
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to create task', variant: 'destructive' })
+    } finally {
+      setCreatingTask(false)
     }
   }
 
@@ -329,6 +282,53 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
               <User className="h-4 w-4 text-blue-600" />
             </Button>
           )}
+          {/* Quick Task Button */}
+          {call.contactId && (
+            <Popover open={showQuickTask} onOpenChange={setShowQuickTask}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 hover:bg-orange-100"
+                  title="Create Task"
+                >
+                  <ListTodo className="h-4 w-4 text-orange-600" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-3" align="start">
+                <div className="space-y-2">
+                  <h4 className="font-medium text-sm">Quick Task</h4>
+                  <Input
+                    placeholder="Task title..."
+                    value={quickTaskTitle}
+                    onChange={(e) => setQuickTaskTitle(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                  <Input
+                    type="date"
+                    value={quickTaskDueDate}
+                    onChange={(e) => setQuickTaskDueDate(e.target.value)}
+                    className="h-8 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    className="w-full h-8"
+                    disabled={!quickTaskTitle.trim() || creatingTask}
+                    onClick={handleCreateQuickTask}
+                  >
+                    {creatingTask ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Create Task
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           {/* Call Back Button */}
           {isEnded && (
             <Button
@@ -356,14 +356,12 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs - Simplified: Details, Email, Notes only */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="px-3 pb-3">
-        <TabsList className="grid grid-cols-5 w-full h-8 mt-2">
+        <TabsList className="grid grid-cols-3 w-full h-8 mt-2">
           <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
-          <TabsTrigger value="sms" className="text-xs">SMS</TabsTrigger>
-          <TabsTrigger value="activity" className="text-xs">Activity</TabsTrigger>
+          <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
           <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
-          <TabsTrigger value="tasks" className="text-xs">Tasks</TabsTrigger>
         </TabsList>
 
         {/* Details Tab */}
@@ -408,73 +406,25 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
           </div>
         </TabsContent>
 
-        {/* SMS Tab */}
-        <TabsContent value="sms" className="h-[200px] overflow-y-auto py-2">
+        {/* Email Tab */}
+        <TabsContent value="email" className="h-[200px] overflow-y-auto py-2">
           <div className="space-y-2 h-full flex flex-col">
-            {/* Template Selector */}
-            <Select onValueChange={(id) => {
-              const t = smsTemplates.find(t => t.id === id)
-              if (t) {
-                let msg = t.content
-                if (contactDetails) {
-                  msg = msg.replace(/\{firstName\}/g, contactDetails.firstName || '')
-                    .replace(/\{lastName\}/g, contactDetails.lastName || '')
-                    .replace(/\{llcName\}/g, contactDetails.llcName || '')
-                    .replace(/\{propertyAddress\}/g, contactDetails.propertyAddress || '')
-                }
-                setSmsMessage(msg)
-              }
-            }}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Select template..." />
-              </SelectTrigger>
-              <SelectContent>
-                {smsTemplates.map(t => (
-                  <SelectItem key={t.id} value={t.id} className="text-xs">
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Message Input */}
-            <Textarea
-              placeholder="Type your message..."
-              value={smsMessage}
-              onChange={(e) => setSmsMessage(e.target.value)}
-              className="flex-1 text-sm resize-none min-h-[100px]"
-            />
-
-            {/* Send Button */}
-            <Button
-              size="sm"
-              className="w-full h-8"
-              disabled={!smsMessage.trim()}
-              onClick={handleSendSms}
-            >
-              <Send className="h-4 w-4 mr-2" />
-              Send SMS
-            </Button>
-          </div>
-        </TabsContent>
-
-        {/* Activity Tab */}
-        <TabsContent value="activity" className="h-[200px] overflow-y-auto py-2">
-          <div className="space-y-2">
-            {activities.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">No recent activity</p>
+            {contactDetails?.email1 ? (
+              <>
+                <p className="text-sm text-gray-600">
+                  Email: <span className="font-medium">{contactDetails.email1}</span>
+                </p>
+                <Button
+                  size="sm"
+                  className="w-full h-8"
+                  onClick={() => openEmail({ email: contactDetails.email1, contact: contactDetails })}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Compose Email
+                </Button>
+              </>
             ) : (
-              activities.map((activity) => (
-                <div key={activity.id} className="flex items-start gap-2 p-2 bg-gray-50 rounded text-sm">
-                  <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{activity.title || activity.type}</div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(activity.createdAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                </div>
-              ))
+              <p className="text-sm text-gray-500 text-center py-4">No email address on file</p>
             )}
           </div>
         </TabsContent>
@@ -500,34 +450,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
           </div>
         </TabsContent>
 
-        {/* Tasks Tab */}
-        <TabsContent value="tasks" className="h-[200px] overflow-y-auto py-2">
-          <div className="space-y-2">
-            {tasks.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">No tasks</p>
-            ) : (
-              tasks.map((task) => (
-                <div key={task.id} className="flex items-start gap-2 p-2 bg-gray-50 rounded text-sm">
-                  {task.status === 'completed' ? (
-                    <CheckCircle className="h-4 w-4 text-green-500 mt-0.5" />
-                  ) : (
-                    <Calendar className="h-4 w-4 text-blue-500 mt-0.5" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className={`font-medium truncate ${task.status === 'completed' ? 'line-through text-gray-400' : ''}`}>
-                      {task.title}
-                    </div>
-                    {task.dueDate && (
-                      <div className="text-xs text-gray-500">
-                        Due: {new Date(task.dueDate).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </TabsContent>
+
       </Tabs>
     </div>
   )
@@ -545,8 +468,7 @@ export default function MultiCallCards() {
   const handleSms = (call: ManualDialerCall, fromNumber?: string) => {
     openSms({
       phoneNumber: call.phoneNumber,
-      contactId: call.contactId,
-      contactName: call.contactName,
+      contact: call.contactId ? { id: call.contactId, firstName: call.contactName?.split(' ')[0] || '', lastName: call.contactName?.split(' ').slice(1).join(' ') || '' } : undefined,
       fromNumber: fromNumber || call.fromNumber,
     })
   }
