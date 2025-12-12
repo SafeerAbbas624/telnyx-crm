@@ -262,7 +262,6 @@ export async function sendScheduledEmail(
         direction: 'outbound',
         status: 'sent',
         sentAt: new Date(),
-        isRead: true,
       },
     });
 

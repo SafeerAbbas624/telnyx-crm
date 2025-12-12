@@ -92,14 +92,7 @@ interface PowerDialerViewRedesignProps {
   onBack: () => void
 }
 
-// Simulated caller IDs (would come from API in real implementation)
-const SIMULATED_CALLER_IDS = [
-  '+18885551234',
-  '+18885555678',
-  '+18885559012',
-  '+18885553456',
-  '+18885557890'
-]
+// No more simulated caller IDs - we use real phone numbers from usePhoneNumber context
 
 export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDialerViewRedesignProps) {
   const [maxLines, setMaxLines] = useState(2)
@@ -863,17 +856,33 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
 
     console.log('[PowerDialer] 📋 Dialing', contactsToDialCount, 'contacts')
 
-    // After short animation delay, update queue and lines
-    setTimeout(() => {
+    // Get the caller ID from selected phone number
+    const callerIdNumber = selectedPhoneNumber?.phoneNumber
+    if (!callerIdNumber) {
+      console.error('[PowerDialer] ❌ No phone number selected - cannot dial')
+      toast.error('Please select a phone number to dial from')
+      return
+    }
+
+    // After short animation delay, update queue and start real calls
+    setTimeout(async () => {
       setQueueAnimation([])
       setQueue(remainingQueue)
-      setCallLines(prev => {
-        const updated = [...prev]
-        contactsToDial.forEach((contact) => {
-          const lineIdx = updated.findIndex(l => l.status === 'idle')
-          if (lineIdx !== -1) {
-            // Assign a caller ID to this line
-            const callerIdNumber = SIMULATED_CALLER_IDS[lineIdx % SIMULATED_CALLER_IDS.length]
+
+      // Start real WebRTC calls for each contact
+      for (const contact of contactsToDial) {
+        try {
+          // Find an idle line
+          const currentLines = callLinesRef.current
+          const lineIdx = currentLines.findIndex(l => l.status === 'idle')
+          if (lineIdx === -1) {
+            console.log('[PowerDialer] No idle lines available')
+            continue
+          }
+
+          // Update line to dialing state
+          setCallLines(prev => {
+            const updated = [...prev]
             updated[lineIdx] = {
               ...updated[lineIdx],
               contact,
@@ -881,68 +890,83 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               startedAt: new Date(),
               callerIdNumber
             }
-          }
-        })
-        return updated
-      })
-    }, 300)
-
-    // Simulate ringing after 1.5 seconds (in real implementation, this would be Telnyx events)
-    setTimeout(() => {
-      setCallLines(prev => prev.map(line =>
-        line.status === 'dialing' ? { ...line, status: 'ringing' } : line
-      ))
-    }, 1800)
-
-    // Simulate one call connecting after 4 seconds
-    setTimeout(() => {
-      setCallLines(prev => {
-        const updated = [...prev]
-        const ringingIdx = updated.findIndex(l => l.status === 'ringing')
-        if (ringingIdx !== -1) {
-          // First call connects
-          updated[ringingIdx].status = 'connected'
-          setConnectedLine(updated[ringingIdx].lineNumber)
-
-          // CLEAR notes when a NEW contact connects (notes are per-call, not shared)
-          setDispositionNotes('')
-
-          // Other calls hang up (they get cleared and contacts returned to queue)
-          updated.forEach((line, idx) => {
-            if (idx !== ringingIdx && line.status === 'ringing') {
-              line.status = 'hanging_up'
-            }
+            return updated
           })
-        }
-        return updated
-      })
 
-      // Clear hanging up calls after 2 seconds - REQUEUE contacts that didn't connect
-      // User wants contacts who don't answer to go back in the queue for retry
-      setTimeout(() => {
-        setCallLines(prev => {
-          const updated = prev.map(line => {
-            if (line.status === 'hanging_up' && line.contact) {
-              // Contact was auto-hung-up (another line answered) - requeue them for retry
-              console.log('[PowerDialer] 🔄 Requeuing auto-hung-up contact:', line.contact.firstName, line.contact.lastName)
-              // Add back to queue (at the end) for retry
-              const contactToRequeue = line.contact
-              setQueue(prevQueue => {
-                // Check if already in queue to avoid duplicates
-                if (prevQueue.some(c => c.id === contactToRequeue.id)) {
-                  return prevQueue
+          // Format phone number for Telnyx
+          const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils')
+          const toNumber = formatPhoneNumberForTelnyx(contact.phone) || contact.phone
+
+          // Start real WebRTC call
+          const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+          await rtcClient.ensureRegistered()
+          const { sessionId } = await rtcClient.startCall({
+            toNumber,
+            fromNumber: callerIdNumber
+          })
+
+          console.log('[PowerDialer] 📞 Started call to', contact.firstName, contact.lastName, 'sessionId:', sessionId)
+
+          // Log the call to database
+          fetch('/api/telnyx/webrtc-calls', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              webrtcSessionId: sessionId,
+              contactId: contact.id,
+              fromNumber: callerIdNumber,
+              toNumber,
+            })
+          }).catch(err => console.error('[PowerDialer] Failed to log call:', err))
+
+          // Update line with call ID
+          setCallLines(prev => prev.map((line, idx) =>
+            idx === lineIdx ? { ...line, callId: sessionId, status: 'ringing' } : line
+          ))
+
+          // Listen for call events
+          const handleCallUpdate = (event: any) => {
+            const callId = event?.call?.callId || event?.call?.id
+            if (callId !== sessionId) return
+
+            const state = event?.call?.state
+            console.log('[PowerDialer] Call state update:', state, 'for', contact.firstName)
+
+            if (state === 'active' || state === 'answering') {
+              // Call connected
+              setCallLines(prev => {
+                const updated = prev.map(line =>
+                  line.callId === sessionId ? { ...line, status: 'connected' as const } : line
+                )
+                const connectedIdx = updated.findIndex(l => l.callId === sessionId)
+                if (connectedIdx !== -1) {
+                  setConnectedLine(updated[connectedIdx].lineNumber)
+                  setDispositionNotes('')
                 }
-                return [...prevQueue, { ...contactToRequeue, __retryCount: ((contactToRequeue as any).__retryCount || 0) + 1 }]
+                return updated
               })
-              return { ...line, contact: null, status: 'idle' as const, callerIdNumber: undefined }
+            } else if (state === 'hangup' || state === 'destroy' || state === 'bye') {
+              // Call ended - mark as ended (waiting for disposition)
+              setCallLines(prev => prev.map(line =>
+                line.callId === sessionId ? { ...line, status: 'ended' as const } : line
+              ))
+              rtcClient.off('callUpdate', handleCallUpdate)
             }
-            return line
-          })
-          return updated
-        })
-      }, 2000)
-    }, 4300)
-  }, [maxLines]) // useCallback dependency
+          }
+
+          rtcClient.on('callUpdate', handleCallUpdate)
+
+        } catch (err: any) {
+          console.error('[PowerDialer] ❌ Failed to start call:', err)
+          toast.error(`Failed to call ${contact.firstName}: ${err.message}`)
+          // Reset the line
+          setCallLines(prev => prev.map(line =>
+            line.contact?.id === contact.id ? { ...line, contact: null, status: 'idle' as const, callerIdNumber: undefined } : line
+          ))
+        }
+      }
+    }, 300)
+  }, [maxLines, selectedPhoneNumber]) // useCallback dependency
 
   // Render script with dynamic fields replaced or shown as placeholders
   const renderScriptWithFields = (contact: Contact | null) => {
