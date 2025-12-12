@@ -143,6 +143,13 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
     }
   })
 
+  // Queue and active calls - MUST be declared before refs that use them
+  const [queue, setQueue] = useState<DialerContact[]>([])
+  const [activeLegs, setActiveLegs] = useState<ActiveLeg[]>([])
+
+  // Script display
+  const [showScript, setShowScript] = useState(false)
+
   // Refs for accessing current values in async callbacks
   const runStateRef = useRef(runState)
   const queueRef = useRef(queue)
@@ -155,17 +162,13 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
   useEffect(() => { activeLegsRef.current = activeLegs }, [activeLegs])
   useEffect(() => { autoAdvanceRef.current = autoAdvance }, [autoAdvance])
 
-  // Queue and active calls
-  const [queue, setQueue] = useState<DialerContact[]>([])
-  const [activeLegs, setActiveLegs] = useState<ActiveLeg[]>([])
-
-  // Script display
-  const [showScript, setShowScript] = useState(false)
-
   // Refs for polling and auto-scroll
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const queueScrollRef = useRef<HTMLDivElement>(null)
   const currentQueueIndexRef = useRef(0)
+
+  // Track call listeners cleanup
+  const callListenerCleanupRef = useRef<(() => void) | null>(null)
 
   // Load lists on mount
   useEffect(() => {
@@ -410,57 +413,121 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
     }
   }
 
-  // Setup listeners for call events
-  const setupCallListeners = (leg: ActiveLeg, sessionId: string) => {
+  // Setup listeners for call events using proper event subscription
+  const setupCallListeners = async (leg: ActiveLeg, sessionId: string) => {
     let isAnswered = false
     let isEnded = false
+    let ringTimeout: NodeJS.Timeout | null = null
 
-    const checkInterval = setInterval(async () => {
-      if (isEnded) {
-        clearInterval(checkInterval)
-        return
-      }
+    try {
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
 
-      try {
-        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-        const callState = rtcClient.getCallState()
+      // Handler for call state updates
+      const handleCallUpdate = (event: { state: string; callId?: string; direction?: string }) => {
+        if (isEnded) return
 
-        if (!callState) {
-          clearInterval(checkInterval)
-          isEnded = true
+        const { state, callId } = event
+        console.log(`[PowerDialer] Call update: state=${state}, callId=${callId}, legCallId=${leg.webrtcSessionId}`)
+
+        // Only process events for this specific call
+        // Match by callId if available, otherwise process all (for single-line mode)
+        if (callId && leg.webrtcSessionId && callId !== leg.webrtcSessionId) {
           return
         }
 
         // Check if call was answered
-        if (callState.state === 'active' && !isAnswered) {
+        if (state === 'active' && !isAnswered) {
           isAnswered = true
-          // FIRST-ANSWER-WINS: Hang up all other ringing calls
-          await handleFirstAnswerWins(leg, sessionId)
-          clearInterval(checkInterval)
+          console.log(`[PowerDialer] Call ANSWERED: ${leg.contact.firstName} ${leg.contact.lastName}`)
+
+          // Clear ring timeout
+          if (ringTimeout) {
+            clearTimeout(ringTimeout)
+            ringTimeout = null
+          }
+
+          // Handle first-answer-wins logic
+          handleFirstAnswerWins(leg, sessionId)
+        }
+
+        // Check if call ended (remote hangup, busy, failed, etc.)
+        const endStates = ['hangup', 'destroy', 'failed', 'bye', 'cancel', 'rejected']
+        if (endStates.includes(state)) {
+          console.log(`[PowerDialer] Call ENDED: state=${state}, wasAnswered=${isAnswered}`)
+          isEnded = true
+
+          // Clear ring timeout
+          if (ringTimeout) {
+            clearTimeout(ringTimeout)
+            ringTimeout = null
+          }
+
+          // Remove event listener
+          rtcClient.off('callUpdate', handleCallUpdate)
+
+          // Handle call ended
+          handleCallEnded(leg, sessionId, isAnswered)
+        }
+      }
+
+      // Subscribe to call updates
+      rtcClient.on('callUpdate', handleCallUpdate)
+
+      // Store cleanup function
+      callListenerCleanupRef.current = () => {
+        rtcClient.off('callUpdate', handleCallUpdate)
+        if (ringTimeout) {
+          clearTimeout(ringTimeout)
+        }
+      }
+
+      // Timeout after 30 seconds of ringing (no answer)
+      ringTimeout = setTimeout(() => {
+        if (!isAnswered && !isEnded) {
+          console.log(`[PowerDialer] Ring timeout (30s) - no answer`)
+          isEnded = true
+          rtcClient.off('callUpdate', handleCallUpdate)
+
+          // Try to hang up the call
+          rtcClient.hangup(leg.webrtcSessionId).catch(() => {})
+
+          handleCallEnded(leg, sessionId, false)
+        }
+      }, 30000)
+
+      // Also poll as a backup in case events are missed
+      const backupCheckInterval = setInterval(async () => {
+        if (isEnded) {
+          clearInterval(backupCheckInterval)
           return
         }
 
-        // Check if call ended without answer
-        if (callState.state === 'hangup' || callState.state === 'destroy') {
-          clearInterval(checkInterval)
+        // Check if call is still active
+        const callState = rtcClient.getCallState()
+        if (!callState && !isEnded) {
+          console.log(`[PowerDialer] Backup check: no active call found, ending leg`)
           isEnded = true
+          clearInterval(backupCheckInterval)
+          rtcClient.off('callUpdate', handleCallUpdate)
+          if (ringTimeout) {
+            clearTimeout(ringTimeout)
+          }
           handleCallEnded(leg, sessionId, isAnswered)
         }
-      } catch (error) {
-        console.error('Error checking call status:', error)
-        clearInterval(checkInterval)
-        isEnded = true
-      }
-    }, 500)
+      }, 2000) // Check every 2 seconds
 
-    // Timeout after 30 seconds of ringing
-    setTimeout(() => {
-      if (!isAnswered && !isEnded) {
-        clearInterval(checkInterval)
-        isEnded = true
-        handleCallEnded(leg, sessionId, false)
+      // Clean up backup interval when call ends
+      const originalCleanup = callListenerCleanupRef.current
+      callListenerCleanupRef.current = () => {
+        originalCleanup?.()
+        clearInterval(backupCheckInterval)
       }
-    }, 30000)
+
+    } catch (error) {
+      console.error('[PowerDialer] Error setting up call listeners:', error)
+      isEnded = true
+      handleCallEnded(leg, sessionId, false)
+    }
   }
 
   // Handle first-answer-wins logic
@@ -628,6 +695,12 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
   const stopDialing = async () => {
     stopPolling()
 
+    // Clean up call listeners
+    if (callListenerCleanupRef.current) {
+      callListenerCleanupRef.current()
+      callListenerCleanupRef.current = null
+    }
+
     // Hang up current call if any
     if (activeLegsRef.current.length > 0) {
       try {
@@ -707,6 +780,11 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
   useEffect(() => {
     return () => {
       stopPolling()
+      // Clean up any active call listeners
+      if (callListenerCleanupRef.current) {
+        callListenerCleanupRef.current()
+        callListenerCleanupRef.current = null
+      }
     }
   }, [])
 
