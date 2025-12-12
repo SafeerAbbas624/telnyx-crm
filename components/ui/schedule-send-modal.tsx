@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar, Clock, AlertCircle } from "lucide-react"
 import { format, addMinutes, setHours, setMinutes } from "date-fns"
 
@@ -140,18 +141,55 @@ export function ScheduleSendModal({
             />
           </div>
 
-          {/* Time picker */}
+          {/* Time picker - using selects for better UX */}
           <div className="space-y-2">
-            <Label htmlFor="schedule-time" className="flex items-center gap-2">
+            <Label className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Time
             </Label>
-            <Input
-              id="schedule-time"
-              type="time"
-              value={scheduledTime}
-              onChange={(e) => setScheduledTime(e.target.value)}
-            />
+            <div className="flex gap-2 items-center">
+              <Select
+                value={scheduledTime.split(':')[0]}
+                onValueChange={(hour) => {
+                  const mins = scheduledTime.split(':')[1] || '00'
+                  setScheduledTime(`${hour}:${mins}`)
+                }}
+              >
+                <SelectTrigger className="w-[80px]">
+                  <SelectValue placeholder="Hour" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[200px]">
+                  {Array.from({ length: 24 }, (_, i) => {
+                    const hour = i.toString().padStart(2, '0')
+                    const displayHour = i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`
+                    return (
+                      <SelectItem key={hour} value={hour}>
+                        {displayHour}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+              <span className="text-gray-500 font-medium">:</span>
+              <Select
+                value={scheduledTime.split(':')[1] || '00'}
+                onValueChange={(mins) => {
+                  const hour = scheduledTime.split(':')[0] || '00'
+                  setScheduledTime(`${hour}:${mins}`)
+                }}
+              >
+                <SelectTrigger className="w-[80px]">
+                  <SelectValue placeholder="Min" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[200px]">
+                  {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((min) => (
+                    <SelectItem key={min} value={min}>
+                      {min}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Display selected datetime */}

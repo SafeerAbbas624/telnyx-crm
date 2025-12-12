@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
-import { User, Mail, Lock, Clock, AlertCircle, CheckCircle } from "lucide-react"
+import { User, Mail, Lock, Clock, AlertCircle, CheckCircle, Phone } from "lucide-react"
 
 export default function ProfileSettings() {
   const { data: session, update } = useSession()
@@ -23,7 +23,8 @@ export default function ProfileSettings() {
     firstName: "",
     lastName: "",
     email: "",
-    timezone: "UTC"
+    timezone: "UTC",
+    cellPhoneNumber: ""
   })
 
   const [passwordData, setPasswordData] = useState({
@@ -39,8 +40,18 @@ export default function ProfileSettings() {
         firstName: firstName || "",
         lastName: lastName || "",
         email: session.user.email || "",
-        timezone: "UTC"
+        timezone: "UTC",
+        cellPhoneNumber: ""
       })
+      // Fetch user's cell phone number from API
+      fetch("/api/user/profile")
+        .then(res => res.json())
+        .then(data => {
+          if (data.cellPhoneNumber) {
+            setProfileData(prev => ({ ...prev, cellPhoneNumber: data.cellPhoneNumber }))
+          }
+        })
+        .catch(() => {})
     }
   }, [session])
 
@@ -249,6 +260,24 @@ export default function ProfileSettings() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="cellPhoneNumber">Cell Phone Number (for Click-to-Call)</Label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  id="cellPhoneNumber"
+                  type="tel"
+                  placeholder="+19175551234"
+                  value={profileData.cellPhoneNumber}
+                  onChange={(e) => handleProfileInputChange("cellPhoneNumber", e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Your personal cell phone number for the "Call via Cell" feature. Enter in E.164 format (e.g., +19175551234).
+              </p>
             </div>
 
             <Button type="submit" disabled={isLoading}>

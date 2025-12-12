@@ -2,15 +2,25 @@
 
 /**
  * Individual Call Window Component
- * Shows a single active call with contact details, call state, and property info
+ * Shows a single active call with contact details, call state, property info, and notes
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Phone, PhoneCall, PhoneOff, User, Building2, MapPin, Clock, UserCog } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
+import { Phone, PhoneCall, PhoneOff, User, Building2, Clock, UserCog, Plus, Mail, PanelRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+
+interface Disposition {
+  id: string
+  name: string
+  color: string
+  icon?: string
+  actions?: any[]
+}
 
 interface CallWindowProps {
   lineNumber: number
@@ -21,6 +31,8 @@ interface CallWindowProps {
     phone: string
     phone2?: string
     phone3?: string
+    email?: string
+    email2?: string
     propertyAddress?: string
     propertyAddress2?: string
     propertyAddress3?: string
@@ -32,8 +44,14 @@ interface CallWindowProps {
   status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up' | 'ended'
   startedAt?: Date
   onHangup?: () => void
-  onEditContact?: () => void // Open contact panel for editing
+  onOpenContactPanel?: () => void // Open full contact side panel
+  onCreateTask?: () => void // Create a new task for this contact
   callerIdNumber?: string // The number we're calling FROM
+  callId?: string // The call ID for linking notes
+  notes?: string // Initial notes value
+  onNotesChange?: (notes: string) => void // Callback when notes change
+  dispositions?: Disposition[] // Available dispositions
+  onDisposition?: (dispositionId: string, dispositionName: string) => void // Callback when disposition selected
 }
 
 function formatPhoneDisplay(phone: string): string {
@@ -47,13 +65,88 @@ function formatPhoneDisplay(phone: string): string {
   return phone
 }
 
-export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, onHangup, onEditContact, callerIdNumber }: CallWindowProps) {
+export function PowerDialerCallWindow({
+  lineNumber,
+  contact,
+  status,
+  startedAt,
+  onHangup,
+  onOpenContactPanel,
+  onCreateTask,
+  callerIdNumber,
+  callId,
+  notes: initialNotes = '',
+  onNotesChange,
+  dispositions = [],
+  onDisposition
+}: CallWindowProps) {
   const [duration, setDuration] = useState('0:00')
+  const [localNotes, setLocalNotes] = useState(initialNotes)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Update duration timer
+  // Sync local notes with prop changes
+  useEffect(() => {
+    setLocalNotes(initialNotes)
+  }, [initialNotes])
+
+  // Auto-save notes with debounce
+  const saveNotes = useCallback(async (notesText: string) => {
+    if (!contact?.id) return
+
+    // Notify parent of notes change
+    onNotesChange?.(notesText)
+
+    // Also save to contact activity if we have a callId
+    if (callId && notesText.trim()) {
+      try {
+        await fetch('/api/activities', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contactId: contact.id,
+            type: 'note',
+            title: 'Call Note',
+            description: notesText,
+            metadata: { callId, source: 'power-dialer' }
+          })
+        })
+      } catch (error) {
+        console.error('Failed to save note activity:', error)
+      }
+    }
+  }, [contact?.id, callId, onNotesChange])
+
+  const handleNotesChange = (value: string) => {
+    setLocalNotes(value)
+
+    // Debounce save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveNotes(value)
+    }, 1500) // 1.5 second debounce
+  }
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Update duration timer - stop when call ends
   useEffect(() => {
     if (!startedAt || status === 'idle') {
       setDuration('0:00')
+      return
+    }
+
+    // Stop timer when call is ended or hanging up
+    if (status === 'ended' || status === 'hanging_up') {
+      // Keep the final duration displayed, don't reset or continue counting
       return
     }
 
@@ -147,77 +240,142 @@ export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, 
   ].filter(Boolean)
 
   return (
-    <Card className={cn('transition-all duration-300', getCardStyle())}>
-      <CardContent className="p-4 space-y-3">
-        {/* Header: Line number + Status */}
-        <div className="flex items-center justify-between">
-          <Badge variant="outline" className="text-xs font-semibold">
-            Line {lineNumber}
-          </Badge>
-          {getStatusBadge()}
+    <Card className={cn('transition-all duration-300 min-w-[180px]', getCardStyle())}>
+      <CardContent className="p-3 space-y-2">
+        {/* Header: Line number + Status + Action Icons */}
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Badge variant="outline" className="text-[10px] font-semibold px-1.5">
+              Line {lineNumber}
+            </Badge>
+            {getStatusBadge()}
+          </div>
+          {/* Action Icons: Call icon, + for task, contact panel */}
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            {getIcon()}
+            {onCreateTask && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 w-5 p-0 hover:bg-green-100"
+                onClick={onCreateTask}
+                title="Create new task"
+              >
+                <Plus className="h-3.5 w-3.5 text-green-600" />
+              </Button>
+            )}
+            {onOpenContactPanel && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 w-5 p-0 hover:bg-blue-100"
+                onClick={onOpenContactPanel}
+                title="Open contact panel"
+              >
+                <PanelRight className="h-3.5 w-3.5 text-blue-600" />
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Contact Info */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            {getIcon()}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-lg truncate">
-                  {contact.firstName} {contact.lastName}
-                </h3>
-                {onEditContact && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 p-0 hover:bg-blue-100"
-                    onClick={onEditContact}
-                    title="Edit contact details"
-                  >
-                    <UserCog className="h-4 w-4 text-blue-600" />
-                  </Button>
-                )}
-              </div>
-              <p className="text-sm text-gray-600 font-mono">
-                {formatPhoneDisplay(contact.phone)}
-              </p>
-              {contact.llcName && (
-                <p className="text-xs text-gray-500 italic truncate">
-                  {contact.llcName}
-                </p>
-              )}
-            </div>
+        {/* Details Section */}
+        <div className="space-y-1.5">
+          {/* Name */}
+          <h3 className="font-semibold text-sm truncate leading-tight">
+            {contact.firstName} {contact.lastName}
+          </h3>
+
+          {/* Phone */}
+          <div className="flex items-center gap-1.5 text-xs text-gray-600">
+            <Phone className="h-3 w-3 flex-shrink-0" />
+            <span className="font-mono text-[11px]">{formatPhoneDisplay(contact.phone)}</span>
           </div>
+
+          {/* LLC Name - only show if present, compact */}
+          {contact.llcName && (
+            <p className="text-[10px] text-gray-500 italic truncate pl-4">
+              {contact.llcName}
+            </p>
+          )}
 
           {/* Caller ID - Show which number we're calling FROM */}
           {callerIdNumber && (status === 'connected' || status === 'ringing' || status === 'dialing') && (
-            <div className="flex items-center gap-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-              <Phone className="h-3 w-3" />
-              <span>Calling from: <span className="font-mono font-semibold">{formatPhoneDisplay(callerIdNumber)}</span></span>
+            <div className="flex items-center gap-1 text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+              <Phone className="h-2.5 w-2.5" />
+              <span>From: <span className="font-mono font-semibold">{formatPhoneDisplay(callerIdNumber)}</span></span>
             </div>
           )}
 
-          {/* Property Addresses */}
+          {/* Property Addresses - compact, show first 2 only */}
           {propertyAddresses.length > 0 && (
-            <div className="space-y-1.5">
-              {propertyAddresses.map((addr, idx) => (
-                <div key={idx} className="flex items-start gap-2 text-sm text-gray-700 bg-white/50 p-2 rounded">
-                  <Building2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs text-gray-500 font-semibold">Property {idx + 1}</span>
-                    <p className="line-clamp-2">{addr}</p>
-                  </div>
+            <div className="space-y-1">
+              {propertyAddresses.slice(0, 2).map((addr, idx) => (
+                <div key={idx} className="flex items-start gap-1 text-[10px] text-gray-700 bg-white/50 p-1 rounded">
+                  <Building2 className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                  <span className="line-clamp-1">{addr}</span>
                 </div>
               ))}
+              {propertyAddresses.length > 2 && (
+                <span className="text-[9px] text-gray-500 pl-4">+{propertyAddresses.length - 2} more</span>
+              )}
             </div>
           )}
         </div>
 
-        {/* Duration Timer & Hangup Button */}
+        {/* Disposition Buttons - Show when call is connected or ended */}
+        {(status === 'connected' || status === 'ended') && dispositions.length > 0 && onDisposition && (
+          <div className="pt-1.5 border-t">
+            <label className={cn(
+              "text-[10px] font-medium mb-1 block",
+              status === 'ended' ? "text-red-700" : "text-green-700"
+            )}>
+              {status === 'ended' ? '📝 Select Disposition' : '📋 Select Disposition'}
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {dispositions.map((dispo) => {
+                const iconMap: Record<string, string> = {
+                  'ThumbsUp': '✅', 'ThumbsDown': '❌', 'Calendar': '📞',
+                  'PhoneMissed': '📵', 'Voicemail': '📧', 'PhoneOff': '📴',
+                  'Ban': '🚫', 'Check': '✓'
+                }
+                const emoji = dispo.icon ? (iconMap[dispo.icon] || '') : ''
+                return (
+                  <Button
+                    key={dispo.id}
+                    size="sm"
+                    className="text-white text-[10px] h-6 px-1.5"
+                    style={{ backgroundColor: dispo.color }}
+                    onClick={() => onDisposition(dispo.id, dispo.name)}
+                  >
+                    {emoji} {dispo.name}
+                    {dispo.actions && dispo.actions.length > 0 && (
+                      <span className="ml-0.5 text-[9px] opacity-75">⚡</span>
+                    )}
+                  </Button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Notes Section - Only show when call is active or ended - compact */}
+        {(status === 'connected' || status === 'ended') && (
+          <div className="space-y-0.5 pt-1.5 border-t">
+            <label className="text-[10px] font-medium text-gray-500">📝 Notes</label>
+            <Textarea
+              placeholder="Add notes..."
+              value={localNotes}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              className="min-h-[40px] text-xs resize-none p-1.5"
+            />
+          </div>
+        )}
+
+        {/* Duration Timer & Hangup Button - more compact */}
         {status !== 'idle' && (
-          <div className="flex items-center justify-between pt-2 border-t">
-            <div className="flex items-center gap-2 text-sm">
-              <Clock className="h-4 w-4 text-gray-500" />
+          <div className="flex items-center justify-between pt-1.5 border-t">
+            <div className="flex items-center gap-1 text-xs">
+              <Clock className="h-3 w-3 text-gray-500" />
               <span className="font-mono tabular-nums">{duration}</span>
             </div>
             {/* Hangup Button - always visible when call is active */}
@@ -226,9 +384,9 @@ export function PowerDialerCallWindow({ lineNumber, contact, status, startedAt, 
                 variant="destructive"
                 size="sm"
                 onClick={onHangup}
-                className="flex items-center gap-1"
+                className="flex items-center gap-1 h-6 text-xs px-2"
               >
-                <PhoneOff className="h-4 w-4" />
+                <PhoneOff className="h-3 w-3" />
                 Hang Up
               </Button>
             )}

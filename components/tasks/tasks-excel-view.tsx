@@ -33,13 +33,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
 import {
   Plus,
   Search,
@@ -55,7 +53,6 @@ import {
   CheckCircle2,
   Circle,
   Clock,
-  Check,
   Settings2,
   GripVertical,
 } from 'lucide-react';
@@ -75,9 +72,10 @@ import { autoFitColumn } from '@/lib/excel-column-utils';
 import { useTaskUI } from '@/lib/context/task-ui-context';
 import { useSmsUI } from '@/lib/context/sms-ui-context';
 import { useEmailUI } from '@/lib/context/email-ui-context';
-import { useCallUI } from '@/lib/context/call-ui-context';
+import { useMakeCall } from '@/hooks/use-make-call';
+import { useContactPanel } from '@/lib/context/contact-panel-context';
 import { normalizePropertyType } from '@/lib/property-type-mapper';
-import { usePhoneNumber } from '@/lib/context/phone-number-context';
+import { CallButtonWithCellHover } from '@/components/ui/call-button-with-cell-hover';
 
 interface Task {
   id: string;
@@ -91,7 +89,18 @@ interface Task {
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  assignedToId?: string;
+  assignedToName?: string;
+  createdById?: string;
+  createdByName?: string;
   createdAt: Date | string;
+}
+
+interface UserOption {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }
 
 interface Contact {
@@ -108,13 +117,125 @@ interface Contact {
   propertyType?: string;
 }
 
+// Separate component for editable description to avoid table re-renders
+function EditableDescriptionCell({ taskId, initialValue, onSave }: { taskId: string; initialValue: string; onSave: (value: string) => Promise<void> }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [value, setValue] = useState(initialValue);
+
+  // Sync with external changes
+  useEffect(() => {
+    if (!isOpen) {
+      setValue(initialValue);
+    }
+  }, [initialValue, isOpen]);
+
+  const handleSave = async () => {
+    if (value !== initialValue) {
+      await onSave(value);
+    }
+    setIsOpen(false);
+  };
+
+  return (
+    <Popover open={isOpen} onOpenChange={(open) => {
+      if (!open && isOpen) {
+        handleSave();
+      } else {
+        setIsOpen(open);
+      }
+    }}>
+      <PopoverTrigger asChild>
+        <div
+          className="text-sm text-muted-foreground cursor-pointer hover:bg-accent px-2 py-1 rounded truncate"
+          onClick={() => setIsOpen(true)}
+          title={initialValue ? `${initialValue}\n\nClick to edit` : 'Click to add description'}
+        >
+          {initialValue || '-'}
+        </div>
+      </PopoverTrigger>
+      <PopoverContent className="w-[350px] p-2 z-[100]" align="start" side="bottom" sideOffset={5} avoidCollisions={true} collisionPadding={20}>
+        <Textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setValue(initialValue);
+              setIsOpen(false);
+            }
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              handleSave();
+            }
+          }}
+          autoFocus
+          className="min-h-[120px] w-full resize-y"
+          placeholder="Enter description..."
+        />
+        <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
+          <span>Cmd+Enter = save • Esc = cancel</span>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// Separate component for editable subject to avoid table re-renders
+function EditableSubjectCell({ taskId, initialValue, onSave }: { taskId: string; initialValue: string; onSave: (value: string) => Promise<void> }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setValue(initialValue);
+    }
+  }, [initialValue, isEditing]);
+
+  const handleSave = async () => {
+    if (value.trim() && value !== initialValue) {
+      await onSave(value.trim());
+    } else {
+      setValue(initialValue);
+    }
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleSave();
+          if (e.key === 'Escape') {
+            setValue(initialValue);
+            setIsEditing(false);
+          }
+        }}
+        autoFocus
+        className="h-8 w-full"
+      />
+    );
+  }
+
+  return (
+    <span
+      className="cursor-pointer hover:underline"
+      onClick={() => setIsEditing(true)}
+      title="Click to edit"
+    >
+      {initialValue || 'Untitled'}
+    </span>
+  );
+}
+
 export default function TasksExcelView() {
   // Global UI contexts
   const { openTask, setOnTaskCreated } = useTaskUI();
   const { openSms } = useSmsUI();
   const { openEmail } = useEmailUI();
-  const { openCall } = useCallUI();
-  const { selectedPhoneNumber } = usePhoneNumber();
+  const { makeCall } = useMakeCall();
+  const { openContactPanel } = useContactPanel();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -141,6 +262,8 @@ export default function TasksExcelView() {
   const [savedViews, setSavedViews] = useState<any[]>([]);
   const [currentView, setCurrentView] = useState<string>('default');
   const [defaultView, setDefaultView] = useState<string>('default');
+  const [showSaveViewDialog, setShowSaveViewDialog] = useState(false);
+  const [newViewName, setNewViewName] = useState('');
 
   // Inline editing state
   const [editingCell, setEditingCell] = useState<{ rowId: string; columnId: string } | null>(null);
@@ -189,16 +312,32 @@ export default function TasksExcelView() {
   const [openEditCalendar, setOpenEditCalendar] = useState(false);
   const [openEditContactSearch, setOpenEditContactSearch] = useState(false);
 
-  // Filter state
-  const [dueDateFilter, setDueDateFilter] = useState<'all' | 'overdue' | 'today' | 'week' | 'month'>('all');
-  const [taskTypeFilter, setTaskTypeFilter] = useState<string>('all');
+  // Filter state - multi-select filters
+  const [dueDateFilter, setDueDateFilter] = useState<string[]>([]); // Empty = all dates, multi-select
+  const [taskTypeFilter, setTaskTypeFilter] = useState<string[]>([]); // Empty = all types, multi-select
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'completed'>('open'); // Default to 'open' tasks
   const [priorityFilter, setPriorityFilter] = useState<string[]>(['low', 'medium', 'high']); // Multi-select
+  const [assignedUserFilter, setAssignedUserFilter] = useState<string[]>([]); // Empty = all users, multi-select
+  const [users, setUsers] = useState<UserOption[]>([]);
 
   useEffect(() => {
     loadData();
     loadSavedViews();
+    loadUsers();
   }, []);
+
+  // Load users for filter dropdown
+  const loadUsers = async () => {
+    try {
+      const response = await fetch('/api/users/list');
+      if (response.ok) {
+        const data = await response.json();
+        setUsers(data.users || []);
+      }
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
 
   // Register callback to refresh tasks when a task is created via global modal
   useEffect(() => {
@@ -210,60 +349,17 @@ export default function TasksExcelView() {
     };
   }, [setOnTaskCreated]);
 
-  // Handle initiating a call via WebRTC (Telnyx dialer)
+  // Handle initiating a call using multi-call system
   const handleInitiateCall = async (phone: string, contactId?: string, contactName?: string) => {
     if (!phone) {
       toast.error('No phone number available');
       return;
     }
-    if (!selectedPhoneNumber) {
-      toast.error('No phone number selected. Please select a calling number from the header.');
-      return;
-    }
-    const fromNumber = selectedPhoneNumber.phoneNumber;
-
-    try {
-      // Use WebRTC to make the call
-      const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils');
-      const toNumber = formatPhoneNumberForTelnyx(phone) || phone;
-
-      // Get WebRTC client
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client');
-      await rtcClient.ensureRegistered();
-      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber });
-
-      // Log the call to database
-      if (contactId) {
-        fetch('/api/telnyx/webrtc-calls', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            webrtcSessionId: sessionId,
-            contactId,
-            fromNumber,
-            toNumber,
-          })
-        }).catch(err => console.error('Failed to log call:', err));
-      }
-
-      // Parse contact name for the call UI
-      const nameParts = (contactName || '').split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-
-      openCall({
-        contact: contactId ? { id: contactId, firstName, lastName } : undefined,
-        fromNumber,
-        toNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
-      });
-
-      toast.success(`Calling ${contactName || phone}`);
-    } catch (error: any) {
-      console.error('Error initiating call:', error);
-      toast.error(error.message || 'Failed to initiate call');
-    }
+    await makeCall({
+      phoneNumber: phone,
+      contactId,
+      contactName,
+    });
   };
 
   // Load saved views from localStorage
@@ -880,36 +976,29 @@ export default function TasksExcelView() {
           );
         },
         cell: ({ row }) => {
-          const isEditing = editingCell?.rowId === row.original.id && editingCell?.columnId === 'subject';
-          if (isEditing) {
-            return (
-              <Input
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={() => saveEdit(row.original.id, 'subject')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    saveEdit(row.original.id, 'subject');
-                  } else if (e.key === 'Escape') {
-                    cancelEditing();
-                  }
-                }}
-                autoFocus
-                className="h-8 w-full"
-              />
-            );
-          }
           return (
-            <div
-              className="font-medium cursor-pointer hover:bg-accent px-2 py-1 rounded"
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                startEditing(row.original.id, 'subject', row.original.subject);
+            <EditableSubjectCell
+              taskId={row.original.id}
+              initialValue={row.original.subject || ''}
+              onSave={async (newValue: string) => {
+                try {
+                  const res = await fetch(`/api/tasks/${row.original.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subject: newValue }),
+                  });
+                  if (!res.ok) throw new Error('Failed to update');
+                  // Update local state
+                  setTasks(prev => prev.map(t =>
+                    t.id === row.original.id ? { ...t, subject: newValue } : t
+                  ));
+                  toast.success('Subject updated');
+                } catch (err) {
+                  console.error('Failed to save subject:', err);
+                  toast.error('Failed to save subject');
+                }
               }}
-              title="Double-click to edit"
-            >
-              {row.original.subject}
-            </div>
+            />
           );
         },
         size: 300,
@@ -918,58 +1007,30 @@ export default function TasksExcelView() {
         accessorKey: 'description',
         header: 'Description',
         cell: ({ row }) => {
-          const isEditing = editingCell?.rowId === row.original.id && editingCell?.columnId === 'description';
-          if (isEditing) {
-            return (
-              <div className="absolute z-50 bg-background border rounded-md shadow-lg p-2 min-w-[300px] max-w-[500px]" style={{ left: 0, top: 0 }}>
-                <Textarea
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onBlur={() => saveEdit(row.original.id, 'description')}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      cancelEditing();
-                    }
-                    // Cmd+Enter or Ctrl+Enter to add new line with bullet
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      const cursorPos = e.currentTarget.selectionStart;
-                      const textBefore = editValue.substring(0, cursorPos);
-                      const textAfter = editValue.substring(cursorPos);
-                      setEditValue(textBefore + '\n- ' + textAfter);
-                      // Set cursor position after the bullet
-                      setTimeout(() => {
-                        e.currentTarget.selectionStart = cursorPos + 3;
-                        e.currentTarget.selectionEnd = cursorPos + 3;
-                      }, 0);
-                    }
-                    // Regular Enter adds new line with bullet
-                    if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                      e.preventDefault();
-                      const cursorPos = e.currentTarget.selectionStart;
-                      const textBefore = editValue.substring(0, cursorPos);
-                      const textAfter = editValue.substring(cursorPos);
-                      setEditValue(textBefore + '\n- ' + textAfter);
-                    }
-                  }}
-                  autoFocus
-                  className="min-h-[120px] w-full resize-y"
-                  placeholder="Enter description... (Enter adds bullet points)"
-                />
-                <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
-                  <span>Enter = new bullet • Esc = cancel • Click outside = save</span>
-                </div>
-              </div>
-            );
-          }
           return (
-            <div
-              className="text-sm text-muted-foreground cursor-pointer hover:bg-accent px-2 py-1 rounded truncate"
-              onClick={() => startEditing(row.original.id, 'description', row.original.description)}
-              title={row.original.description ? `${row.original.description}\n\nClick to edit` : 'Click to add description'}
-            >
-              {row.original.description || '-'}
-            </div>
+            <EditableDescriptionCell
+              taskId={row.original.id}
+              initialValue={row.original.description || ''}
+              onSave={async (newValue: string) => {
+                try {
+                  const res = await fetch(`/api/tasks/${row.original.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ description: newValue }),
+                  });
+                  if (!res.ok) throw new Error('Failed to update');
+                  const result = await res.json();
+                  // Update local state
+                  setTasks(prev => prev.map(t =>
+                    t.id === row.original.id ? { ...t, description: newValue } : t
+                  ));
+                  toast.success('Description updated');
+                } catch (err) {
+                  console.error('Failed to save description:', err);
+                  toast.error('Failed to save description');
+                }
+              }}
+            />
           );
         },
         size: 250,
@@ -994,12 +1055,31 @@ export default function TasksExcelView() {
             </Button>
           );
         },
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2">
-            <User className="h-4 w-4 text-muted-foreground" />
-            <span>{row.original.contactName || '-'}</span>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const contactId = row.original.contactId;
+          const contactName = row.original.contactName;
+
+          if (!contactName) {
+            return <span className="text-muted-foreground">-</span>;
+          }
+
+          return (
+            <div
+              className={cn(
+                "flex items-center gap-2",
+                contactId && "cursor-pointer hover:text-primary hover:underline"
+              )}
+              onClick={() => {
+                if (contactId) {
+                  openContactPanel(contactId);
+                }
+              }}
+            >
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span>{contactName}</span>
+            </div>
+          );
+        },
         size: 150,
         minSize: 100,
         maxSize: 300,
@@ -1156,10 +1236,10 @@ export default function TasksExcelView() {
         header: 'Priority',
         cell: ({ row }) => {
           const priority = row.original.priority;
-          const priorityConfig: Record<string, { label: string; className: string }> = {
-            high: { label: '🔴 High', className: 'bg-red-100 text-red-800 border-red-300' },
-            medium: { label: '🟡 Medium', className: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
-            low: { label: '⚪ Low', className: 'bg-gray-100 text-gray-800 border-gray-300' },
+          const priorityConfig: Record<string, { label: string; className: string; dotColor: string }> = {
+            high: { label: 'High', className: 'bg-red-100 text-red-800 border-red-300', dotColor: 'bg-red-500' },
+            medium: { label: 'Medium', className: 'bg-yellow-100 text-yellow-800 border-yellow-300', dotColor: 'bg-yellow-500' },
+            low: { label: 'Low', className: 'bg-gray-100 text-gray-800 border-gray-300', dotColor: 'bg-gray-400' },
           };
           const config = priorityConfig[priority] || priorityConfig.low;
           const isEditing = editingPriorityCell?.rowId === row.original.id && editingPriorityCell?.columnId === 'priority';
@@ -1191,10 +1271,10 @@ export default function TasksExcelView() {
                           )
                         );
                       } else {
-                        // Fallback: update just the priority
+                        // Fallback: update just the priority (cast to proper type)
                         setTasks(prevTasks =>
                           prevTasks.map(t =>
-                            t.id === row.original.id ? { ...t, priority: value } : t
+                            t.id === row.original.id ? { ...t, priority: value as 'low' | 'medium' | 'high' } : t
                           )
                         );
                       }
@@ -1216,9 +1296,24 @@ export default function TasksExcelView() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">⚪ Low</SelectItem>
-                  <SelectItem value="medium">🟡 Medium</SelectItem>
-                  <SelectItem value="high">🔴 High</SelectItem>
+                  <SelectItem value="low">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+                      Low
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="medium">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                      Medium
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="high">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                      High
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             );
@@ -1235,7 +1330,10 @@ export default function TasksExcelView() {
               }}
               title="Click to change priority"
             >
-              {config.label}
+              <span className="flex items-center gap-1.5">
+                <span className={cn('w-2 h-2 rounded-full', config.dotColor)}></span>
+                {config.label}
+              </span>
             </Badge>
           );
         },
@@ -1319,24 +1417,27 @@ export default function TasksExcelView() {
 
           return (
             <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (phone) {
-                    // Use Telnyx WebRTC dialer
-                    handleInitiateCall(phone, contactId, contactName);
-                  } else {
-                    toast.error('No phone number available');
-                  }
-                }}
-                title="Call via Telnyx"
-                disabled={!phone}
-              >
-                <Phone className="h-4 w-4" />
-              </Button>
+              {phone ? (
+                <CallButtonWithCellHover
+                  phoneNumber={phone}
+                  contactId={contactId}
+                  contactName={contactName}
+                  onWebRTCCall={() => handleInitiateCall(phone, contactId, contactName)}
+                  variant="ghost"
+                  size="sm"
+                  iconClassName="h-4 w-4"
+                />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 w-8 p-0"
+                  disabled
+                  title="No phone number"
+                >
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -1346,8 +1447,7 @@ export default function TasksExcelView() {
                   if (phone) {
                     openSms({
                       phoneNumber: phone,
-                      contactName: contactName,
-                      contactId: contactId,
+                      contact: contactId ? { id: contactId } : undefined,
                     });
                   } else {
                     toast.error('No phone number available');
@@ -1366,9 +1466,8 @@ export default function TasksExcelView() {
                   e.stopPropagation();
                   if (email) {
                     openEmail({
-                      to: email,
-                      contactName: contactName,
-                      contactId: contactId,
+                      email: email,
+                      contact: contactId ? { id: contactId } : undefined,
                     });
                   } else {
                     toast.error('No email available');
@@ -1427,9 +1526,9 @@ export default function TasksExcelView() {
   const filteredTasks = useMemo(() => {
     let filtered = tasks;
 
-    // Apply task type filter
-    if (taskTypeFilter !== 'all') {
-      filtered = filtered.filter((task) => task.taskType === taskTypeFilter);
+    // Apply task type filter (multi-select)
+    if (taskTypeFilter.length > 0) {
+      filtered = filtered.filter((task) => taskTypeFilter.includes(task.taskType || ''));
     }
 
     // Apply status filter
@@ -1437,8 +1536,8 @@ export default function TasksExcelView() {
       filtered = filtered.filter((task) => task.status === statusFilter);
     }
 
-    // Apply due date filter
-    if (dueDateFilter !== 'all') {
+    // Apply due date filter (multi-select - OR logic)
+    if (dueDateFilter.length > 0) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -1447,22 +1546,25 @@ export default function TasksExcelView() {
         const dueDate = new Date(task.dueDate);
         dueDate.setHours(0, 0, 0, 0);
 
-        switch (dueDateFilter) {
-          case 'overdue':
-            return dueDate < today && task.status === 'open';
-          case 'today':
-            return dueDate.getTime() === today.getTime();
-          case 'week':
-            const weekFromNow = new Date(today);
-            weekFromNow.setDate(weekFromNow.getDate() + 7);
-            return dueDate >= today && dueDate <= weekFromNow;
-          case 'month':
-            const monthFromNow = new Date(today);
-            monthFromNow.setMonth(monthFromNow.getMonth() + 1);
-            return dueDate >= today && dueDate <= monthFromNow;
-          default:
-            return true;
-        }
+        // Check if task matches ANY of the selected date filters (OR logic)
+        return dueDateFilter.some((filterType) => {
+          switch (filterType) {
+            case 'overdue':
+              return dueDate < today && task.status === 'open';
+            case 'today':
+              return dueDate.getTime() === today.getTime();
+            case 'week':
+              const weekFromNow = new Date(today);
+              weekFromNow.setDate(weekFromNow.getDate() + 7);
+              return dueDate >= today && dueDate <= weekFromNow;
+            case 'month':
+              const monthFromNow = new Date(today);
+              monthFromNow.setMonth(monthFromNow.getMonth() + 1);
+              return dueDate >= today && dueDate <= monthFromNow;
+            default:
+              return true;
+          }
+        });
       });
     }
 
@@ -1471,8 +1573,13 @@ export default function TasksExcelView() {
       filtered = filtered.filter((task) => priorityFilter.includes(task.priority));
     }
 
+    // Apply assigned user filter (multi-select - OR logic)
+    if (assignedUserFilter.length > 0) {
+      filtered = filtered.filter((task) => assignedUserFilter.includes(task.assignedToId || ''));
+    }
+
     return filtered;
-  }, [tasks, taskTypeFilter, dueDateFilter, statusFilter, priorityFilter]);
+  }, [tasks, taskTypeFilter, dueDateFilter, statusFilter, priorityFilter, assignedUserFilter]);
 
   const table = useReactTable({
     data: filteredTasks,
@@ -1503,7 +1610,7 @@ export default function TasksExcelView() {
     getPaginationRowModel: getPaginationRowModel(),
     initialState: {
       pagination: {
-        pageSize: 50,
+        pageSize: 100,
       },
     },
   });
@@ -1541,19 +1648,44 @@ export default function TasksExcelView() {
             className="w-64"
           />
         </div>
-        <Select value={taskTypeFilter} onValueChange={(value: string) => setTaskTypeFilter(value)}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
+        {/* Task Type Filter - Multi-select */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="w-48 justify-between">
+              {taskTypeFilter.length === 0 ? 'All Types' : taskTypeFilter.length === 1 ? taskTypeFilter[0] : `${taskTypeFilter.length} Types`}
+              <ChevronDown className="h-4 w-4 ml-2 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48 max-h-64 overflow-y-auto">
+            <DropdownMenuLabel>Filter by Type</DropdownMenuLabel>
+            <DropdownMenuSeparator />
             {Array.from(new Set(tasks.map(t => t.taskType).filter(Boolean))).sort().map((type) => (
-              <SelectItem key={type} value={type!}>
+              <DropdownMenuCheckboxItem
+                key={type}
+                checked={taskTypeFilter.includes(type!)}
+                onCheckedChange={(checked) => {
+                  setTaskTypeFilter(
+                    checked
+                      ? [...taskTypeFilter, type!]
+                      : taskTypeFilter.filter((t) => t !== type)
+                  );
+                }}
+              >
                 {type}
-              </SelectItem>
+              </DropdownMenuCheckboxItem>
             ))}
-          </SelectContent>
-        </Select>
+            <DropdownMenuSeparator />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => setTaskTypeFilter([])}
+            >
+              Reset
+            </Button>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <Select value={statusFilter} onValueChange={(value: any) => setStatusFilter(value)}>
           <SelectTrigger className="w-40">
             <SelectValue />
@@ -1564,20 +1696,83 @@ export default function TasksExcelView() {
             <SelectItem value="completed">Completed</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={dueDateFilter} onValueChange={(value: any) => setDueDateFilter(value)}>
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Dates</SelectItem>
-            <SelectItem value="overdue">Overdue</SelectItem>
-            <SelectItem value="today">Today</SelectItem>
-            <SelectItem value="week">This Week</SelectItem>
-            <SelectItem value="month">This Month</SelectItem>
-          </SelectContent>
-        </Select>
 
-        {/* Priority Filter - Multi-select with checkboxes */}
+        {/* Due Date Filter - Multi-select */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="w-40 justify-between">
+              {dueDateFilter.length === 0 ? 'All Dates' : dueDateFilter.length === 1 ?
+                (dueDateFilter[0] === 'overdue' ? 'Overdue' :
+                 dueDateFilter[0] === 'today' ? 'Today' :
+                 dueDateFilter[0] === 'week' ? 'This Week' : 'This Month')
+                : `${dueDateFilter.length} Selected`}
+              <ChevronDown className="h-4 w-4 ml-2 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuLabel>Filter by Due Date</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={dueDateFilter.includes('overdue')}
+              onCheckedChange={(checked) => {
+                setDueDateFilter(
+                  checked
+                    ? [...dueDateFilter, 'overdue']
+                    : dueDateFilter.filter((d) => d !== 'overdue')
+                );
+              }}
+            >
+              Overdue
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={dueDateFilter.includes('today')}
+              onCheckedChange={(checked) => {
+                setDueDateFilter(
+                  checked
+                    ? [...dueDateFilter, 'today']
+                    : dueDateFilter.filter((d) => d !== 'today')
+                );
+              }}
+            >
+              Today
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={dueDateFilter.includes('week')}
+              onCheckedChange={(checked) => {
+                setDueDateFilter(
+                  checked
+                    ? [...dueDateFilter, 'week']
+                    : dueDateFilter.filter((d) => d !== 'week')
+                );
+              }}
+            >
+              This Week
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={dueDateFilter.includes('month')}
+              onCheckedChange={(checked) => {
+                setDueDateFilter(
+                  checked
+                    ? [...dueDateFilter, 'month']
+                    : dueDateFilter.filter((d) => d !== 'month')
+                );
+              }}
+            >
+              This Month
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => setDueDateFilter([])}
+            >
+              Reset
+            </Button>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Priority Filter - Multi-select with color badges */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm">
@@ -1603,7 +1798,8 @@ export default function TasksExcelView() {
               }}
             >
               <span className="flex items-center gap-2">
-                🔴 High
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                High
               </span>
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
@@ -1617,7 +1813,8 @@ export default function TasksExcelView() {
               }}
             >
               <span className="flex items-center gap-2">
-                🟡 Medium
+                <span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                Medium
               </span>
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
@@ -1631,7 +1828,8 @@ export default function TasksExcelView() {
               }}
             >
               <span className="flex items-center gap-2">
-                ⚪ Low
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-300"></span>
+                Low
               </span>
             </DropdownMenuCheckboxItem>
             <DropdownMenuSeparator />
@@ -1645,6 +1843,52 @@ export default function TasksExcelView() {
             </Button>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Assigned User Filter - Multi-select */}
+        {users.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="w-40 justify-between">
+                {assignedUserFilter.length === 0 ? 'All Users' :
+                 assignedUserFilter.length === 1 ?
+                   users.find(u => u.id === assignedUserFilter[0])?.name || 'User' :
+                   `${assignedUserFilter.length} Users`}
+                <ChevronDown className="h-4 w-4 ml-2 opacity-50" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56 max-h-64 overflow-y-auto">
+              <DropdownMenuLabel>Filter by Assigned User</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {users.map((user) => (
+                <DropdownMenuCheckboxItem
+                  key={user.id}
+                  checked={assignedUserFilter.includes(user.id)}
+                  onCheckedChange={(checked) => {
+                    setAssignedUserFilter(
+                      checked
+                        ? [...assignedUserFilter, user.id]
+                        : assignedUserFilter.filter((id) => id !== user.id)
+                    );
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    {user.name}
+                  </span>
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setAssignedUserFilter([])}
+              >
+                Reset
+              </Button>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
         {/* Column Visibility */}
         <DropdownMenu open={columnDropdownOpen} onOpenChange={setColumnDropdownOpen}>
@@ -1718,10 +1962,11 @@ export default function TasksExcelView() {
                 size="sm"
                 className="w-full"
                 onClick={() => {
-                  const viewName = prompt('Enter view name:');
-                  if (viewName) saveView(viewName);
+                  setNewViewName('');
+                  setShowSaveViewDialog(true);
                 }}
               >
+                <Plus className="h-4 w-4 mr-2" />
                 Save Current View
               </Button>
             </div>
@@ -1768,6 +2013,116 @@ export default function TasksExcelView() {
           {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''}
         </div>
       </div>
+
+      {/* Bulk Actions Toolbar */}
+      {table.getFilteredSelectedRowModel().rows.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="font-medium text-blue-900">
+              {table.getFilteredSelectedRowModel().rows.length} selected
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => table.resetRowSelection()}
+              className="text-blue-600 hover:text-blue-800"
+            >
+              Clear
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Bulk Status Change */}
+            <Select
+              onValueChange={async (newStatus) => {
+                const selectedIds = table.getFilteredSelectedRowModel().rows.map(r => r.original.id);
+                try {
+                  const response = await fetch('/api/activities/bulk-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskIds: selectedIds, updates: { status: newStatus } })
+                  });
+                  if (response.ok) {
+                    setTasks(prev => prev.map(t =>
+                      selectedIds.includes(t.id) ? { ...t, status: newStatus as 'open' | 'completed' } : t
+                    ));
+                    table.resetRowSelection();
+                    toast.success(`Updated ${selectedIds.length} tasks`);
+                  }
+                } catch (error) {
+                  toast.error('Failed to update tasks');
+                }
+              }}
+            >
+              <SelectTrigger className="w-36 h-8">
+                <SelectValue placeholder="Change Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">Open</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Bulk Priority Change */}
+            <Select
+              onValueChange={async (newPriority) => {
+                const selectedIds = table.getFilteredSelectedRowModel().rows.map(r => r.original.id);
+                try {
+                  const response = await fetch('/api/activities/bulk-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskIds: selectedIds, updates: { priority: newPriority } })
+                  });
+                  if (response.ok) {
+                    setTasks(prev => prev.map(t =>
+                      selectedIds.includes(t.id) ? { ...t, priority: newPriority as 'low' | 'medium' | 'high' } : t
+                    ));
+                    table.resetRowSelection();
+                    toast.success(`Updated ${selectedIds.length} tasks`);
+                  }
+                } catch (error) {
+                  toast.error('Failed to update tasks');
+                }
+              }}
+            >
+              <SelectTrigger className="w-40 h-8">
+                <SelectValue placeholder="Change Priority" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="high">High Priority</SelectItem>
+                <SelectItem value="medium">Medium Priority</SelectItem>
+                <SelectItem value="low">Low Priority</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Bulk Delete */}
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={async () => {
+                const selectedIds = table.getFilteredSelectedRowModel().rows.map(r => r.original.id);
+                if (!confirm(`Delete ${selectedIds.length} task(s)?`)) return;
+
+                try {
+                  const response = await fetch('/api/activities/bulk-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ taskIds: selectedIds })
+                  });
+                  if (response.ok) {
+                    setTasks(prev => prev.filter(t => !selectedIds.includes(t.id)));
+                    table.resetRowSelection();
+                    toast.success(`Deleted ${selectedIds.length} tasks`);
+                  }
+                } catch (error) {
+                  toast.error('Failed to delete tasks');
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-md border overflow-auto max-h-[calc(100vh-350px)] min-h-[400px]" style={{ overflowX: 'auto', overflowY: 'auto' }}>
@@ -1925,9 +2280,31 @@ export default function TasksExcelView() {
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of{' '}
-          {table.getFilteredRowModel().rows.length} row(s) selected.
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-muted-foreground">
+            {table.getFilteredSelectedRowModel().rows.length} of{' '}
+            {table.getFilteredRowModel().rows.length} row(s) selected.
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Rows per page:</span>
+            <Select
+              value={String(table.getState().pagination.pageSize)}
+              onValueChange={(value) => {
+                table.setPageSize(Number(value));
+              }}
+            >
+              <SelectTrigger className="h-8 w-[70px]">
+                <SelectValue placeholder={table.getState().pagination.pageSize} />
+              </SelectTrigger>
+              <SelectContent side="top">
+                {[10, 20, 50, 100, 200].map((pageSize) => (
+                  <SelectItem key={pageSize} value={String(pageSize)}>
+                    {pageSize}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -2135,9 +2512,24 @@ export default function TasksExcelView() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">⚪ Low</SelectItem>
-                  <SelectItem value="medium">🟡 Medium</SelectItem>
-                  <SelectItem value="high">🔴 High</SelectItem>
+                  <SelectItem value="low">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+                      Low
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="medium">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                      Medium
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="high">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                      High
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2165,6 +2557,71 @@ export default function TasksExcelView() {
               disabled={!editTaskForm.subject.trim()}
             >
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save View Dialog */}
+      <Dialog open={showSaveViewDialog} onOpenChange={setShowSaveViewDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Save Current View</DialogTitle>
+            <DialogDescription>
+              Save your current filters, columns, and sort order as a reusable view.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="view-name">View Name</Label>
+              <Input
+                id="view-name"
+                placeholder="e.g., My Open Tasks, High Priority..."
+                value={newViewName}
+                onChange={(e) => setNewViewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newViewName.trim()) {
+                    saveView(newViewName.trim());
+                    setShowSaveViewDialog(false);
+                    setNewViewName('');
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            {/* Show what will be saved */}
+            <div className="text-sm text-muted-foreground">
+              <p className="font-medium mb-2">This view will save:</p>
+              <div className="flex flex-wrap gap-1">
+                <Badge variant="secondary" className="text-xs">Column Order</Badge>
+                <Badge variant="secondary" className="text-xs">Column Visibility</Badge>
+                <Badge variant="secondary" className="text-xs">Column Sizes</Badge>
+                <Badge variant="secondary" className="text-xs">Sort Order</Badge>
+                <Badge variant="secondary" className="text-xs">Filters</Badge>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSaveViewDialog(false);
+                setNewViewName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (newViewName.trim()) {
+                  saveView(newViewName.trim());
+                  setShowSaveViewDialog(false);
+                  setNewViewName('');
+                }
+              }}
+              disabled={!newViewName.trim()}
+            >
+              Save View
             </Button>
           </DialogFooter>
         </DialogContent>

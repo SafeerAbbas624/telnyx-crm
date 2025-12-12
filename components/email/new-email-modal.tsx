@@ -5,9 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useToast } from '@/hooks/use-toast'
-import { X, Send } from 'lucide-react'
+import { X, Send, ChevronDown, Clock } from 'lucide-react'
 import { isValidEmail, getEmailValidationError } from '@/lib/email-validation'
+import { ScheduleSendModal } from '@/components/ui/schedule-send-modal'
+import { format } from 'date-fns'
 
 interface Contact {
   id: string
@@ -43,6 +46,8 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, pref
   const [isSending, setIsSending] = useState(false)
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const { toast } = useToast()
 
   // Load draft from localStorage on mount and prefill contact if provided
@@ -51,8 +56,10 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, pref
       // First, try to prefill with provided contact or email
       if (prefilledContact?.email1) {
         setToEmail(prefilledContact.email1)
+        setSelectedContactId(prefilledContact.id)
       } else if (prefilledEmail) {
         setToEmail(prefilledEmail)
+        setSelectedContactId(null)
       } else {
         // Otherwise, load draft from localStorage
         const draftKey = `email-draft-${emailAccount.id}`
@@ -245,8 +252,65 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, pref
     }
   }
 
+  // Schedule send handler
+  const handleScheduleSend = async (scheduledAt: Date) => {
+    if (!emailAccount) {
+      throw new Error('No email account selected')
+    }
+    if (!toEmail.trim() || !subject.trim() || !message.trim()) {
+      throw new Error('Please fill in all fields')
+    }
+    if (!isValidEmail(toEmail.trim())) {
+      throw new Error('Invalid email address')
+    }
+
+    const response = await fetch('/api/scheduled-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: 'EMAIL',
+        contactId: selectedContactId,
+        scheduledAt: scheduledAt.toISOString(),
+        fromEmail: emailAccount.emailAddress,
+        toEmail: toEmail.trim(),
+        subject: subject,
+        body: `<p>${message.replace(/\n/g, '</p><p>')}</p>`,
+        metadata: {
+          source: 'new_email_modal',
+          cc: ccEmail || undefined,
+          bcc: bccEmail || undefined
+        },
+      }),
+    })
+
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to schedule email')
+    }
+
+    toast({ title: 'Success', description: `Email scheduled for ${format(scheduledAt, "MMM d 'at' h:mm a")}` })
+
+    // Clear draft from localStorage
+    if (emailAccount) {
+      const draftKey = `email-draft-${emailAccount.id}`
+      localStorage.removeItem(draftKey)
+    }
+
+    // Reset form
+    setToEmail('')
+    setCcEmail('')
+    setBccEmail('')
+    setShowCc(false)
+    setShowBcc(false)
+    setSubject('')
+    setMessage('')
+    onEmailSent()
+    onClose()
+  }
+
   const selectContact = (contact: Contact) => {
     setToEmail(contact.email1 || contact.email2 || '')
+    setSelectedContactId(contact.id)
     setShowSuggestions(false)
   }
 
@@ -259,6 +323,7 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, pref
   }
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -427,23 +492,57 @@ export function NewEmailModal({ isOpen, onClose, emailAccount, onEmailSent, pref
             <Button variant="outline" onClick={handleClose}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleSendEmail}
-              disabled={isSending || !toEmail.trim() || !subject.trim() || !message.trim()}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {isSending ? (
-                <>Sending...</>
-              ) : (
-                <>
-                  <Send className="h-4 w-4 mr-2" />
-                  Send Email
-                </>
-              )}
-            </Button>
+            <div className="flex">
+              <Button
+                onClick={handleSendEmail}
+                disabled={isSending || !toEmail.trim() || !subject.trim() || !message.trim()}
+                className="bg-blue-600 hover:bg-blue-700 rounded-r-none"
+              >
+                {isSending ? (
+                  <>Sending...</>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Send Email
+                  </>
+                )}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    disabled={isSending || !toEmail.trim() || !subject.trim() || !message.trim()}
+                    className="bg-blue-600 hover:bg-blue-700 rounded-l-none border-l border-blue-400 px-2"
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setShowScheduleModal(true)}>
+                    <Clock className="h-4 w-4 mr-2" />
+                    Schedule send...
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* Schedule Send Modal */}
+    {showScheduleModal && (
+      <ScheduleSendModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        onSchedule={handleScheduleSend}
+        channel="EMAIL"
+        preview={{
+          to: toEmail,
+          subject: subject,
+          bodyPreview: message.substring(0, 100),
+        }}
+      />
+    )}
+  </>
   )
 }

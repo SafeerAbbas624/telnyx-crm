@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useToast } from "@/hooks/use-toast"
-import { Phone, Search, X, Filter, ChevronLeft, ChevronRight } from "lucide-react"
+import { Phone, Search, Filter, ChevronLeft, ChevronRight } from "lucide-react"
 import { useCallUI } from "@/lib/context/call-ui-context"
-import { formatPhoneNumberForDisplay, formatPhoneNumberForTelnyx, getBestPhoneNumber } from "@/lib/phone-utils"
+import { useMultiCall } from "@/lib/context/multi-call-context"
+import { formatPhoneNumberForDisplay, getBestPhoneNumber } from "@/lib/phone-utils"
 import { format } from "date-fns"
 import type { Contact } from "@/lib/types"
 import { useContacts } from "@/lib/context/contacts-context"
@@ -20,6 +21,7 @@ import {
 import { LocalFilterWrapper } from "@/components/calls/local-filter-wrapper"
 import AdvancedFiltersRedesign from "@/components/contacts/advanced-filters-redesign"
 import ContactName from "@/components/contacts/contact-name"
+import { MaxCallsMessage } from "@/components/call/multi-call-cards"
 
 interface TelnyxPhoneNumber {
   id: string
@@ -44,6 +46,7 @@ interface TelnyxCall {
 export default function ManualDialingTab() {
   const { toast } = useToast()
   const { openCall } = useCallUI()
+  const { startManualCall, getCallCount, canStartNewCall } = useMultiCall()
   // Use shared contacts context for instant search (cached globally)
   const { allContacts, allContactsLoading, loadAllContacts } = useContacts()
 
@@ -51,6 +54,7 @@ export default function ManualDialingTab() {
   const [phoneNumbers, setPhoneNumbers] = useState<TelnyxPhoneNumber[]>([])
   const [selectedPhoneNumber, setSelectedPhoneNumber] = useState<TelnyxPhoneNumber | null>(null)
   const [recentCalls, setRecentCalls] = useState<TelnyxCall[]>([])
+  const [showMaxCallsWarning, setShowMaxCallsWarning] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [dialpadNumber, setDialpadNumber] = useState("")
 
@@ -231,30 +235,26 @@ export default function ManualDialingTab() {
       return
     }
 
+    // Check if we've reached max concurrent calls
+    const currentCallCount = getCallCount()
+    if (currentCallCount >= 3) {
+      setShowMaxCallsWarning(true)
+      return
+    }
+
     try {
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-      await rtcClient.ensureRegistered()
-      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber: selectedPhoneNumber.phoneNumber })
-
-      // Log the call to database
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          contactId: contact.id,
-          fromNumber: selectedPhoneNumber.phoneNumber,
-          toNumber,
-        })
-      }).catch(err => console.error('Failed to log call:', err))
-
-      openCall({
-        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-        fromNumber: selectedPhoneNumber.phoneNumber,
+      // Use multi-call context for manual dialer calls
+      const callId = await startManualCall({
+        contact,
         toNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
+        fromNumber: selectedPhoneNumber.phoneNumber,
       })
+
+      if (!callId) {
+        // Max calls reached (shouldn't happen due to check above, but just in case)
+        setShowMaxCallsWarning(true)
+        return
+      }
 
       toast({ title: 'Calling', description: `${contact.firstName} ${contact.lastName}` })
     } catch (error: any) {
@@ -274,28 +274,24 @@ export default function ManualDialingTab() {
       return
     }
 
+    // Check if we've reached max concurrent calls
+    const currentCallCount = getCallCount()
+    if (currentCallCount >= 3) {
+      setShowMaxCallsWarning(true)
+      return
+    }
+
     try {
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-      await rtcClient.ensureRegistered()
-      const { sessionId } = await rtcClient.startCall({ toNumber: dialpadNumber, fromNumber: selectedPhoneNumber.phoneNumber })
-
-      // Log the call to database (no contactId for dialpad calls)
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          fromNumber: selectedPhoneNumber.phoneNumber,
-          toNumber: dialpadNumber,
-        })
-      }).catch(err => console.error('Failed to log call:', err))
-
-      openCall({
-        fromNumber: selectedPhoneNumber.phoneNumber,
+      // Use multi-call context for dialpad calls
+      const callId = await startManualCall({
         toNumber: dialpadNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
+        fromNumber: selectedPhoneNumber.phoneNumber,
       })
+
+      if (!callId) {
+        setShowMaxCallsWarning(true)
+        return
+      }
 
       toast({ title: 'Calling', description: dialpadNumber })
       setDialpadNumber("")
@@ -664,6 +660,12 @@ export default function ManualDialingTab() {
           )}
         </div>
       </div>
+
+      {/* Max calls warning message */}
+      <MaxCallsMessage
+        show={showMaxCallsWarning}
+        onClose={() => setShowMaxCallsWarning(false)}
+      />
     </div>
     </LocalFilterWrapper>
   )

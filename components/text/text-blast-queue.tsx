@@ -35,6 +35,7 @@ import {
   ChevronUp,
   ChevronDown,
   Shuffle,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { formatPhoneNumberForDisplay, getBestPhoneNumber } from "@/lib/phone-utils"
@@ -1320,10 +1321,11 @@ export default function TextBlastQueue({ onBlastComplete }: TextBlastQueueProps)
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                            className="h-6 w-6 text-orange-500 hover:text-orange-600 hover:bg-orange-50"
                             onClick={() => removeFromQueue(contact.id)}
+                            title="Remove from queue (does not delete contact)"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <X className="h-4 w-4" />
                           </Button>
                         )}
                       </div>

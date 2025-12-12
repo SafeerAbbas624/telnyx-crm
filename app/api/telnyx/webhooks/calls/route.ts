@@ -200,6 +200,78 @@ async function handleCallAnswered(data: any) {
   try {
     console.log('[TELNYX WEBHOOK][CALL] -> answered', { callControlId: data.call_control_id })
 
+    // Check if this is a click-to-call-via-cell Leg A (user's cell answered)
+    // First check client_state, then check database
+    let clientState: any = null
+    if (data.client_state) {
+      try {
+        clientState = JSON.parse(Buffer.from(data.client_state, 'base64').toString())
+      } catch (e) {
+        // Not valid base64 JSON, ignore
+      }
+    }
+
+    if (clientState?.type === 'click_to_call_via_cell_leg_a') {
+      console.log('[CLICK-TO-CALL-VIA-CELL][LEG-A-ANSWERED]', {
+        userId: clientState.userId,
+        leadPhone: clientState.leadPhone,
+        fromNumber: clientState.fromTelnyxNumber
+      })
+      // Handle click-to-call-via-cell Leg A answered - dial Leg B (prospect)
+      await handleClickToCallLegAAnswered(data.call_control_id, clientState)
+      return // Don't process as normal call
+    }
+
+    // Check if this is Leg B (prospect) answering - then we need to bridge
+    if (clientState?.type === 'click_to_call_via_cell_leg_b') {
+      console.log('[CLICK-TO-CALL-VIA-CELL][LEG-B-ANSWERED]', {
+        legACallControlId: clientState.legACallControlId,
+        leadPhone: clientState.leadPhone
+      })
+      // Now bridge the calls since both are answered
+      await handleClickToCallLegBAnswered(data.call_control_id, clientState)
+      return // Don't process as normal call
+    }
+
+    // Also check database in case client_state wasn't passed through
+    const pendingCall = await prisma.clickToCallPending?.findUnique({
+      where: { callControlId: data.call_control_id }
+    })
+    if (pendingCall && pendingCall.status === 'pending') {
+      console.log('[CLICK-TO-CALL-VIA-CELL][LEG-A-ANSWERED] Found in DB', {
+        pendingId: pendingCall.id,
+        leadPhone: pendingCall.leadPhone
+      })
+      await handleClickToCallLegAAnswered(data.call_control_id, {
+        userId: pendingCall.userId,
+        leadPhone: pendingCall.leadPhone,
+        fromTelnyxNumber: pendingCall.fromTelnyxNumber,
+        contactId: pendingCall.contactId,
+        userCellNumber: pendingCall.userCellNumber
+      })
+      return
+    }
+
+    // Check if this is Leg B answering via database lookup
+    const pendingCallLegB = await prisma.clickToCallPending?.findFirst({
+      where: { legBCallControlId: data.call_control_id, status: 'bridging' }
+    })
+    if (pendingCallLegB) {
+      console.log('[CLICK-TO-CALL-VIA-CELL][LEG-B-ANSWERED] Found via DB', {
+        legACallControlId: pendingCallLegB.callControlId,
+        leadPhone: pendingCallLegB.leadPhone
+      })
+      await handleClickToCallLegBAnswered(data.call_control_id, {
+        legACallControlId: pendingCallLegB.callControlId,
+        userId: pendingCallLegB.userId,
+        contactId: pendingCallLegB.contactId,
+        fromTelnyxNumber: pendingCallLegB.fromTelnyxNumber,
+        userCellNumber: pendingCallLegB.userCellNumber,
+        leadPhone: pendingCallLegB.leadPhone
+      })
+      return
+    }
+
     // Prefer occurred_at (moment of answer) for talk time; fall back to start_time
     const answeredAtStr = data?.occurred_at || data?.answered_at || data?.start_time
     const answeredAt = answeredAtStr ? new Date(answeredAtStr) : new Date()
@@ -220,6 +292,196 @@ async function handleCallAnswered(data: any) {
     await startCallRecording(data.call_control_id);
   } catch (error) {
     console.error('Error handling call answered:', error);
+  }
+}
+
+/**
+ * Handle when user's cell answers for click-to-call-via-cell
+ * Now we need to dial Leg B (the prospect) and bridge the calls
+ */
+async function handleClickToCallLegAAnswered(legACallControlId: string, clientState: {
+  userId: string
+  leadPhone: string
+  fromTelnyxNumber: string
+  contactId?: string | null
+  userCellNumber: string
+}) {
+  const TELNYX_API_KEY = process.env.TELNYX_API_KEY
+  const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID
+
+  if (!TELNYX_API_KEY || !TELNYX_CONNECTION_ID) {
+    console.error('[CLICK-TO-CALL-VIA-CELL][ERROR] Missing Telnyx config')
+    return
+  }
+
+  try {
+    // Update pending call status
+    await prisma.clickToCallPending?.update({
+      where: { callControlId: legACallControlId },
+      data: { status: 'leg_a_answered', updatedAt: new Date() }
+    })
+
+    // Build webhook URL
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL
+    const baseWebhook = appUrl && appUrl.startsWith('https')
+      ? appUrl
+      : (process.env.TELNYX_PROD_WEBHOOK_URL || 'https://adlercapitalcrm.com')
+    const webhookUrl = `${baseWebhook}/api/telnyx/webhooks/calls`
+
+    console.log('[CLICK-TO-CALL-VIA-CELL][DIALING-LEG-B]', {
+      leadPhone: clientState.leadPhone,
+      fromNumber: clientState.fromTelnyxNumber
+    })
+
+    // Create Leg B: Telnyx -> Prospect
+    const legBResponse = await fetch('https://api.telnyx.com/v2/calls', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TELNYX_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        connection_id: TELNYX_CONNECTION_ID,
+        to: clientState.leadPhone,
+        from: clientState.fromTelnyxNumber,
+        webhook_url: webhookUrl,
+        webhook_url_method: 'POST',
+        record: 'record-from-answer',
+        record_format: 'mp3',
+        record_channels: 'dual',
+        timeout_secs: 30,
+        client_state: Buffer.from(JSON.stringify({
+          type: 'click_to_call_via_cell_leg_b',
+          legACallControlId,
+          userId: clientState.userId,
+          contactId: clientState.contactId,
+          fromTelnyxNumber: clientState.fromTelnyxNumber,
+          userCellNumber: clientState.userCellNumber,
+          leadPhone: clientState.leadPhone
+        })).toString('base64')
+      }),
+    })
+
+    if (!legBResponse.ok) {
+      const errorData = await legBResponse.json().catch(() => ({}))
+      console.error('[CLICK-TO-CALL-VIA-CELL][ERROR] Failed to dial prospect:', errorData)
+      // Update status to failed
+      await prisma.clickToCallPending?.update({
+        where: { callControlId: legACallControlId },
+        data: { status: 'failed', updatedAt: new Date() }
+      })
+      return
+    }
+
+    const legBData = await legBResponse.json()
+    const legBCallControlId = legBData.data?.call_control_id
+
+    console.log('[CLICK-TO-CALL-VIA-CELL][LEG-B-CREATED]', {
+      legBCallControlId,
+      legACallControlId
+    })
+
+    // Update pending call with Leg B info
+    await prisma.clickToCallPending?.update({
+      where: { callControlId: legACallControlId },
+      data: {
+        status: 'bridging',
+        legBCallControlId,
+        updatedAt: new Date()
+      }
+    })
+
+    // Create TelnyxCall record for this call (Leg B is the actual call to prospect)
+    await prisma.telnyxCall.create({
+      data: {
+        telnyxCallId: legBCallControlId,
+        telnyxSessionId: legBData.data?.call_session_id || null,
+        fromNumber: clientState.fromTelnyxNumber,
+        toNumber: clientState.leadPhone,
+        direction: 'outbound',
+        status: 'initiated',
+        contactId: clientState.contactId || null,
+        initiatedBy: clientState.userId,
+        webhookData: { clickToCallViaCell: true, legACallControlId }
+      }
+    })
+
+    // NOTE: Don't bridge here! We wait for Leg B to answer via webhook
+    // The bridge will happen in handleClickToCallLegBAnswered when prospect answers
+    console.log('[CLICK-TO-CALL-VIA-CELL][WAITING] Waiting for prospect to answer before bridging...')
+
+  } catch (error) {
+    console.error('[CLICK-TO-CALL-VIA-CELL][ERROR] handleClickToCallLegAAnswered:', error)
+    await prisma.clickToCallPending?.update({
+      where: { callControlId: legACallControlId },
+      data: { status: 'failed', updatedAt: new Date() }
+    }).catch(() => {})
+  }
+}
+
+/**
+ * Handle when prospect (Leg B) answers for click-to-call-via-cell
+ * Now we can bridge both calls together
+ */
+async function handleClickToCallLegBAnswered(legBCallControlId: string, clientState: {
+  legACallControlId: string
+  userId: string
+  contactId?: string | null
+  fromTelnyxNumber: string
+  userCellNumber: string
+  leadPhone: string
+}) {
+  const TELNYX_API_KEY = process.env.TELNYX_API_KEY
+
+  if (!TELNYX_API_KEY) {
+    console.error('[CLICK-TO-CALL-VIA-CELL][ERROR] Missing Telnyx API key')
+    return
+  }
+
+  try {
+    console.log('[CLICK-TO-CALL-VIA-CELL][BRIDGING]', {
+      legACallControlId: clientState.legACallControlId,
+      legBCallControlId
+    })
+
+    // Bridge Leg A (user's cell) to Leg B (prospect)
+    const bridgeResponse = await fetch(`https://api.telnyx.com/v2/calls/${clientState.legACallControlId}/actions/bridge`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TELNYX_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        call_control_id: legBCallControlId
+      }),
+    })
+
+    if (!bridgeResponse.ok) {
+      const errorData = await bridgeResponse.json().catch(() => ({}))
+      console.error('[CLICK-TO-CALL-VIA-CELL][ERROR] Failed to bridge calls:', errorData)
+      await prisma.clickToCallPending?.update({
+        where: { callControlId: clientState.legACallControlId },
+        data: { status: 'bridge_failed', updatedAt: new Date() }
+      })
+    } else {
+      console.log('[CLICK-TO-CALL-VIA-CELL][BRIDGED] Successfully bridged calls!')
+      await prisma.clickToCallPending?.update({
+        where: { callControlId: clientState.legACallControlId },
+        data: { status: 'completed', completedAt: new Date(), updatedAt: new Date() }
+      })
+
+      // Update TelnyxCall record to bridged status
+      await prisma.telnyxCall.updateMany({
+        where: { telnyxCallId: legBCallControlId },
+        data: { status: 'bridged', answeredAt: new Date(), updatedAt: new Date() }
+      })
+    }
+  } catch (error) {
+    console.error('[CLICK-TO-CALL-VIA-CELL][ERROR] handleClickToCallLegBAnswered:', error)
+    await prisma.clickToCallPending?.update({
+      where: { callControlId: clientState.legACallControlId },
+      data: { status: 'failed', updatedAt: new Date() }
+    }).catch(() => {})
   }
 }
 

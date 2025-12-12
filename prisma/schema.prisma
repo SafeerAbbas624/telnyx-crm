@@ -43,6 +43,7 @@ model Contact {
   dnc                     Boolean?                 @default(false)
   dncReason               String?                  @map("dnc_reason")
   dealStatus              DealStatus?              @default(lead) @map("deal_status")
+  noAnswerCount           Int                      @default(0) @map("no_answer_count") // Track how many times contact didn't answer in power dialer
   notes                   String?
   avatarUrl               String?                  @map("avatar_url")
   customFields            Json?                    @default("{}") @map("custom_fields")
@@ -67,6 +68,7 @@ model Contact {
   sequenceEnrollments     SequenceEnrollment[]     @relation("ContactSequenceEnrollments")
   scheduledMessages       ScheduledMessage[]       @relation("ContactScheduledMessages")
   dispositionLogs         CallDispositionLog[]
+  clickToCallPending      ClickToCallPending[]     @relation("ContactClickToCallPending")
 
   // Performance indexes for common queries
   @@index([pipelineId], name: "idx_contacts_pipeline_id")
@@ -1505,9 +1507,10 @@ model User {
   defaultPhoneNumber   TelnyxPhoneNumber? @relation("DefaultPhoneNumber", fields: [defaultPhoneNumberId], references: [id], onDelete: SetNull)
 
   // Profile settings
-  avatar      String?
-  timezone    String?   @default("UTC")
-  lastLoginAt DateTime? @map("last_login_at")
+  avatar          String?
+  timezone        String?   @default("UTC")
+  lastLoginAt     DateTime? @map("last_login_at")
+  cellPhoneNumber String?   @map("cell_phone_number") // User's personal cell for click-to-call-via-cell
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1557,6 +1560,9 @@ model User {
 
   // Scheduled messages
   scheduledMessages    ScheduledMessage[]   @relation("UserScheduledMessages")
+
+  // Click to call via cell
+  clickToCallPending   ClickToCallPending[] @relation("UserClickToCallPending")
 
   @@map("users")
 }
@@ -1828,6 +1834,7 @@ model PowerDialerList {
 
   // Dynamic tag-based sync configuration
   syncTagIds    String[]  @default([]) @map("sync_tag_ids") // Tag IDs to sync contacts from
+  excludeTagIds String[]  @default([]) @map("exclude_tag_ids") // Tag IDs to exclude from sync
   autoSync      Boolean   @default(false) @map("auto_sync") // Whether to auto-sync every minute
   lastSyncAt    DateTime? @map("last_sync_at") // Last time contacts were synced from tags
   syncIntervalMinutes Int @default(1) @map("sync_interval_minutes") // How often to sync (default 1 min)
@@ -1841,6 +1848,9 @@ model PowerDialerList {
   contactsBusy     Int @default(0) @map("contacts_busy")
   contactsFailed   Int @default(0) @map("contacts_failed")
   totalTalkTime    Int @default(0) @map("total_talk_time") // in seconds
+
+  // Session state persistence (stores session history JSON for resume)
+  sessionState Json? @map("session_state") // Stores { sessionHistory: [], queueOrder: [] }
 
   // Timestamps
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -2540,4 +2550,33 @@ enum DispositionActionType {
   REQUEUE_CONTACT      // Put back in queue for retry
   REMOVE_FROM_QUEUE    // Remove from all dialer queues
   MARK_BAD_NUMBER      // Mark phone as invalid
+  DELETE_CONTACT       // Permanently delete the contact
+}
+
+// ============================================================================
+// CLICK-TO-CALL VIA CELL - Tracks pending calls for bridging user's cell to prospect
+// ============================================================================
+
+model ClickToCallPending {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  callControlId     String   @unique @map("call_control_id") // Leg A (user's cell) call control ID
+  legASessionId     String?  @map("leg_a_session_id") // Telnyx session ID for Leg A
+  leadPhone         String   @map("lead_phone") // Prospect's phone to dial on Leg B
+  fromTelnyxNumber  String   @map("from_telnyx_number") // Caller ID for both legs
+  contactId         String?  @map("contact_id") @db.Uuid // Optional contact association
+  userCellNumber    String   @map("user_cell_number") // User's cell number that was called
+  status            String   @default("pending") // pending, leg_a_answered, bridging, completed, failed
+  legBCallControlId String?  @map("leg_b_call_control_id") // Leg B (prospect) call control ID
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  completedAt       DateTime? @map("completed_at")
+
+  user    User     @relation("UserClickToCallPending", fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation("ContactClickToCallPending", fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([callControlId])
+  @@index([status])
+  @@map("click_to_call_pending")
 }

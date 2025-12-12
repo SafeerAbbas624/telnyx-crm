@@ -37,16 +37,39 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
 
   // Handle selectedContactId from URL parameter
   useEffect(() => {
-    if (selectedContactId && contacts.length > 0) {
-      const contact = contacts.find(c => c.id === selectedContactId)
-      if (contact) {
-        setSelectedContact(contact)
-        setActiveTab("conversations")
-        if (isMobile) {
-          setShowConversation(true)
+    if (!selectedContactId) return
+
+    // First try to find in loaded contacts
+    const contact = contacts.find(c => c.id === selectedContactId)
+    if (contact) {
+      setSelectedContact(contact)
+      setActiveTab("conversations")
+      if (isMobile) {
+        setShowConversation(true)
+      }
+      return
+    }
+
+    // If not found in loaded contacts, fetch from API
+    const fetchContact = async () => {
+      try {
+        const res = await fetch(`/api/contacts/${selectedContactId}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data) {
+            setSelectedContact(data as Contact)
+            setActiveTab("conversations")
+            if (isMobile) {
+              setShowConversation(true)
+            }
+          }
         }
+      } catch (error) {
+        console.error('Error fetching contact:', error)
       }
     }
+
+    fetchContact()
   }, [selectedContactId, contacts, isMobile])
 
   // Reset selected contact when changing tabs

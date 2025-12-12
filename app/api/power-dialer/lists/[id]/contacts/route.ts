@@ -51,9 +51,22 @@ export async function GET(
               phone3: true,
               email1: true,
               propertyAddress: true,
+              fullPropertyAddress: true,
               city: true,
               state: true,
+              zipCode: true,
+              llcName: true,
               dnc: true,
+              // Include additional properties for multi-property contacts
+              properties: {
+                select: {
+                  address: true,
+                  city: true,
+                  state: true,
+                  zipCode: true,
+                },
+                take: 3, // Limit to 3 properties
+              }
             }
           }
         },

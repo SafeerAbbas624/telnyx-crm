@@ -102,12 +102,13 @@ const LinkedInIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 import { useSmsUI } from '@/lib/context/sms-ui-context';
-import { useCallUI } from '@/lib/context/call-ui-context';
+import { useMakeCall } from '@/hooks/use-make-call';
 import { useEmailUI } from '@/lib/context/email-ui-context';
 import { useTaskUI } from '@/lib/context/task-ui-context';
 import { normalizePropertyType } from '@/lib/property-type-mapper';
 import { usePhoneNumber } from '@/lib/context/phone-number-context';
 import { useContacts } from '@/lib/context/contacts-context';
+import { CallButtonWithCellHover } from '@/components/ui/call-button-with-cell-hover';
 
 // Custom filter function for number ranges
 const numberRangeFilter: FilterFn<any> = (row, columnId, filterValue) => {
@@ -190,7 +191,7 @@ export default function ContactsDataGrid({
 }: ContactsDataGridProps) {
   // CRM Action Hooks
   const { openSms } = useSmsUI();
-  const { openCall } = useCallUI();
+  const { makeCall } = useMakeCall();
   const { openEmail } = useEmailUI();
   const { openTask } = useTaskUI();
   const { selectedPhoneNumber } = usePhoneNumber();
@@ -220,6 +221,7 @@ export default function ContactsDataGrid({
     contactCityStateZip: false,
     llcName: false,
     propertyCounty: false,
+    fullPropertyAddress: false, // Can be toggled on - shows full address with city, state, zip
   });
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([]);
@@ -288,54 +290,19 @@ export default function ContactsDataGrid({
 
 
 
-  // Handle initiating a call via WebRTC
+  // Handle initiating a call using multi-call system
   const handleInitiateCall = async (contact: Contact) => {
     const phoneNumber = contact.phone1 || contact.phone2 || contact.phone3;
     if (!phoneNumber) {
       toast.error('No phone number available for this contact');
       return;
     }
-    if (!selectedPhoneNumber) {
-      toast.error('No phone number selected. Please select a calling number from the header.');
-      return;
-    }
-    const fromNumber = selectedPhoneNumber.phoneNumber;
-
-    try {
-      // Use WebRTC to make the call
-      const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils');
-      const toNumber = formatPhoneNumberForTelnyx(phoneNumber) || phoneNumber;
-
-      // Get WebRTC client
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client');
-      await rtcClient.ensureRegistered();
-      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber });
-
-      // Log the call to database
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          contactId: contact.id,
-          fromNumber,
-          toNumber,
-        })
-      }).catch(err => console.error('Failed to log call:', err));
-
-      openCall({
-        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-        fromNumber,
-        toNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
-      });
-
-      toast.success(`Calling ${contact.firstName} ${contact.lastName}`);
-    } catch (error: any) {
-      console.error('Error initiating call:', error);
-      toast.error(error.message || 'Failed to initiate call');
-    }
+    const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+    await makeCall({
+      phoneNumber,
+      contactId: contact.id,
+      contactName,
+    })
   };
 
   // Handle opening SMS panel
@@ -422,6 +389,11 @@ export default function ContactsDataGrid({
         if (value) params.append(key, value);
       });
 
+      // Add cache-busting parameter when forcing refresh
+      if (forceRefresh) {
+        params.append('_t', Date.now().toString());
+      }
+
       const response = await fetch(`/api/contacts?${params.toString()}`, {
         cache: forceRefresh ? 'no-store' : 'force-cache',
         next: { revalidate: 30 }
@@ -439,8 +411,11 @@ export default function ContactsDataGrid({
     }
   };
 
-  const onRefresh = () => {
-    fetchContacts(true);
+  const onRefresh = async () => {
+    await Promise.all([
+      fetchContacts(true),
+      fetchTags() // Also refresh tags list
+    ]);
   };
 
   const fetchFieldDefinitions = async () => {
@@ -497,20 +472,25 @@ export default function ContactsDataGrid({
   };
 
   const saveCurrentView = (viewName: string) => {
-    const view = {
-      name: viewName,
-      columnVisibility,
-      columnSizing,
-      columnFilters,
-      sorting,
-      columnOrder,
-      activeFilters, // Include toolbar filters
-    };
-    const updated = [...savedViews.filter(v => v.name !== viewName), view];
-    setSavedViews(updated);
-    localStorage.setItem('contactsGridViews', JSON.stringify(updated));
-    setCurrentView(viewName);
-    toast.success(`View "${viewName}" saved`);
+    try {
+      const view = {
+        name: viewName,
+        columnVisibility,
+        columnSizing,
+        columnFilters,
+        sorting,
+        columnOrder,
+        activeFilters, // Include toolbar filters
+      };
+      const updated = [...savedViews.filter(v => v.name !== viewName), view];
+      setSavedViews(updated);
+      localStorage.setItem('contactsGridViews', JSON.stringify(updated));
+      setCurrentView(viewName);
+      toast.success(`View "${viewName}" saved`);
+    } catch (error) {
+      console.error('Error saving view:', error);
+      toast.error('Failed to save view');
+    }
   };
 
   const loadView = async (viewName: string) => {
@@ -926,7 +906,7 @@ export default function ContactsDataGrid({
     contactAddress: 'Contact Address',
     contactCityStateZip: 'Contact City, State, Zip',
     tags: 'Tags',
-    tasks: 'Tasks',
+    fullPropertyAddress: 'Full Property Address',
     createdAt: 'Date Added',
     deals: 'Deals',
     actions: 'Actions',
@@ -1039,6 +1019,33 @@ export default function ContactsDataGrid({
         accessorKey: 'propertyAddress',
         header: 'Property Address',
         size: 250,
+      },
+      {
+        id: 'fullPropertyAddress',
+        accessorKey: 'fullPropertyAddress',
+        header: 'Full Property Address',
+        cell: ({ row }) => {
+          // Build full address from available fields
+          const address = row.original.propertyAddress || '';
+          const city = row.original.city || '';
+          const state = row.original.state || '';
+          const zipCode = (row.original as any).zipCode || '';
+
+          const parts = [address];
+          const cityStateZip = [city, state].filter(Boolean).join(', ');
+          if (cityStateZip) parts.push(cityStateZip);
+          if (zipCode) parts.push(zipCode);
+
+          const fullAddress = parts.join(', ');
+          return fullAddress ? (
+            <span className="text-xs" title={fullAddress}>
+              {fullAddress}
+            </span>
+          ) : null;
+        },
+        size: 350,
+        enableSorting: true,
+        enableResizing: true,
       },
       {
         accessorKey: 'propertyCount',
@@ -1465,109 +1472,6 @@ export default function ContactsDataGrid({
         meta: { filterType: 'tags' },
       },
       {
-        id: 'tasks',
-        header: 'Tasks',
-        accessorFn: (row: any) => row.activities,
-        cell: ({ row }) => {
-          const activities = row.original.activities || [];
-          const tasks = activities.filter((a: any) => a.type === 'task' && a.status !== 'completed');
-
-          if (tasks.length === 0) {
-            return (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 text-xs text-gray-400 hover:text-gray-900"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openTask({
-                    contact: row.original,
-                    contactId: row.original.id,
-                  });
-                }}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Add Task
-              </Button>
-            );
-          }
-
-          // Sort tasks by due date (earliest first)
-          const sortedTasks = [...tasks].sort((a, b) => {
-            if (!a.dueDate) return 1;
-            if (!b.dueDate) return -1;
-            return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-          });
-
-          const latestTask = sortedTasks[0];
-          const dueDate = latestTask.dueDate ? new Date(latestTask.dueDate) : null;
-          const isOverdue = dueDate && dueDate < new Date();
-          const isToday = dueDate && dueDate.toDateString() === new Date().toDateString();
-
-          const otherTasks = sortedTasks.slice(1);
-          const tooltipContent = otherTasks.map((task: any) => {
-            const taskDueDate = task.dueDate ? new Date(task.dueDate) : null;
-            const dateStr = taskDueDate ? taskDueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No date';
-            return `${task.subject || task.title} - Due: ${dateStr}`;
-          }).join('\n');
-
-          return (
-            <div className="flex items-center justify-between gap-2 group">
-              <div className="space-y-1 flex-1 min-w-0">
-                <div className="text-xs font-medium text-gray-900 truncate" title={latestTask.subject || latestTask.title}>
-                  {latestTask.subject || latestTask.title}
-                </div>
-                {dueDate && (
-                  <div className={`text-xs ${isOverdue ? 'text-red-600 font-semibold' : isToday ? 'text-orange-600 font-semibold' : 'text-gray-500'}`}>
-                    Due: {dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </div>
-                )}
-                {tasks.length > 1 && (
-                  <Badge
-                    variant="secondary"
-                    className="text-xs cursor-help"
-                    title={tooltipContent}
-                  >
-                    +{tasks.length - 1} more
-                  </Badge>
-                )}
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openTask({
-                    contact: row.original,
-                    contactId: row.original.id,
-                  });
-                }}
-                title="Add Task"
-              >
-                <Plus className="h-3 w-3" />
-              </Button>
-            </div>
-          );
-        },
-        size: 200,
-        enableSorting: true,
-        enableResizing: true,
-        sortingFn: (rowA, rowB) => {
-          const tasksA = rowA.original.activities?.filter((a: any) => a.type === 'task' && a.status !== 'completed') || [];
-          const tasksB = rowB.original.activities?.filter((a: any) => a.type === 'task' && a.status !== 'completed') || [];
-
-          if (tasksA.length === 0 && tasksB.length === 0) return 0;
-          if (tasksA.length === 0) return 1;
-          if (tasksB.length === 0) return -1;
-
-          const dueDateA = tasksA[0]?.dueDate ? new Date(tasksA[0].dueDate).getTime() : Infinity;
-          const dueDateB = tasksB[0]?.dueDate ? new Date(tasksB[0].dueDate).getTime() : Infinity;
-
-          return dueDateA - dueDateB;
-        },
-      },
-      {
         accessorKey: 'createdAt',
         header: 'Date Added',
         cell: ({ row }) => {
@@ -1750,21 +1654,20 @@ export default function ContactsDataGrid({
     baseColumns.push({
       id: 'actions',
       header: 'Actions',
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleInitiateCall(row.original);
-            }}
-            title="Call (WebRTC)"
-            disabled={!row.original.phone1 && !row.original.phone2 && !row.original.phone3}
-          >
-            <Phone className="h-4 w-4" />
-          </Button>
+      cell: ({ row }) => {
+        const phoneNumber = row.original.phone1 || row.original.phone2 || row.original.phone3;
+        const contactName = `${row.original.firstName || ''} ${row.original.lastName || ''}`.trim();
+        return (
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <CallButtonWithCellHover
+            phoneNumber={phoneNumber || ''}
+            contactId={row.original.id}
+            contactName={contactName}
+            onWebRTCCall={() => handleInitiateCall(row.original)}
+            className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+            iconClassName="h-4 w-4"
+            disabled={!phoneNumber}
+          />
           <Button
             size="sm"
             variant="ghost"
@@ -1807,7 +1710,7 @@ export default function ContactsDataGrid({
             <Plus className="h-4 w-4" />
           </Button>
         </div>
-      ),
+      )},
       enableSorting: false,
       enableHiding: false,
       enableResizing: true,
@@ -1839,6 +1742,7 @@ export default function ContactsDataGrid({
     getRowId: (row) => row.id, // Use contact ID as row ID for proper selection
     enableRowSelection: true,
     enableColumnResizing: true,
+    enableColumnOrdering: true, // Enable column reordering via drag and drop
     columnResizeMode: 'onChange', // Real-time resize feedback as you drag
     columnResizeDirection: 'ltr', // Only resize the column being dragged, not others
     onSortingChange: setSorting,
@@ -1852,7 +1756,28 @@ export default function ContactsDataGrid({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    initialState: {
+      pagination: {
+        pageSize: 100,
+      },
+    },
   });
+
+  // Initialize column order with all column IDs if not already set
+  // This ensures drag/drop works even for columns that were initially hidden
+  useEffect(() => {
+    if (columnOrder.length === 0 && columns.length > 0) {
+      const allColumnIds = columns.map(col => {
+        // Get the column ID - prefer 'id' property, fallback to 'accessorKey'
+        if ('id' in col && col.id) return col.id;
+        if ('accessorKey' in col && col.accessorKey) return col.accessorKey as string;
+        return '';
+      }).filter(Boolean);
+      if (allColumnIds.length > 0) {
+        setColumnOrder(allColumnIds);
+      }
+    }
+  }, [columns, columnOrder.length]);
 
   if (loading) {
     return (
@@ -2309,7 +2234,7 @@ export default function ContactsDataGrid({
               <SelectValue placeholder={table.getState().pagination.pageSize} />
             </SelectTrigger>
             <SelectContent side="top">
-              {[10, 20, 30, 40, 50, 100].map((pageSize) => (
+              {[10, 20, 50, 100, 200].map((pageSize) => (
                 <SelectItem key={pageSize} value={`${pageSize}`}>
                   {pageSize}
                 </SelectItem>
@@ -2795,7 +2720,7 @@ export default function ContactsDataGrid({
 
       {/* Save View Dialog */}
       <Dialog open={showSaveViewDialog} onOpenChange={setShowSaveViewDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md z-[100]">
           <DialogHeader>
             <DialogTitle>Save Current View</DialogTitle>
             <DialogDescription>

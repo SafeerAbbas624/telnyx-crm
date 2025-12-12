@@ -223,18 +223,20 @@ export default function RedesignedCallPopup() {
 
           console.log('[CallPopup] callUpdate received:', state, 'callId:', eventCallId, 'activeCallId:', activeCallId)
 
-          // STRICT matching: Only process events that DEFINITELY match our call
-          // If both IDs are present, they must match
-          // If we have an activeCallId but event has no ID, IGNORE IT (it's from another call)
-          const isDefinitelyOurCall = eventCallId && activeCallId && eventCallId === activeCallId
+          // Check if this event is for our call
+          // Either: IDs match, OR no active call ID but we have a call popup open
+          const isOurCall = (eventCallId && activeCallId && eventCallId === activeCallId) ||
+                           (!activeCallId && call) // If we don't have an ID but popup is open, it's likely ours
 
-          // Detect hangup/destroy/failed states - but ONLY for our specific call
-          if (isDefinitelyOurCall && (state === 'hangup' || state === 'destroy' || state === 'failed' ||
-              state === 'bye' || state === 'cancel' || state === 'rejected')) {
-            // Double-check with hasActiveCall() before ending
+          // Detect hangup/destroy/failed states
+          const endStates = ['hangup', 'destroy', 'failed', 'bye', 'cancel', 'rejected']
+          if (endStates.includes(state)) {
+            // Check if there's still an active call
             const hasActive = rtcClient.hasActiveCall()
-            console.log('[CallPopup] End event for our call, hasActive:', hasActive)
-            if (!hasActive) {
+            console.log('[CallPopup] End event received, state:', state, 'isOurCall:', isOurCall, 'hasActive:', hasActive)
+
+            // End the call if: it's definitely our call, OR if there's no active call at all
+            if (isOurCall || !hasActive) {
               console.log('[CallPopup] Call ended via event:', state)
               setHasEnded(true)
             }
@@ -266,12 +268,12 @@ export default function RedesignedCallPopup() {
 
         console.log('[CallPopup] Poll check - hasActive:', hasActive, 'state:', callState?.state)
 
-        // Only end if there's definitely no active call AND we've waited long enough
-        if (!hasActive && callState?.state && ['hangup', 'destroy', 'failed', 'bye', 'done'].includes(callState.state)) {
-          // Only end if we've been in the call for at least 5 seconds
+        // End if there's no active call
+        if (!hasActive) {
           const callDuration = Date.now() - (call?.startedAt || Date.now())
-          if (callDuration > 5000) {  // Wait at least 5 seconds before allowing poll-based end
-            console.log('[CallPopup] Call ended via poll:', callState?.state, 'after', callDuration, 'ms')
+          // Wait at least 2 seconds before ending via poll (to prevent premature endings)
+          if (callDuration > 2000) {
+            console.log('[CallPopup] Call ended via poll - no active call after', callDuration, 'ms')
             setHasEnded(true)
             clearInterval(checkInterval)
           }

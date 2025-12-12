@@ -19,7 +19,8 @@ import AddContactDialog from "@/components/contacts/add-contact-dialog"
 import { normalizePropertyType } from "@/lib/property-type-mapper"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
-import { useCallUI } from "@/lib/context/call-ui-context"
+import { useMakeCall } from "@/hooks/use-make-call"
+import { CallButtonWithCellHover } from "@/components/ui/call-button-with-cell-hover"
 
 interface Contact {
   id: string
@@ -50,7 +51,7 @@ export default function TeamContacts() {
   const { toast } = useToast()
   const { openEmail } = useEmailUI()
   const { openSms } = useSmsUI()
-  const { openCall } = useCallUI()
+  const { makeCall } = useMakeCall()
 
   const [contacts, setContacts] = useState<Contact[]>([])
   const [searchQuery, setSearchQuery] = useState("")
@@ -251,18 +252,18 @@ export default function TeamContacts() {
                           <div className="flex gap-1">
                             {contact.phone1 && (
                               <>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    openCall(contact.phone1!)
-                                  }}
-                                  title="Call"
-                                >
-                                  <Phone className="h-4 w-4" />
-                                </Button>
+                                <CallButtonWithCellHover
+                                  phoneNumber={contact.phone1}
+                                  contactId={contact.id}
+                                  contactName={`${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
+                                  onWebRTCCall={() => makeCall({
+                                    phoneNumber: contact.phone1!,
+                                    contactId: contact.id,
+                                    contactName: `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+                                  })}
+                                  className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  iconClassName="h-4 w-4"
+                                />
                                 <Button
                                   size="sm"
                                   variant="ghost"

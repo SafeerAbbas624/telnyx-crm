@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { redisClient } from '@/lib/cache/redis-client';
 import { elasticsearchClient } from '@/lib/search/elasticsearch-client';
-import { formatPhoneNumberForTelnyx, last10Digits } from '@/lib/phone-utils';
+import { formatPhoneNumberForTelnyx } from '@/lib/phone-utils';
 import { getToken } from 'next-auth/jwt';
 import { PROPERTY_TYPE_MAP, normalizePropertyType } from '@/lib/property-type-mapper';
 
@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
     const state = searchParams.get('state')
     const propertyCounty = searchParams.get('propertyCounty')
     const tags = searchParams.get('tags')
+    const excludeTags = searchParams.get('excludeTags') // Tags to exclude from results
 
     // Financial filters
     const minValue = searchParams.get('minValue') ? parseFloat(searchParams.get('minValue')!) : undefined
@@ -101,17 +102,20 @@ export async function GET(request: NextRequest) {
     const useElasticsearch = (searchParams.get('useElasticsearch') === 'true' || !!search) && !hasMultiValues
 
     const filters = {
-      search, dealStatus, propertyType, city, state, propertyCounty, tags,
+      search, dealStatus, propertyType, city, state, propertyCounty, tags, excludeTags,
       minValue, maxValue, minEquity, maxEquity,
       minBedrooms, maxBedrooms, minBathrooms, maxBathrooms, minSqft, maxSqft, minYearBuilt, maxYearBuilt
     }
 
     // Enhanced logging for debugging
     console.log(`🔍 [API DEBUG] Contacts API called - Search: "${search || 'none'}" | Page: ${page} | Limit: ${limit}`)
-    console.log(`🔍 [API DEBUG] All params:`, { search, dealStatus, propertyType, city, state, propertyCounty, tags, minValue, maxValue, minEquity, maxEquity })
+    console.log(`🔍 [API DEBUG] All params:`, { search, dealStatus, propertyType, city, state, propertyCounty, tags, excludeTags, minValue, maxValue, minEquity, maxEquity })
 
-    // Try cache first for non-search queries
-    if (!search) {
+    // Check if cache should be bypassed
+    const noCache = searchParams.get('noCache') === 'true' || searchParams.has('_t')
+
+    // Try cache first for non-search queries (unless noCache is set)
+    if (!search && !noCache) {
       try {
         const cached = await redisClient.getCachedContactsPage(page, limit, filters)
         if (cached) {
@@ -306,6 +310,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Exclude contacts that have any of the exclude tags
+    // Use AND with NOT to properly combine with other filters
+    if (excludeTags) {
+      const excludeTagValues = excludeTags.split(',').map(t => t.trim())
+      const isUuid = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+      const areIds = excludeTagValues.every(isUuid)
+
+      // Build NOT conditions for each excluded tag to ensure contacts with ANY excluded tag are removed
+      const notConditions = excludeTagValues.map(tagValue => ({
+        contact_tags: {
+          some: {
+            tag: areIds
+              ? { id: tagValue }
+              : { name: tagValue }
+          }
+        }
+      }))
+
+      // Use AND with NOT array to exclude contacts that have ANY of the excluded tags
+      if (!where.AND) where.AND = []
+      where.AND.push(...notConditions.map(condition => ({ NOT: condition })))
+
+      console.log('[CONTACTS API] Exclude tags filter applied:', {
+        excludeTagValues,
+        areIds,
+        notConditionsCount: notConditions.length
+      })
+    }
+
     // Only apply value/equity filters when there's an active search or when filters are explicitly set
     // This prevents the default filter ranges from excluding contacts when just browsing all contacts
     const hasActiveSearch = search && search.trim().length > 0
@@ -317,43 +350,106 @@ export async function GET(request: NextRequest) {
     const isDefaultEquityRange = (minEquity <= 500 && maxEquity >= 900000000) ||
                                 (minEquity === 0 && maxEquity >= 900000000)
 
-    // Apply value filters only when range is not the default "show all". Avoid excluding NULLs on default.
-    if ((minValue !== undefined || maxValue !== undefined) && !isDefaultValueRange) {
-      where.estValue = {}
-      if (minValue !== undefined) where.estValue.gte = minValue
-      if (maxValue !== undefined) where.estValue.lte = maxValue
-    }
+    // Check if any property-specific filters are active (value, equity, beds, baths, sqft, year)
+    const hasPropertyFilters =
+      (!isDefaultValueRange && (minValue !== undefined || maxValue !== undefined)) ||
+      (!isDefaultEquityRange && (minEquity !== undefined || maxEquity !== undefined)) ||
+      (minBedrooms !== undefined || maxBedrooms !== undefined) ||
+      (minBathrooms !== undefined || maxBathrooms !== undefined) ||
+      (minSqft !== undefined || maxSqft !== undefined) ||
+      (minYearBuilt !== undefined || maxYearBuilt !== undefined)
 
-    // Apply equity filters only when range is not the default "show all". Avoid excluding NULLs on default.
-    if ((minEquity !== undefined || maxEquity !== undefined) && !isDefaultEquityRange) {
-      where.estEquity = {}
-      if (minEquity !== undefined) where.estEquity.gte = minEquity
-      if (maxEquity !== undefined) where.estEquity.lte = maxEquity
-    }
+    // If property filters are active, use OR logic to match primary OR secondary properties
+    if (hasPropertyFilters) {
+      // Build conditions for primary property (on Contact)
+      const primaryPropertyConditions: any = {}
 
-    // Apply property detail filters (NEW)
-    if (minBedrooms !== undefined || maxBedrooms !== undefined) {
-      where.bedrooms = {}
-      if (minBedrooms !== undefined) where.bedrooms.gte = minBedrooms
-      if (maxBedrooms !== undefined) where.bedrooms.lte = maxBedrooms
-    }
+      if (!isDefaultValueRange && (minValue !== undefined || maxValue !== undefined)) {
+        primaryPropertyConditions.estValue = {}
+        if (minValue !== undefined) primaryPropertyConditions.estValue.gte = minValue
+        if (maxValue !== undefined) primaryPropertyConditions.estValue.lte = maxValue
+      }
 
-    if (minBathrooms !== undefined || maxBathrooms !== undefined) {
-      where.totalBathrooms = {}
-      if (minBathrooms !== undefined) where.totalBathrooms.gte = minBathrooms
-      if (maxBathrooms !== undefined) where.totalBathrooms.lte = maxBathrooms
-    }
+      if (!isDefaultEquityRange && (minEquity !== undefined || maxEquity !== undefined)) {
+        primaryPropertyConditions.estEquity = {}
+        if (minEquity !== undefined) primaryPropertyConditions.estEquity.gte = minEquity
+        if (maxEquity !== undefined) primaryPropertyConditions.estEquity.lte = maxEquity
+      }
 
-    if (minSqft !== undefined || maxSqft !== undefined) {
-      where.buildingSqft = {}
-      if (minSqft !== undefined) where.buildingSqft.gte = minSqft
-      if (maxSqft !== undefined) where.buildingSqft.lte = maxSqft
-    }
+      if (minBedrooms !== undefined || maxBedrooms !== undefined) {
+        primaryPropertyConditions.bedrooms = {}
+        if (minBedrooms !== undefined) primaryPropertyConditions.bedrooms.gte = minBedrooms
+        if (maxBedrooms !== undefined) primaryPropertyConditions.bedrooms.lte = maxBedrooms
+      }
 
-    if (minYearBuilt !== undefined || maxYearBuilt !== undefined) {
-      where.effectiveYearBuilt = {}
-      if (minYearBuilt !== undefined) where.effectiveYearBuilt.gte = minYearBuilt
-      if (maxYearBuilt !== undefined) where.effectiveYearBuilt.lte = maxYearBuilt
+      if (minBathrooms !== undefined || maxBathrooms !== undefined) {
+        primaryPropertyConditions.totalBathrooms = {}
+        if (minBathrooms !== undefined) primaryPropertyConditions.totalBathrooms.gte = minBathrooms
+        if (maxBathrooms !== undefined) primaryPropertyConditions.totalBathrooms.lte = maxBathrooms
+      }
+
+      if (minSqft !== undefined || maxSqft !== undefined) {
+        primaryPropertyConditions.buildingSqft = {}
+        if (minSqft !== undefined) primaryPropertyConditions.buildingSqft.gte = minSqft
+        if (maxSqft !== undefined) primaryPropertyConditions.buildingSqft.lte = maxSqft
+      }
+
+      if (minYearBuilt !== undefined || maxYearBuilt !== undefined) {
+        primaryPropertyConditions.effectiveYearBuilt = {}
+        if (minYearBuilt !== undefined) primaryPropertyConditions.effectiveYearBuilt.gte = minYearBuilt
+        if (maxYearBuilt !== undefined) primaryPropertyConditions.effectiveYearBuilt.lte = maxYearBuilt
+      }
+
+      // Build conditions for secondary properties (in ContactProperty table)
+      const secondaryPropertyConditions: any = {}
+
+      if (!isDefaultValueRange && (minValue !== undefined || maxValue !== undefined)) {
+        secondaryPropertyConditions.estValue = {}
+        if (minValue !== undefined) secondaryPropertyConditions.estValue.gte = minValue
+        if (maxValue !== undefined) secondaryPropertyConditions.estValue.lte = maxValue
+      }
+
+      if (!isDefaultEquityRange && (minEquity !== undefined || maxEquity !== undefined)) {
+        secondaryPropertyConditions.estEquity = {}
+        if (minEquity !== undefined) secondaryPropertyConditions.estEquity.gte = minEquity
+        if (maxEquity !== undefined) secondaryPropertyConditions.estEquity.lte = maxEquity
+      }
+
+      if (minBedrooms !== undefined || maxBedrooms !== undefined) {
+        secondaryPropertyConditions.bedrooms = {}
+        if (minBedrooms !== undefined) secondaryPropertyConditions.bedrooms.gte = minBedrooms
+        if (maxBedrooms !== undefined) secondaryPropertyConditions.bedrooms.lte = maxBedrooms
+      }
+
+      if (minBathrooms !== undefined || maxBathrooms !== undefined) {
+        secondaryPropertyConditions.totalBathrooms = {}
+        if (minBathrooms !== undefined) secondaryPropertyConditions.totalBathrooms.gte = minBathrooms
+        if (maxBathrooms !== undefined) secondaryPropertyConditions.totalBathrooms.lte = maxBathrooms
+      }
+
+      if (minSqft !== undefined || maxSqft !== undefined) {
+        secondaryPropertyConditions.buildingSqft = {}
+        if (minSqft !== undefined) secondaryPropertyConditions.buildingSqft.gte = minSqft
+        if (maxSqft !== undefined) secondaryPropertyConditions.buildingSqft.lte = maxSqft
+      }
+
+      if (minYearBuilt !== undefined || maxYearBuilt !== undefined) {
+        secondaryPropertyConditions.effectiveYearBuilt = {}
+        if (minYearBuilt !== undefined) secondaryPropertyConditions.effectiveYearBuilt.gte = minYearBuilt
+        if (maxYearBuilt !== undefined) secondaryPropertyConditions.effectiveYearBuilt.lte = maxYearBuilt
+      }
+
+      // Use OR: match if primary property matches OR any secondary property matches
+      where.OR = [
+        // Primary property matches all conditions
+        primaryPropertyConditions,
+        // OR any secondary property matches all conditions
+        {
+          properties: {
+            some: secondaryPropertyConditions
+          }
+        }
+      ]
     }
 
     // Date Added filter (createdAt)
@@ -369,14 +465,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter by property count (number of properties owned)
+    // Property count = 1 (if contact has propertyAddress) + count of contact_properties
     if (minProperties !== undefined || maxProperties !== undefined) {
       // Use raw SQL to get contact IDs that match the property count criteria
+      // The total count is: 1 (if property_address is not null) + COUNT(contact_properties)
       const propertyCountConditions: string[] = []
       if (minProperties !== undefined) {
-        propertyCountConditions.push(`COUNT(cp.id) >= ${minProperties}`)
+        propertyCountConditions.push(`(CASE WHEN c.property_address IS NOT NULL THEN 1 ELSE 0 END) + COUNT(cp.id) >= ${minProperties}`)
       }
       if (maxProperties !== undefined) {
-        propertyCountConditions.push(`COUNT(cp.id) <= ${maxProperties}`)
+        propertyCountConditions.push(`(CASE WHEN c.property_address IS NOT NULL THEN 1 ELSE 0 END) + COUNT(cp.id) <= ${maxProperties}`)
       }
 
       const contactIdsWithPropertyCount = await prisma.$queryRawUnsafe<{ id: string }[]>(`
@@ -428,9 +526,13 @@ export async function GET(request: NextRequest) {
           propertyAddress: true,
           city: true,
           state: true,
+          zipCode: true,
           propertyCounty: true,
           propertyType: true,
           bedrooms: true,
+          totalBathrooms: true,
+          buildingSqft: true,
+          effectiveYearBuilt: true,
           estValue: true,
           estEquity: true,
           dnc: true,
@@ -469,6 +571,26 @@ export async function GET(request: NextRequest) {
           _count: {
             select: {
               properties: true,
+            },
+          },
+          // Include properties for multi-property filter matching
+          properties: {
+            select: {
+              id: true,
+              address: true,
+              city: true,
+              state: true,
+              zipCode: true,
+              llcName: true,
+              propertyType: true,
+              bedrooms: true,
+              totalBathrooms: true,
+              buildingSqft: true,
+              estValue: true,
+              estEquity: true,
+            },
+            orderBy: {
+              createdAt: 'desc',
             },
           },
         } : {
@@ -632,7 +754,9 @@ export async function GET(request: NextRequest) {
         dueDate: activity.due_date?.toISOString()
       })),
       deals: [], // Deals are not directly on Contact model
-      propertyCount: (contact as any)._count?.properties ?? 0,
+      // Property count = 1 (primary property on contact) + ContactProperty records
+      // Only count primary if the contact has a propertyAddress
+      propertyCount: (contact.propertyAddress ? 1 : 0) + ((contact as any)._count?.properties ?? 0),
       properties: ((contact as any).properties ?? []).map((prop: any) => ({
         id: prop.id,
         address: prop.address,
@@ -702,23 +826,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'phone1 is required and must be a valid phone number' }, { status: 400 })
     }
 
-    // De-dup by phone: if any provided phone matches an existing contact (digits-only ends-with), update it instead of creating new
-    const candidatesLast10 = [phone1, phone2, phone3].map(p => last10Digits(p || '')).filter(Boolean) as string[]
+    // De-dup by phone: if any provided phone matches an existing contact, update it instead of creating new
+    // Use normalized E.164 format for efficient indexed lookup
     let existing: any = null
-    if (candidatesLast10.length > 0 && prisma.$queryRaw) {
+    const phonesToCheck = [phone1, phone2, phone3].filter(Boolean) as string[]
+    if (phonesToCheck.length > 0) {
       try {
-        const last10 = candidatesLast10[0] // prioritize primary
-        const rows: Array<{ id: string }> = await prisma.$queryRaw`
-          SELECT id FROM contacts
-          WHERE regexp_replace(COALESCE(phone1, ''), '\\D', '', 'g') LIKE ${'%' + last10}
-             OR regexp_replace(COALESCE(phone2, ''), '\\D', '', 'g') LIKE ${'%' + last10}
-             OR regexp_replace(COALESCE(phone3, ''), '\\D', '', 'g') LIKE ${'%' + last10}
-          LIMIT 1`
-        if (rows && rows.length > 0) {
-          existing = await prisma.contact.findUnique({ where: { id: rows[0].id } })
-        }
+        // Use direct comparison with normalized phone numbers (much faster than regexp_replace)
+        existing = await prisma.contact.findFirst({
+          where: {
+            OR: phonesToCheck.flatMap(p => [
+              { phone1: p },
+              { phone2: p },
+              { phone3: p },
+            ])
+          }
+        })
       } catch (e) {
-        console.warn('Digits-only POST /contacts lookup failed:', e)
+        console.warn('Phone dedup lookup failed:', e)
       }
     }
 

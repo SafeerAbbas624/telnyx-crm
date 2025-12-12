@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     // Parse query parameters
     const { searchParams } = new URL(request.url);
     const contactId = searchParams.get('contactId');
+    const assignedTo = searchParams.get('assignedTo'); // Comma-separated user IDs
 
     // Build where clause
     const whereClause: any = {
@@ -18,6 +19,14 @@ export async function GET(request: NextRequest) {
     // Filter by contactId if provided
     if (contactId) {
       whereClause.contact_id = contactId;
+    }
+
+    // Filter by assigned user(s) if provided
+    if (assignedTo) {
+      const userIds = assignedTo.split(',').filter(id => id.trim());
+      if (userIds.length > 0) {
+        whereClause.assigned_to = { in: userIds };
+      }
     }
 
     // Fetch all tasks (activities of type 'task')
@@ -37,6 +46,20 @@ export async function GET(request: NextRequest) {
             state: true,
             zipCode: true,
             propertyType: true,
+          },
+        },
+        assignedUser: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
           },
         },
       },
@@ -66,6 +89,14 @@ export async function GET(request: NextRequest) {
       contactState: activity.contact?.state || '',
       contactZip: activity.contact?.zipCode || '',
       propertyType: activity.contact?.propertyType || '',
+      assignedToId: activity.assigned_to || '',
+      assignedToName: activity.assignedUser
+        ? `${activity.assignedUser.firstName} ${activity.assignedUser.lastName || ''}`.trim()
+        : '',
+      createdById: activity.created_by || '',
+      createdByName: activity.createdBy
+        ? `${activity.createdBy.firstName} ${activity.createdBy.lastName || ''}`.trim()
+        : '',
       createdAt: activity.created_at.toISOString(),
     }));
 

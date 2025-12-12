@@ -261,6 +261,17 @@ export default function UnifiedCreateTaskModal({
             />
           </div>
 
+          {/* Description - Right below Subject */}
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Textarea
+              placeholder="Additional details or notes..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+            />
+          </div>
+
           {/* Contact Selector */}
           <div className="space-y-2">
             <Label>
@@ -352,9 +363,10 @@ export default function UnifiedCreateTaskModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Due Date</Label>
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
+                    type="button"
                     variant="outline"
                     className={cn(
                       'w-full justify-start text-left font-normal',
@@ -365,7 +377,7 @@ export default function UnifiedCreateTaskModal({
                     {dueDate ? format(dueDate, 'PPP') : 'Pick a date'}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
+                <PopoverContent className="w-auto p-0 z-[9999]" align="start" sideOffset={5}>
                   <Calendar
                     mode="single"
                     selected={dueDate}
@@ -389,7 +401,7 @@ export default function UnifiedCreateTaskModal({
             </div>
           </div>
 
-          {/* Priority */}
+          {/* Priority - No emojis, just color-coded dots */}
           <div className="space-y-2">
             <Label>Priority</Label>
             <Select value={priority} onValueChange={(v) => setPriority(v as 'low' | 'medium' | 'high')}>
@@ -397,22 +409,26 @@ export default function UnifiedCreateTaskModal({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="low">⚪ Low</SelectItem>
-                <SelectItem value="medium">🟡 Medium</SelectItem>
-                <SelectItem value="high">🔴 High</SelectItem>
+                <SelectItem value="low">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-gray-300"></span>
+                    Low
+                  </span>
+                </SelectItem>
+                <SelectItem value="medium">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                    Medium
+                  </span>
+                </SelectItem>
+                <SelectItem value="high">
+                  <span className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                    High
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
-          </div>
-
-          {/* Notes/Description */}
-          <div className="space-y-2">
-            <Label>Notes</Label>
-            <Textarea
-              placeholder="Additional notes or details..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-            />
           </div>
 
           <DialogFooter className="pt-4">

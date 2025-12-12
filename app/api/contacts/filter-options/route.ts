@@ -112,12 +112,14 @@ export async function GET() {
       }),
 
       // Properties Count Stats - get min/max of property counts per contact
+      // Property count = 1 (if contact has property_address) + count of contact_properties
       prisma.$queryRaw`
         SELECT
           COALESCE(MIN(property_count), 1) as min_properties,
           COALESCE(MAX(property_count), 1) as max_properties
         FROM (
-          SELECT c.id, COUNT(cp.id) as property_count
+          SELECT c.id,
+            (CASE WHEN c.property_address IS NOT NULL THEN 1 ELSE 0 END) + COUNT(cp.id) as property_count
           FROM contacts c
           LEFT JOIN contact_properties cp ON c.id = cp.contact_id
           GROUP BY c.id

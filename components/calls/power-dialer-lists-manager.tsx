@@ -34,6 +34,7 @@ interface PowerDialerList {
   callerIdStrategy?: CallerIdStrategy
   scriptId?: string
   createdAt: string
+  updatedAt?: string
   lastWorkedOn?: string
   completedAt?: string
   // Tag sync fields
@@ -82,13 +83,28 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
   const [newListName, setNewListName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
 
+  // Edit list state
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editingList, setEditingList] = useState<PowerDialerList | null>(null)
+  const [editListName, setEditListName] = useState('')
+  const [editListDescription, setEditListDescription] = useState('')
+  const [editSelectedTagIds, setEditSelectedTagIds] = useState<string[]>([])
+  const [editExcludeTagIds, setEditExcludeTagIds] = useState<string[]>([])
+  const [editAutoSync, setEditAutoSync] = useState(false)
+  const [editSelectedScriptId, setEditSelectedScriptId] = useState<string>('')
+  const [editTagSearch, setEditTagSearch] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+
   // Simple tag-based selection
   const [availableTags, setAvailableTags] = useState<TagOption[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
+  const [excludeTagIds, setExcludeTagIds] = useState<string[]>([]) // Tags to exclude
   const [matchingContacts, setMatchingContacts] = useState<Contact[]>([])
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'random'>('newest')
   const [contactsLoading, setContactsLoading] = useState(false)
   const [autoSync, setAutoSync] = useState(true) // Auto-sync enabled by default
+  const [createTagSearch, setCreateTagSearch] = useState('') // Search for create dialog
+  const [createExcludeTagSearch, setCreateExcludeTagSearch] = useState('') // Search for exclude tags in create dialog
 
   // Scripts
   const [scripts, setScripts] = useState<CallScript[]>([])
@@ -152,41 +168,48 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
     }
   }
 
-  // Load contacts when tags are selected
+  // Load contacts when tags are selected (include OR exclude changes)
   useEffect(() => {
+    const loadContactsByTags = async () => {
+      try {
+        setContactsLoading(true)
+        const tagParams = selectedTagIds.join(',')
+        const excludeParams = excludeTagIds.join(',')
+        let url = `/api/contacts?tags=${tagParams}&limit=10000`
+        if (excludeParams) {
+          url += `&excludeTags=${excludeParams}`
+        }
+        console.log('[PowerDialerLists] Fetching contacts preview:', url)
+        const response = await fetch(url)
+        if (!response.ok) throw new Error('Failed to load contacts')
+        const data = await response.json()
+        let contacts = data.contacts || []
+
+        // Apply sorting
+        if (sortOrder === 'newest') {
+          contacts.sort((a: Contact, b: Contact) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        } else if (sortOrder === 'oldest') {
+          contacts.sort((a: Contact, b: Contact) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        } else if (sortOrder === 'random') {
+          contacts = shuffleArray([...contacts])
+        }
+
+        console.log('[PowerDialerLists] Contacts preview loaded:', contacts.length, 'contacts')
+        setMatchingContacts(contacts)
+      } catch (error) {
+        console.error('Error loading contacts:', error)
+        toast.error('Failed to load contacts')
+      } finally {
+        setContactsLoading(false)
+      }
+    }
+
     if (selectedTagIds.length > 0) {
       loadContactsByTags()
     } else {
       setMatchingContacts([])
     }
-  }, [selectedTagIds, sortOrder])
-
-  const loadContactsByTags = async () => {
-    try {
-      setContactsLoading(true)
-      const tagParams = selectedTagIds.join(',')
-      const response = await fetch(`/api/contacts?tags=${tagParams}&limit=10000`)
-      if (!response.ok) throw new Error('Failed to load contacts')
-      const data = await response.json()
-      let contacts = data.contacts || []
-
-      // Apply sorting
-      if (sortOrder === 'newest') {
-        contacts.sort((a: Contact, b: Contact) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      } else if (sortOrder === 'oldest') {
-        contacts.sort((a: Contact, b: Contact) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      } else if (sortOrder === 'random') {
-        contacts = shuffleArray([...contacts])
-      }
-
-      setMatchingContacts(contacts)
-    } catch (error) {
-      console.error('Error loading contacts:', error)
-      toast.error('Failed to load contacts')
-    } finally {
-      setContactsLoading(false)
-    }
-  }
+  }, [selectedTagIds, excludeTagIds, sortOrder])
 
   const shuffleArray = <T,>(array: T[]): T[] => {
     const shuffled = [...array]
@@ -241,6 +264,7 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
           scriptId: finalScriptId,
           // Pass tag sync settings if tags are selected
           syncTagIds: selectedTagIds.length > 0 ? selectedTagIds : undefined,
+          excludeTagIds: excludeTagIds.length > 0 ? excludeTagIds : undefined,
           autoSync: selectedTagIds.length > 0 ? autoSync : false,
         })
       })
@@ -277,12 +301,15 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
   const resetCreateForm = () => {
     setNewListName('')
     setSelectedTagIds([])
+    setExcludeTagIds([])
     setMatchingContacts([])
     setSortOrder('newest')
     setSelectedScriptId('')
     setAutoSync(true)
     setUseCustomScript(false)
     setCustomScriptContent('')
+    setCreateTagSearch('')
+    setCreateExcludeTagSearch('')
   }
 
   // Load queue for active list
@@ -319,6 +346,57 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
     } catch (error) {
       console.error('Error deleting list:', error)
       toast.error('Failed to delete call list')
+    }
+  }
+
+  // Open edit dialog
+  const handleOpenEdit = (list: PowerDialerList) => {
+    setEditingList(list)
+    setEditListName(list.name)
+    setEditListDescription(list.description || '')
+    setEditSelectedTagIds(list.syncTagIds || [])
+    setEditExcludeTagIds((list as any).excludeTagIds || [])
+    setEditAutoSync(list.autoSync || false)
+    setEditSelectedScriptId(list.scriptId || '')
+    setEditTagSearch('')
+    setIsEditOpen(true)
+  }
+
+  // Save edit changes
+  const handleSaveEdit = async (resyncContacts = false) => {
+    if (!editingList || !editListName.trim()) {
+      toast.error('List name is required')
+      return
+    }
+
+    try {
+      setIsEditing(true)
+      const response = await fetch(`/api/power-dialer/lists/${editingList.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editListName,
+          description: editListDescription || null,
+          syncTagIds: editSelectedTagIds,
+          excludeTagIds: editExcludeTagIds,
+          autoSync: editAutoSync,
+          scriptId: editSelectedScriptId || null,
+          resyncContacts, // If true, will add new contacts matching the tags
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to update list')
+
+      const updatedList = await response.json()
+      setLists(lists.map(l => l.id === editingList.id ? { ...l, ...updatedList } : l))
+      setIsEditOpen(false)
+      setEditingList(null)
+      toast.success(resyncContacts ? 'List updated and contacts synced!' : 'List updated successfully')
+    } catch (error) {
+      console.error('Error updating list:', error)
+      toast.error('Failed to update list')
+    } finally {
+      setIsEditing(false)
     }
   }
 
@@ -397,12 +475,20 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                 <Tag className="w-4 h-4" />
                 Select Tags
               </Label>
+              <Input
+                placeholder="Search tags..."
+                value={createTagSearch}
+                onChange={(e) => setCreateTagSearch(e.target.value)}
+                className="mb-2"
+              />
               <ScrollArea className="h-40 border rounded-lg p-3">
                 {availableTags.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">No tags available</p>
                 ) : (
                   <div className="space-y-2">
-                    {availableTags.map(tag => (
+                    {availableTags
+                      .filter(tag => tag.name.toLowerCase().includes(createTagSearch.toLowerCase()))
+                      .map(tag => (
                       <div
                         key={tag.id}
                         className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
@@ -425,6 +511,72 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                         {tag._count?.contacts !== undefined && (
                           <Badge variant="secondary" className="text-xs">
                             {tag._count.contacts} contacts
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+
+            {/* Exclude Tags Selection */}
+            <div>
+              <Label className="flex items-center gap-2 mb-2">
+                <Tag className="w-4 h-4 text-red-500" />
+                Exclude Tags (NOT)
+              </Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Contacts with these tags will be excluded from the list
+              </p>
+              <Input
+                placeholder="Search exclude tags..."
+                value={createExcludeTagSearch}
+                onChange={(e) => setCreateExcludeTagSearch(e.target.value)}
+                className="mb-2"
+              />
+              <ScrollArea className="h-32 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                {availableTags.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No tags available</p>
+                ) : (
+                  <div className="space-y-2">
+                    {availableTags
+                      .filter(tag => tag.name.toLowerCase().includes(createExcludeTagSearch.toLowerCase()))
+                      .map(tag => (
+                      <div
+                        key={tag.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                          excludeTagIds.includes(tag.id)
+                            ? 'bg-red-50 border border-red-200 dark:bg-red-900/30 dark:border-red-700'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                        }`}
+                        onClick={() => {
+                          setExcludeTagIds(prev =>
+                            prev.includes(tag.id)
+                              ? prev.filter(id => id !== tag.id)
+                              : [...prev, tag.id]
+                          )
+                        }}
+                      >
+                        <Checkbox
+                          checked={excludeTagIds.includes(tag.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => {
+                            setExcludeTagIds(prev =>
+                              prev.includes(tag.id)
+                                ? prev.filter(id => id !== tag.id)
+                                : [...prev, tag.id]
+                            )
+                          }}
+                        />
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color || '#3B82F6' }}
+                        />
+                        <span className="flex-1 text-sm font-medium">{tag.name}</span>
+                        {tag._count?.contacts !== undefined && (
+                          <Badge variant="secondary" className="text-xs">
+                            {tag._count.contacts}
                           </Badge>
                         )}
                       </div>
@@ -624,6 +776,227 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
         </DialogContent>
       </Dialog>
 
+      {/* Edit List Dialog - Full Settings */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto z-[60]">
+          <DialogHeader>
+            <DialogTitle>Edit Call List</DialogTitle>
+            <DialogDescription>
+              Update all settings for your call list
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* List Name */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-list-name">List Name</Label>
+              <Input
+                id="edit-list-name"
+                value={editListName}
+                onChange={(e) => setEditListName(e.target.value)}
+                placeholder="Enter list name"
+              />
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <Label htmlFor="edit-list-description">Description (optional)</Label>
+              <Textarea
+                id="edit-list-description"
+                value={editListDescription}
+                onChange={(e) => setEditListDescription(e.target.value)}
+                placeholder="Enter description"
+                rows={2}
+              />
+            </div>
+
+            {/* Tag Selection with Search */}
+            <div>
+              <Label className="flex items-center gap-2 mb-2">
+                <Tag className="w-4 h-4" />
+                Include Tags
+              </Label>
+              <Input
+                placeholder="Search tags..."
+                value={editTagSearch}
+                onChange={(e) => setEditTagSearch(e.target.value)}
+                className="mb-2"
+              />
+              <ScrollArea className="h-32 border rounded-lg p-3">
+                {availableTags.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No tags available</p>
+                ) : (
+                  <div className="space-y-1">
+                    {availableTags
+                      .filter(tag => tag.name.toLowerCase().includes(editTagSearch.toLowerCase()))
+                      .map(tag => (
+                      <div
+                        key={tag.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                          editSelectedTagIds.includes(tag.id)
+                            ? 'bg-blue-50 border border-blue-200 dark:bg-blue-900/30 dark:border-blue-700'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                        }`}
+                        onClick={() => {
+                          setEditSelectedTagIds(prev =>
+                            prev.includes(tag.id)
+                              ? prev.filter(id => id !== tag.id)
+                              : [...prev, tag.id]
+                          )
+                        }}
+                      >
+                        <Checkbox
+                          checked={editSelectedTagIds.includes(tag.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => {
+                            setEditSelectedTagIds(prev =>
+                              prev.includes(tag.id)
+                                ? prev.filter(id => id !== tag.id)
+                                : [...prev, tag.id]
+                            )
+                          }}
+                        />
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color || '#3B82F6' }}
+                        />
+                        <span className="flex-1 text-sm font-medium">{tag.name}</span>
+                        {tag._count?.contacts !== undefined && (
+                          <Badge variant="secondary" className="text-xs">
+                            {tag._count.contacts}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+
+            {/* Exclude Tags Selection */}
+            <div>
+              <Label className="flex items-center gap-2 mb-2">
+                <Tag className="w-4 h-4 text-red-500" />
+                Exclude Tags (NOT)
+              </Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Contacts with these tags will be excluded
+              </p>
+              <ScrollArea className="h-28 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                {availableTags.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No tags available</p>
+                ) : (
+                  <div className="space-y-1">
+                    {availableTags
+                      .filter(tag => tag.name.toLowerCase().includes(editTagSearch.toLowerCase()))
+                      .map(tag => (
+                      <div
+                        key={tag.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                          editExcludeTagIds.includes(tag.id)
+                            ? 'bg-red-50 border border-red-200 dark:bg-red-900/30 dark:border-red-700'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                        }`}
+                        onClick={() => {
+                          setEditExcludeTagIds(prev =>
+                            prev.includes(tag.id)
+                              ? prev.filter(id => id !== tag.id)
+                              : [...prev, tag.id]
+                          )
+                        }}
+                      >
+                        <Checkbox
+                          checked={editExcludeTagIds.includes(tag.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => {
+                            setEditExcludeTagIds(prev =>
+                              prev.includes(tag.id)
+                                ? prev.filter(id => id !== tag.id)
+                                : [...prev, tag.id]
+                            )
+                          }}
+                        />
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color || '#3B82F6' }}
+                        />
+                        <span className="flex-1 text-sm font-medium">{tag.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+
+            {/* Call Script Selection */}
+            <div>
+              <Label className="flex items-center gap-2 mb-2">
+                <FileText className="w-4 h-4" />
+                Call Script
+              </Label>
+              <Select
+                value={editSelectedScriptId || 'none'}
+                onValueChange={(v) => setEditSelectedScriptId(v === 'none' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No script selected" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No script</SelectItem>
+                  {scripts.map(script => (
+                    <SelectItem key={script.id} value={script.id}>
+                      {script.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Auto-Sync Option */}
+            {editSelectedTagIds.length > 0 && (
+              <div className="border rounded-lg p-3 bg-blue-50 dark:bg-blue-900/20 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="editAutoSync"
+                    checked={editAutoSync}
+                    onCheckedChange={(checked) => setEditAutoSync(checked === true)}
+                  />
+                  <Label htmlFor="editAutoSync" className="text-sm font-medium cursor-pointer">
+                    Auto-sync new contacts with these tags
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground ml-6">
+                  {editAutoSync
+                    ? "✓ New contacts tagged with the selected tags will be automatically added."
+                    : "New contacts won't be added automatically."}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>
+              Cancel
+            </Button>
+            {editSelectedTagIds.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => handleSaveEdit(true)}
+                disabled={isEditing || !editListName.trim()}
+              >
+                {isEditing ? 'Syncing...' : 'Save & Sync Contacts'}
+              </Button>
+            )}
+            <Button
+              onClick={() => handleSaveEdit(false)}
+              disabled={isEditing || !editListName.trim()}
+            >
+              {isEditing ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {lists.length === 0 ? (
         <Card>
           <CardContent className="pt-6 text-center text-gray-500">
@@ -639,7 +1012,14 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <CardTitle>{list.name}</CardTitle>
+                      <div className="flex items-center gap-2">
+                        <CardTitle>{list.name}</CardTitle>
+                        <span className="text-xs text-muted-foreground">
+                          {list.lastWorkedOn
+                            ? formatDistanceToNow(new Date(list.lastWorkedOn), { addSuffix: true })
+                            : formatDistanceToNow(new Date(list.createdAt), { addSuffix: true })}
+                        </span>
+                      </div>
                       {list.description && (
                         <CardDescription>{list.description}</CardDescription>
                       )}
@@ -690,12 +1070,6 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                     </div>
                   )}
 
-                  {list.lastWorkedOn && (
-                    <p className="text-xs text-gray-500">
-                      Last worked on: {formatDistanceToNow(new Date(list.lastWorkedOn), { addSuffix: true })}
-                    </p>
-                  )}
-
                   <div className="flex gap-2 pt-2">
                     <Button
                       size="sm"
@@ -708,34 +1082,19 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
                       <Play className="w-4 h-4 mr-1" />
                       Open Dialer
                     </Button>
-                    {list.syncTagIds && list.syncTagIds.length > 0 && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch(`/api/power-dialer/lists/${list.id}/sync`, { method: 'POST' })
-                            const data = await res.json()
-                            if (res.ok) {
-                              toast.success(`Synced! Added ${data.addedCount} new contacts`)
-                              loadLists() // Refresh lists
-                            } else {
-                              toast.error(data.error || 'Sync failed')
-                            }
-                          } catch (err) {
-                            toast.error('Failed to sync')
-                          }
-                        }}
-                        title="Manually sync new contacts with matching tags"
-                      >
-                        <Clock className="w-4 h-4 mr-1" />
-                        Sync
-                      </Button>
-                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleOpenEdit(list)}
+                      title="Edit list"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => handleDeleteList(list.id)}
+                      title="Delete list"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>

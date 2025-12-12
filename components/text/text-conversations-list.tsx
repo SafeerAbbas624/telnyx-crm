@@ -8,7 +8,7 @@ import { Search, Plus, LogOut, Phone, PhoneOff } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
 import { useNotifications } from "@/lib/context/notifications-context"
-import { useCallUI } from "@/lib/context/call-ui-context"
+import { useMakeCall } from "@/hooks/use-make-call"
 import type { Contact } from "@/lib/types"
 
 import ContactName from "@/components/contacts/contact-name"
@@ -33,73 +33,23 @@ export default function TextConversationsList({
   const [callTimerId, setCallTimerId] = useState<NodeJS.Timeout | null>(null)
   const { toast } = useToast()
   const { add: addNotification } = useNotifications()
-  const { openCall } = useCallUI()
+  const { makeCall } = useMakeCall()
 
   const handleStartCall = async (contactId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    try {
-      const contact = contacts.find(c => c.id === contactId)
-      if (!contact) return
-      const toNumber = (contact as any).phone1 || (contact as any).phone2 || (contact as any).phone3 || (contact as any).phone
-      if (!toNumber) {
-        toast({ title: "No phone", description: "This contact has no phone number.", variant: "destructive" })
-        return
-      }
-      const numbersRes = await fetch('/api/telnyx/phone-numbers')
-      if (!numbersRes.ok) throw new Error('Failed to load phone numbers')
-      const numbersData = await numbersRes.json()
-      const fromNumber = (numbersData.phoneNumbers?.[0]?.phoneNumber) || numbersData?.[0]?.phoneNumber
-      if (!fromNumber) throw new Error('No Telnyx phone numbers available')
-
-      // Try WebRTC first
-      try {
-        const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-        await rtcClient.ensureRegistered()
-        const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber })
-
-        // Log the call to database
-        fetch('/api/telnyx/webrtc-calls', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            webrtcSessionId: sessionId,
-            contactId: contact.id,
-            fromNumber,
-            toNumber,
-          })
-        }).catch(err => console.error('Failed to log call:', err))
-
-        openCall({
-          contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-          fromNumber,
-          toNumber,
-          mode: 'webrtc',
-          webrtcSessionId: sessionId,
-        })
-        toast({ title: 'Calling (WebRTC)', description: `Calling ${contact.firstName} ${contact.lastName}` })
-        return
-      } catch (webrtcErr) {
-        console.warn('WebRTC attempt failed, falling back to Call Control:', webrtcErr)
-      }
-
-      const callRes = await fetch('/api/telnyx/calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromNumber, toNumber, contactId })
-      })
-      if (!callRes.ok) throw new Error('Failed to initiate call')
-      const data = await callRes.json()
-      openCall({
-        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-        fromNumber,
-        toNumber,
-        mode: 'call_control',
-        telnyxCallId: data.telnyxCallId,
-      })
-      toast({ title: 'Call started', description: `Calling ${contact.firstName} ${contact.lastName}` })
-    } catch (err: any) {
-      toast({ title: 'Error', description: err?.message || 'Failed to start call', variant: 'destructive' })
+    const contact = contacts.find(c => c.id === contactId)
+    if (!contact) return
+    const toNumber = (contact as any).phone1 || (contact as any).phone2 || (contact as any).phone3 || (contact as any).phone
+    if (!toNumber) {
+      toast({ title: "No phone", description: "This contact has no phone number.", variant: "destructive" })
+      return
     }
+    const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+    await makeCall({
+      phoneNumber: toNumber,
+      contactId: contact.id,
+      contactName,
+    })
   }
 
   const handleEndCall = async (e: React.MouseEvent) => {

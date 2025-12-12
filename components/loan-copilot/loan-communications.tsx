@@ -8,10 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Phone, MessageSquare, Mail, ExternalLink, RefreshCw, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { useCallUI } from '@/lib/context/call-ui-context';
+import { useMakeCall } from '@/hooks/use-make-call';
 import { useSmsUI } from '@/lib/context/sms-ui-context';
 import { useEmailUI } from '@/lib/context/email-ui-context';
-import { usePhoneNumber } from '@/lib/context/phone-number-context';
+import { CallButtonWithCellHover } from '@/components/ui/call-button-with-cell-hover';
 
 interface LoanCommunicationsProps {
   dealId: string;
@@ -43,10 +43,9 @@ export default function LoanCommunications({ dealId, contactId }: LoanCommunicat
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
   const [contact, setContact] = useState<ContactInfo | null>(null);
-  const { openCall } = useCallUI();
+  const { makeCall } = useMakeCall();
   const { openSms } = useSmsUI();
   const { openEmail } = useEmailUI();
-  const { selectedPhoneNumber } = usePhoneNumber();
 
   useEffect(() => {
     loadCommunications();
@@ -101,44 +100,12 @@ export default function LoanCommunications({ dealId, contactId }: LoanCommunicat
       toast.error('No phone number available for this contact');
       return;
     }
-    if (!selectedPhoneNumber) {
-      toast.error('No phone number selected. Please select a calling number from the header.');
-      return;
-    }
-    const fromNumber = selectedPhoneNumber.phoneNumber;
-
-    try {
-      const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils');
-      const toNumber = formatPhoneNumberForTelnyx(contact.phone1) || contact.phone1;
-
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client');
-      await rtcClient.ensureRegistered();
-      const { sessionId } = await rtcClient.startCall({ toNumber, fromNumber });
-
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          contactId: contact.id,
-          fromNumber,
-          toNumber,
-        })
-      }).catch(err => console.error('Failed to log call:', err));
-
-      openCall({
-        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-        fromNumber,
-        toNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
-      });
-
-      toast.success(`Calling ${contact.firstName || ''} ${contact.lastName || ''}`.trim());
-    } catch (error: any) {
-      console.error('Error initiating call:', error);
-      toast.error(error.message || 'Failed to initiate call');
-    }
+    const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+    await makeCall({
+      phoneNumber: contact.phone1,
+      contactId: contact.id,
+      contactName,
+    });
   };
 
   const handleSms = () => {
@@ -207,10 +174,23 @@ export default function LoanCommunications({ dealId, contactId }: LoanCommunicat
 
       {/* Quick Actions */}
       <div className="flex items-center gap-2">
-        <Button variant="outline" className="gap-2" onClick={handleCall} disabled={!contact?.phone1}>
-          <Phone className="h-4 w-4" />
-          Call
-        </Button>
+        {contact?.phone1 ? (
+          <CallButtonWithCellHover
+            phoneNumber={contact.phone1}
+            contactId={contact.id}
+            contactName={`${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
+            onWebRTCCall={handleCall}
+            variant="outline"
+            size="default"
+            className="gap-2 h-9 px-3"
+            iconClassName="h-4 w-4"
+          />
+        ) : (
+          <Button variant="outline" className="gap-2" disabled>
+            <Phone className="h-4 w-4" />
+            Call
+          </Button>
+        )}
         <Button variant="outline" className="gap-2" onClick={handleSms} disabled={!contact?.phone1}>
           <MessageSquare className="h-4 w-4" />
           Text

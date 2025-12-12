@@ -9,7 +9,7 @@ import { executeDispositionActions } from '@/lib/dispositions/execute-actions'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { legId, contactId, dispositionId, notes, listId, dialerRunId } = body
+    const { legId, contactId, dispositionId, notes, listId, dialerRunId, callerIdNumber, isUpdate } = body
 
     if (!contactId || !dispositionId) {
       return NextResponse.json(
@@ -36,11 +36,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Execute all disposition actions
+    // Execute all disposition actions (pass callerIdNumber for SMS sending from same number)
     const actionResults = await executeDispositionActions(
       disposition.actions,
       contactId,
-      { listId, dialerRunId, legId }
+      { listId, dialerRunId, legId, callerIdNumber }
     )
 
     // Log the disposition
@@ -51,42 +51,67 @@ export async function POST(request: NextRequest) {
         dialerRunId,
         listId,
         notes,
-        actionsExecuted: actionResults
+        actionsExecuted: actionResults as any // JSON field
       }
     })
 
-    // Update contact notes and customFields (dialAttempts counter)
+    // Update contact notes and customFields (dialAttempts counter - only for new calls, not updates)
     const contact = await prisma.contact.findUnique({
       where: { id: contactId },
-      select: { notes: true, customFields: true }
+      select: { notes: true, customFields: true, noAnswerCount: true }
     })
-    const dispositionNote = `[${new Date().toISOString()}] Disposition: ${disposition.name}${notes ? ` - ${notes}` : ''}`
 
-    // Increment dialAttempts counter
     const currentCustomFields = (contact?.customFields as Record<string, any>) || {}
-    const currentDialAttempts = currentCustomFields.dialAttempts || 0
+    const dispName = disposition.name.toLowerCase()
 
-    await prisma.contact.update({
-      where: { id: contactId },
-      data: {
-        notes: contact?.notes
-          ? `${contact.notes}\n${dispositionNote}`
-          : dispositionNote,
-        customFields: {
-          ...currentCustomFields,
-          dialAttempts: currentDialAttempts + 1,
-          lastDialedAt: new Date().toISOString(),
-          lastDisposition: disposition.name
+    // Check if this is a "no answer" type disposition
+    const isNoAnswerDisposition = dispName.includes('no answer') ||
+                                   dispName.includes('no contact') ||
+                                   dispName.includes('voicemail') ||
+                                   dispName.includes('busy')
+
+    // Only add note and increment dial attempts for new dispositions, not updates
+    if (!isUpdate) {
+      const dispositionNote = `[${new Date().toISOString()}] Disposition: ${disposition.name}${notes ? ` - ${notes}` : ''}`
+      const currentDialAttempts = currentCustomFields.dialAttempts || 0
+
+      await prisma.contact.update({
+        where: { id: contactId },
+        data: {
+          notes: contact?.notes
+            ? `${contact.notes}\n${dispositionNote}`
+            : dispositionNote,
+          // Increment noAnswerCount if this is a no answer disposition
+          noAnswerCount: isNoAnswerDisposition ? (contact?.noAnswerCount || 0) + 1 : undefined,
+          customFields: {
+            ...currentCustomFields,
+            dialAttempts: currentDialAttempts + 1,
+            lastDialedAt: new Date().toISOString(),
+            lastDisposition: disposition.name
+          }
         }
-      }
-    })
+      })
+    } else {
+      // Just update the lastDisposition for updates
+      await prisma.contact.update({
+        where: { id: contactId },
+        data: {
+          customFields: {
+            ...currentCustomFields,
+            lastDisposition: disposition.name
+          }
+        }
+      })
+    }
 
-    // Create Activity record for contact timeline
+    // Create Activity record for contact timeline (different message for updates)
     await prisma.activity.create({
       data: {
         contact_id: contactId,
         type: 'call',
-        title: `Power Dialer Call - ${disposition.name}`,
+        title: isUpdate
+          ? `Disposition Changed to ${disposition.name}`
+          : `Power Dialer Call - ${disposition.name}`,
         description: notes ? `Notes: ${notes}` : `Disposition: ${disposition.name}`,
         status: 'completed',
         priority: 'medium'
@@ -95,13 +120,11 @@ export async function POST(request: NextRequest) {
 
     // Update power dialer list contact status if listId provided
     if (listId) {
-      const dispName = disposition.name.toLowerCase()
-      // Determine final status based on disposition
-      let finalStatus = 'COMPLETED' // Default: mark as done
+      // Determine final status based on disposition (use already-defined dispName)
+      let finalStatus: 'PENDING' | 'CALLED' | 'COMPLETED' | 'SKIPPED' | 'REMOVED' = 'COMPLETED' // Default: mark as done
 
       // Requeue if callback or no answer type
-      if (dispName.includes('callback') || dispName.includes('no answer') ||
-          dispName.includes('no contact') || dispName.includes('voicemail')) {
+      if (dispName.includes('callback') || isNoAnswerDisposition) {
         finalStatus = 'PENDING' // Put back in queue for retry
       }
 

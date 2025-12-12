@@ -14,7 +14,7 @@ import type { Contact, Activity } from "@/lib/types"
 import { format } from "date-fns"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
-import { useCallUI } from "@/lib/context/call-ui-context"
+import { useMakeCall } from "@/hooks/use-make-call"
 import { useTaskUI } from "@/lib/context/task-ui-context"
 import { usePhoneNumber } from "@/lib/context/phone-number-context"
 import Link from "next/link"
@@ -24,6 +24,7 @@ import { toast } from "sonner"
 import ContactSequences from "./contact-sequences"
 import { formatPhoneNumberForTelnyx, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { normalizePropertyType, getStandardPropertyTypes } from "@/lib/property-type-mapper"
+import { CallButtonWithCellHover } from "@/components/ui/call-button-with-cell-hover"
 
 interface ContactSidePanelProps {
   contact: Contact | null
@@ -122,7 +123,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
 
   const { openSms } = useSmsUI()
   const { openEmail } = useEmailUI()
-  const { openCall } = useCallUI()
+  const { makeCall } = useMakeCall()
   const { openTask, setOnTaskCreated } = useTaskUI()
   const { selectedPhoneNumber } = usePhoneNumber() // Use global phone number
 
@@ -442,60 +443,15 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     }
   }, [open, hasChanges, performAutoSave])
 
-  // Handle call using Telnyx WebRTC
+  // Handle call using multi-call system
   const handleCall = async (phone: string) => {
     if (!currentContact) return
-
-    if (!selectedPhoneNumber) {
-      toast.error('Please select a phone number in the header to make calls.')
-      return
-    }
-
-    try {
-      const toNumber = formatPhoneNumberForTelnyx(phone)
-      if (!toNumber) {
-        toast.error('Invalid phone number')
-        return
-      }
-
-      // Start WebRTC call
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-      await rtcClient.ensureRegistered()
-      const { sessionId } = await rtcClient.startCall({
-        toNumber,
-        fromNumber: selectedPhoneNumber.phoneNumber
-      })
-
-      // Log the call to database (fire-and-forget)
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          contactId: currentContact.id,
-          fromNumber: selectedPhoneNumber.phoneNumber,
-          toNumber,
-        })
-      }).catch(err => console.error('Failed to log call:', err))
-
-      // Open call UI - MUST await to ensure it opens
-      await openCall({
-        contact: {
-          id: currentContact.id,
-          firstName: currentContact.firstName,
-          lastName: currentContact.lastName
-        },
-        fromNumber: selectedPhoneNumber.phoneNumber,
-        toNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
-      })
-
-      toast.success(`Calling ${currentContact.firstName} ${currentContact.lastName}`)
-    } catch (error) {
-      console.error('Failed to make call:', error)
-      toast.error('Failed to initiate call. Please try again.')
-    }
+    const contactName = `${currentContact.firstName || ''} ${currentContact.lastName || ''}`.trim()
+    await makeCall({
+      phoneNumber: phone,
+      contactId: currentContact.id,
+      contactName,
+    })
   }
 
   const handleText = (phone: string) => {
@@ -833,9 +789,13 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
                     />
                     {phone && (
                       <div className="flex items-center gap-0.5">
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-blue-50" onClick={() => handleCall(phone)} title="Call">
-                          <Phone className="h-3.5 w-3.5 text-blue-600" />
-                        </Button>
+                        <CallButtonWithCellHover
+                          phoneNumber={phone}
+                          contactId={currentContact?.id}
+                          contactName={`${currentContact?.firstName || ''} ${currentContact?.lastName || ''}`.trim()}
+                          onWebRTCCall={() => handleCall(phone)}
+                          className="hover:bg-blue-50"
+                        />
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hover:bg-green-50" onClick={() => handleText(phone)} title="Text">
                           <MessageSquare className="h-3.5 w-3.5 text-green-600" />
                         </Button>

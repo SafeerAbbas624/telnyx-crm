@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, PlusCircle, Mic, Phone } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
-import { useCallUI } from "@/lib/context/call-ui-context"
+import { useMakeCall } from "@/hooks/use-make-call"
 import type { Call } from "@/lib/types"
 
 interface ContactCallsProps {
@@ -36,7 +36,7 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
   const [error, setError] = useState<string | null>(null)
   const [showActivityDialog, setShowActivityDialog] = useState(false)
   const { toast } = useToast()
-  const { openCall } = useCallUI()
+  const { makeCall } = useMakeCall()
 
   useEffect(() => {
     const fetchCalls = async () => {
@@ -88,61 +88,17 @@ export default function ContactCalls({ contactId }: ContactCallsProps) {
         return
       }
 
-      // Get available Telnyx phone numbers
-      const numbersResponse = await fetch('/api/telnyx/phone-numbers')
-      if (!numbersResponse.ok) {
-        toast({
-          title: "Error",
-          description: "Could not get available phone numbers",
-          variant: "destructive",
-        })
-        return
-      }
-
-      const phoneNumbers = await numbersResponse.json()
-      if (!phoneNumbers || phoneNumbers.length === 0) {
-        toast({
-          title: "No Phone Numbers",
-          description: "No Telnyx phone numbers available for calling",
-          variant: "destructive",
-        })
-        return
-      }
-
-      // Use the first available phone number
-      const fromNumber = phoneNumbers[0].phoneNumber
-
-      // Start WebRTC call
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-      await rtcClient.ensureRegistered()
-      const { sessionId } = await rtcClient.startCall({ toNumber: phoneNumber, fromNumber })
-
-      // Log the call to database
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          contactId: contact.id,
-          fromNumber,
-          toNumber: phoneNumber,
-        })
-      }).catch(err => console.error('Failed to log call:', err))
-
-      openCall({
-        contact: { id: contact.id, firstName: contact.firstName, lastName: contact.lastName },
-        fromNumber,
-        toNumber: phoneNumber,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
+      const contactName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim()
+      await makeCall({
+        phoneNumber,
+        contactId: contact.id,
+        contactName,
       })
-      toast({ title: 'Call Started', description: `Calling ${contact.firstName} ${contact.lastName}` })
-
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error starting call:', error)
       toast({
         title: "Error",
-        description: error.message || "Failed to start call",
+        description: error?.message || "Failed to start call",
         variant: "destructive",
       })
     }

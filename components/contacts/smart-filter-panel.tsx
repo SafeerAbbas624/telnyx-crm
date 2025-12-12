@@ -152,12 +152,14 @@ export default function SmartFilterPanel({
 
     // Handle date added filter
     if (filters.dateAddedPreset && filters.dateAddedPreset !== 'custom') {
+      apiFilters.dateAddedPreset = filters.dateAddedPreset  // Preserve the preset for display
       const dateRange = getDateRangeFromPreset(filters.dateAddedPreset)
       if (dateRange.createdAfter) apiFilters.createdAfter = dateRange.createdAfter
       if (dateRange.createdBefore) apiFilters.createdBefore = dateRange.createdBefore
     } else if (filters.createdAfter || filters.createdBefore) {
       if (filters.createdAfter) apiFilters.createdAfter = filters.createdAfter
       if (filters.createdBefore) apiFilters.createdBefore = filters.createdBefore
+      apiFilters.dateAddedPreset = 'custom'  // Mark as custom range
     }
 
     onFiltersChange(apiFilters)

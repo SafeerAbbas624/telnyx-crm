@@ -1,7 +1,10 @@
 "use client"
 
-import React, { createContext, useContext, useMemo, useState } from "react"
+import React, { createContext, useContext, useMemo, useState, useEffect, useRef } from "react"
 import type { Contact } from "@/lib/types"
+
+// Session storage key for persisting call state across navigation
+const CALL_STATE_KEY = 'crm_active_call_state'
 
 // Power dialer context for script and dispositions
 export type PowerDialerContext = {
@@ -48,8 +51,57 @@ type CallUIContextType = {
 
 const CallUIContext = createContext<CallUIContextType | undefined>(undefined)
 
+// Helper to safely get/set sessionStorage
+const getStoredCall = (): CallSession | null => {
+  if (typeof window === 'undefined') return null
+  try {
+    const stored = sessionStorage.getItem(CALL_STATE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      // Only restore if the call is less than 2 hours old
+      if (parsed && parsed.startedAt && (Date.now() - parsed.startedAt) < 2 * 60 * 60 * 1000) {
+        return parsed
+      }
+    }
+  } catch (e) {
+    console.error('[CallUI] Error reading stored call:', e)
+  }
+  return null
+}
+
+const storeCall = (call: CallSession | null) => {
+  if (typeof window === 'undefined') return
+  try {
+    if (call) {
+      sessionStorage.setItem(CALL_STATE_KEY, JSON.stringify(call))
+    } else {
+      sessionStorage.removeItem(CALL_STATE_KEY)
+    }
+  } catch (e) {
+    console.error('[CallUI] Error storing call:', e)
+  }
+}
+
 export function CallUIProvider({ children }: { children: React.ReactNode }) {
-  const [call, setCall] = useState<CallSession | null>(null)
+  // Initialize from sessionStorage to persist across navigation
+  const [call, setCallState] = useState<CallSession | null>(() => getStoredCall())
+  const initializedRef = useRef(false)
+
+  // Sync call state to sessionStorage whenever it changes
+  useEffect(() => {
+    if (initializedRef.current) {
+      storeCall(call)
+    }
+    initializedRef.current = true
+  }, [call])
+
+  // Wrapper to update both state and storage
+  const setCall = (newCall: CallSession | null | ((prev: CallSession | null) => CallSession | null)) => {
+    setCallState(prev => {
+      const result = typeof newCall === 'function' ? newCall(prev) : newCall
+      return result
+    })
+  }
 
   const value = useMemo<CallUIContextType>(() => ({
     call,
@@ -101,7 +153,7 @@ export function CallUIProvider({ children }: { children: React.ReactNode }) {
         startedAt: Date.now(),
         notes: "",
         isMinimized: false,
-        callId: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Unique call ID
+        callId: `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`, // Unique call ID
         direction: direction || 'outbound',
         powerDialer, // Include power dialer context if provided
       })

@@ -87,13 +87,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, description, contactIds, scriptId, syncTagIds, autoSync } = body
+    const { name, description, contactIds, scriptId, syncTagIds, excludeTagIds, autoSync } = body
 
     console.log('[POWER DIALER LIST] Creating list:', {
       name,
       contactCount: contactIds?.length,
       scriptId,
       syncTagIds,
+      excludeTagIds,
       autoSync
     })
 
@@ -114,23 +115,39 @@ export async function POST(request: NextRequest) {
 
     // If tags provided, fetch matching contacts
     let finalContactIds = hasContacts ? contactIds : []
+    const hasExcludeTags = Array.isArray(excludeTagIds) && excludeTagIds.length > 0
 
     if (hasTags) {
-      const contactsWithTags = await prisma.contact.findMany({
-        where: {
+      // Build where clause with include AND exclude tag filters
+      const whereClause: any = {
+        contact_tags: {
+          some: {
+            tag_id: { in: syncTagIds }
+          }
+        },
+        dnc: false,
+        deletedAt: null,
+        OR: [
+          { phone1: { not: null } },
+          { phone2: { not: null } },
+          { phone3: { not: null } }
+        ]
+      }
+
+      // Add exclusion for contacts with ANY of the exclude tags
+      if (hasExcludeTags) {
+        whereClause.NOT = {
           contact_tags: {
             some: {
-              tag_id: { in: syncTagIds }
+              tag_id: { in: excludeTagIds }
             }
-          },
-          dnc: false,
-          deletedAt: null,
-          OR: [
-            { phone1: { not: null } },
-            { phone2: { not: null } },
-            { phone3: { not: null } }
-          ]
-        },
+          }
+        }
+        console.log(`[POWER DIALER LIST] Excluding contacts with tags:`, excludeTagIds)
+      }
+
+      const contactsWithTags = await prisma.contact.findMany({
+        where: whereClause,
         select: { id: true }
       })
 
@@ -139,7 +156,7 @@ export async function POST(request: NextRequest) {
       const allIds = [...new Set([...finalContactIds, ...tagContactIds])]
       finalContactIds = allIds
 
-      console.log(`[POWER DIALER LIST] Found ${tagContactIds.length} contacts with specified tags`)
+      console.log(`[POWER DIALER LIST] Found ${tagContactIds.length} contacts with specified tags (after exclusions)`)
     }
 
     if (finalContactIds.length === 0) {

@@ -11,7 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import {
-  Plus, Trash2, Edit, GripVertical, ThumbsUp, ThumbsDown, Calendar, Voicemail, Ban, PhoneMissed, PhoneOff, Check, Loader2, MessageSquare, Mail, Clock
+  Plus, Trash2, Edit, GripVertical, ThumbsUp, ThumbsDown, Calendar, Voicemail, Ban, PhoneMissed, PhoneOff, Check, Loader2, MessageSquare, Mail, Clock,
+  // Additional icons for disposition customization
+  Star, Heart, AlertCircle, XCircle, CheckCircle, UserX, UserCheck, Phone, PhoneCall, PhoneIncoming, PhoneOutgoing,
+  DollarSign, TrendingUp, Home, Building, FileText, Send, RefreshCw, Bell, Target, Zap
 } from 'lucide-react'
 
 interface DispositionAction {
@@ -55,6 +58,12 @@ interface TeamMember {
   email: string
 }
 
+interface Tag {
+  id: string
+  name: string
+  color: string
+}
+
 const ACTION_TYPES = [
   { value: 'ADD_TAG', label: 'Add Tag', desc: 'Add a tag to the contact' },
   { value: 'REMOVE_TAG', label: 'Remove Tag', desc: 'Remove a tag from the contact' },
@@ -65,19 +74,69 @@ const ACTION_TYPES = [
   { value: 'SEND_EMAIL', label: 'Send Email', desc: 'Send an email immediately' },
   { value: 'CREATE_TASK', label: 'Create Task', desc: 'Create a follow-up task' },
   { value: 'REQUEUE_CONTACT', label: 'Requeue Contact', desc: 'Put contact back in dialer queue for retry' },
-  { value: 'REMOVE_FROM_QUEUE', label: 'Remove from Queue', desc: 'Remove contact from all dialer queues' },
-  { value: 'MARK_BAD_NUMBER', label: 'Mark Bad Number', desc: 'Mark phone as invalid/bad number' }
+  { value: 'REMOVE_FROM_QUEUE', label: 'Remove from Queue', desc: 'Remove contact from dialer queue(s)' },
+  { value: 'MARK_BAD_NUMBER', label: 'Mark Bad Number', desc: 'Mark phone as invalid/bad number' },
+  { value: 'DELETE_CONTACT', label: 'Delete Contact', desc: 'Permanently delete the contact from CRM' }
+]
+
+const TASK_TYPES = [
+  { value: 'call', label: 'Call' },
+  { value: 'email', label: 'Email' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'follow_up', label: 'Follow Up' },
+  { value: 'other', label: 'Other' }
+]
+
+const DYNAMIC_FIELDS = [
+  { value: '{firstName}', label: 'First Name' },
+  { value: '{lastName}', label: 'Last Name' },
+  { value: '{fullName}', label: 'Full Name' },
+  { value: '{phone}', label: 'Phone' },
+  { value: '{email}', label: 'Email' },
+  { value: '{propertyAddress}', label: 'Property Address' },
+  { value: '{city}', label: 'City' },
+  { value: '{state}', label: 'State' }
 ]
 
 const ICON_OPTIONS = [
+  // Positive outcomes
   { value: 'ThumbsUp', label: 'Thumbs Up', icon: ThumbsUp },
+  { value: 'CheckCircle', label: 'Check Circle', icon: CheckCircle },
+  { value: 'Check', label: 'Check', icon: Check },
+  { value: 'Star', label: 'Star', icon: Star },
+  { value: 'Heart', label: 'Heart', icon: Heart },
+  { value: 'UserCheck', label: 'User Check', icon: UserCheck },
+  { value: 'TrendingUp', label: 'Trending Up', icon: TrendingUp },
+  // Negative outcomes
   { value: 'ThumbsDown', label: 'Thumbs Down', icon: ThumbsDown },
-  { value: 'Calendar', label: 'Calendar', icon: Calendar },
-  { value: 'Voicemail', label: 'Voicemail', icon: Voicemail },
+  { value: 'XCircle', label: 'X Circle', icon: XCircle },
   { value: 'Ban', label: 'Ban', icon: Ban },
+  { value: 'UserX', label: 'User X', icon: UserX },
+  { value: 'AlertCircle', label: 'Alert Circle', icon: AlertCircle },
+  // Phone related
+  { value: 'Phone', label: 'Phone', icon: Phone },
+  { value: 'PhoneCall', label: 'Phone Call', icon: PhoneCall },
+  { value: 'PhoneIncoming', label: 'Phone Incoming', icon: PhoneIncoming },
+  { value: 'PhoneOutgoing', label: 'Phone Outgoing', icon: PhoneOutgoing },
   { value: 'PhoneMissed', label: 'Phone Missed', icon: PhoneMissed },
   { value: 'PhoneOff', label: 'Phone Off', icon: PhoneOff },
-  { value: 'Check', label: 'Check', icon: Check }
+  { value: 'Voicemail', label: 'Voicemail', icon: Voicemail },
+  // Scheduling / Time
+  { value: 'Calendar', label: 'Calendar', icon: Calendar },
+  { value: 'Clock', label: 'Clock', icon: Clock },
+  { value: 'Bell', label: 'Bell', icon: Bell },
+  { value: 'RefreshCw', label: 'Refresh / Retry', icon: RefreshCw },
+  // Business / Real Estate
+  { value: 'DollarSign', label: 'Dollar Sign', icon: DollarSign },
+  { value: 'Home', label: 'Home', icon: Home },
+  { value: 'Building', label: 'Building', icon: Building },
+  { value: 'Target', label: 'Target', icon: Target },
+  { value: 'Zap', label: 'Zap / Quick', icon: Zap },
+  // Communication
+  { value: 'MessageSquare', label: 'Message', icon: MessageSquare },
+  { value: 'Mail', label: 'Email', icon: Mail },
+  { value: 'Send', label: 'Send', icon: Send },
+  { value: 'FileText', label: 'Document', icon: FileText },
 ]
 
 const COLOR_OPTIONS = [
@@ -103,6 +162,8 @@ export default function DispositionsSettings() {
   const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([])
   const [sequences, setSequences] = useState<Sequence[]>([])
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
+  const [tagSearch, setTagSearch] = useState('')
 
   useEffect(() => {
     loadDispositions()
@@ -111,11 +172,12 @@ export default function DispositionsSettings() {
 
   const loadReferenceData = async () => {
     // Load all reference data in parallel
-    const [smsRes, emailRes, seqRes, teamRes] = await Promise.all([
+    const [smsRes, emailRes, seqRes, teamRes, tagsRes] = await Promise.all([
       fetch('/api/templates').catch(() => null),
       fetch('/api/email/templates').catch(() => null),
       fetch('/api/sequences').catch(() => null),
-      fetch('/api/admin/team-users').catch(() => null)
+      fetch('/api/admin/team-users').catch(() => null),
+      fetch('/api/tags').catch(() => null)
     ])
 
     if (smsRes?.ok) {
@@ -133,6 +195,10 @@ export default function DispositionsSettings() {
     if (teamRes?.ok) {
       const data = await teamRes.json()
       setTeamMembers(data.users || [])
+    }
+    if (tagsRes?.ok) {
+      const data = await tagsRes.json()
+      setTags(Array.isArray(data) ? data : data.tags || [])
     }
   }
 
@@ -312,9 +378,57 @@ export default function DispositionsSettings() {
                               ))}
                             </SelectContent>
                           </Select>
-                          {/* ADD/REMOVE TAG */}
+                          {/* ADD/REMOVE TAG - Searchable dropdown with create option */}
                           {(action.actionType === 'ADD_TAG' || action.actionType === 'REMOVE_TAG') && (
-                            <Input placeholder="Tag name" value={(action.config.tagName as string) || ''} onChange={(e) => updateAction(idx, 'tagName', e.target.value)} />
+                            <div className="space-y-2">
+                              <Input
+                                placeholder="Search or type new tag name..."
+                                value={tagSearch || (action.config.tagName as string) || ''}
+                                onChange={(e) => {
+                                  setTagSearch(e.target.value)
+                                  updateAction(idx, 'tagName', e.target.value)
+                                }}
+                                onFocus={() => setTagSearch((action.config.tagName as string) || '')}
+                              />
+                              {tagSearch && (
+                                <div className="border rounded-md max-h-32 overflow-y-auto">
+                                  {tags
+                                    .filter(t => t.name.toLowerCase().includes(tagSearch.toLowerCase()))
+                                    .map(tag => (
+                                      <div
+                                        key={tag.id}
+                                        className="px-3 py-1.5 hover:bg-muted cursor-pointer flex items-center gap-2"
+                                        onClick={() => {
+                                          updateAction(idx, 'tagName', tag.name)
+                                          updateAction(idx, 'tagId', tag.id)
+                                          setTagSearch('')
+                                        }}
+                                      >
+                                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tag.color }} />
+                                        <span className="text-sm">{tag.name}</span>
+                                      </div>
+                                    ))}
+                                  {!tags.some(t => t.name.toLowerCase() === tagSearch.toLowerCase()) && action.actionType === 'ADD_TAG' && (
+                                    <div
+                                      className="px-3 py-1.5 hover:bg-muted cursor-pointer flex items-center gap-2 text-blue-600 border-t"
+                                      onClick={() => {
+                                        updateAction(idx, 'tagName', tagSearch)
+                                        updateAction(idx, 'tagId', '') // Will create new tag
+                                        setTagSearch('')
+                                      }}
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                      <span className="text-sm">Create &quot;{tagSearch}&quot;</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {(action.config.tagName as string) && !tagSearch && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Selected: {action.config.tagName as string}
+                                </Badge>
+                              )}
+                            </div>
                           )}
 
                           {/* ADD TO DNC */}
@@ -401,17 +515,68 @@ export default function DispositionsSettings() {
                           {/* CREATE TASK - Full fields */}
                           {action.actionType === 'CREATE_TASK' && (
                             <div className="space-y-2">
-                              <Input
-                                placeholder="Task title (e.g., Follow up with {firstName})"
-                                value={(action.config.taskTitle as string) || ''}
-                                onChange={(e) => updateAction(idx, 'taskTitle', e.target.value)}
-                              />
-                              <Textarea
-                                placeholder="Task description (optional). Use {firstName}, {phone}, etc."
-                                value={(action.config.taskDescription as string) || ''}
-                                onChange={(e) => updateAction(idx, 'taskDescription', e.target.value)}
-                                rows={2}
-                              />
+                              {/* Task Type */}
+                              <div>
+                                <Label className="text-xs">Task Type</Label>
+                                <Select
+                                  value={(action.config.taskType as string) || 'follow_up'}
+                                  onValueChange={(v) => updateAction(idx, 'taskType', v)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {TASK_TYPES.map(t => (
+                                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {/* Task Title with dynamic field dropdown */}
+                              <div>
+                                <Label className="text-xs">Task Title</Label>
+                                <div className="flex gap-1">
+                                  <Input
+                                    placeholder="e.g., Follow up with {firstName}"
+                                    value={(action.config.taskTitle as string) || ''}
+                                    onChange={(e) => updateAction(idx, 'taskTitle', e.target.value)}
+                                    className="flex-1"
+                                  />
+                                  <Select onValueChange={(v) => updateAction(idx, 'taskTitle', ((action.config.taskTitle as string) || '') + v)}>
+                                    <SelectTrigger className="w-24">
+                                      <SelectValue placeholder="Insert" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {DYNAMIC_FIELDS.map(f => (
+                                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                              {/* Task Description with dynamic field dropdown */}
+                              <div>
+                                <Label className="text-xs">Description</Label>
+                                <div className="flex gap-1">
+                                  <Textarea
+                                    placeholder="Task description (optional)"
+                                    value={(action.config.taskDescription as string) || ''}
+                                    onChange={(e) => updateAction(idx, 'taskDescription', e.target.value)}
+                                    rows={2}
+                                    className="flex-1"
+                                  />
+                                  <Select onValueChange={(v) => updateAction(idx, 'taskDescription', ((action.config.taskDescription as string) || '') + v)}>
+                                    <SelectTrigger className="w-24 h-auto">
+                                      <SelectValue placeholder="Insert" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {DYNAMIC_FIELDS.map(f => (
+                                        <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
                                   <Label className="text-xs">Due in days</Label>
@@ -443,14 +608,14 @@ export default function DispositionsSettings() {
                               <div>
                                 <Label className="text-xs">Assign to</Label>
                                 <Select
-                                  value={(action.config.assignToUserId as string) || ''}
-                                  onValueChange={(v) => updateAction(idx, 'assignToUserId', v)}
+                                  value={(action.config.assignToUserId as string) || '__unassigned__'}
+                                  onValueChange={(v) => updateAction(idx, 'assignToUserId', v === '__unassigned__' ? '' : v)}
                                 >
                                   <SelectTrigger>
                                     <SelectValue placeholder="(Unassigned)" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="">Unassigned</SelectItem>
+                                    <SelectItem value="__unassigned__">Unassigned</SelectItem>
                                     {teamMembers.map(m => (
                                       <SelectItem key={m.id} value={m.id}>
                                         {m.firstName} {m.lastName}
@@ -494,8 +659,35 @@ export default function DispositionsSettings() {
                             <Input placeholder="Reason (e.g., disconnected, wrong number)" value={(action.config.reason as string) || ''} onChange={(e) => updateAction(idx, 'reason', e.target.value)} />
                           )}
 
+                          {/* REMOVE FROM QUEUE - Scope selection */}
+                          {action.actionType === 'REMOVE_FROM_QUEUE' && (
+                            <div className="space-y-2">
+                              <Label className="text-xs">Remove from</Label>
+                              <Select
+                                value={(action.config.scope as string) || 'current'}
+                                onValueChange={(v) => updateAction(idx, 'scope', v)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="current">Current queue only</SelectItem>
+                                  <SelectItem value="all">All dialer queues</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+
+                          {/* DELETE CONTACT - Confirmation warning */}
+                          {action.actionType === 'DELETE_CONTACT' && (
+                            <div className="p-2 bg-red-50 border border-red-200 rounded-md">
+                              <p className="text-xs text-red-600 font-medium">⚠️ Warning: This will permanently delete the contact from the CRM.</p>
+                              <p className="text-xs text-red-500 mt-1">This action cannot be undone.</p>
+                            </div>
+                          )}
+
                           {/* Show description for actions without config */}
-                          {['REMOVE_FROM_QUEUE', 'REMOVE_FROM_DNC'].includes(action.actionType) && (
+                          {['REMOVE_FROM_DNC'].includes(action.actionType) && (
                             <p className="text-xs text-muted-foreground">
                               {ACTION_TYPES.find(t => t.value === action.actionType)?.desc}
                             </p>

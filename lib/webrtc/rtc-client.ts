@@ -24,7 +24,7 @@ export type InboundCallInfo = {
 }
 
 class TelnyxWebRTCClient {
-  // VERSION: 2024-12-08-11:00 - MULTI-LINE POWER DIALER
+  // VERSION: 2024-12-11-12:00 - RINGBACK TONE FIX
   private client: any | null = null
   private registered = false
   private currentCall: any | null = null
@@ -37,6 +37,9 @@ class TelnyxWebRTCClient {
   private ringtoneOscillator: OscillatorNode | null = null
   private ringtoneGain: GainNode | null = null
   private ringtoneInterval: NodeJS.Timeout | null = null
+  // Ringback tone for outbound calls
+  private ringbackEl: HTMLAudioElement | null = null
+  private ringbackInterval: NodeJS.Timeout | null = null
   // For tracking pending inbound calls from invite messages
   private pendingInboundCallId: string | null = null
   private pendingInboundInfo: { callerNumber?: string; callerName?: string; destinationNumber?: string } | null = null
@@ -310,6 +313,100 @@ class TelnyxWebRTCClient {
     }
   }
 
+  // Play ringback tone for outbound calls (US standard: 440Hz + 480Hz, 2s on, 4s off)
+  private playRingback() {
+    console.log('[RTC] 🔔 playRingback() - Starting outbound ringback tone')
+    this.stopRingback() // Stop any existing ringback
+
+    if (typeof document === 'undefined') return
+
+    // Create ringback audio element if not exists
+    if (!this.ringbackEl) {
+      console.log('[RTC] Creating ringback audio element...')
+      const el = document.createElement('audio')
+      el.loop = true
+      el.volume = 0.6
+
+      // US ringback: two tones (440Hz + 480Hz) for 2 seconds
+      const duration = 2.0 // seconds
+      const sampleRate = 8000
+      const numSamples = Math.floor(duration * sampleRate)
+      const buffer = new ArrayBuffer(44 + numSamples)
+      const view = new DataView(buffer)
+
+      // WAV header
+      const writeString = (offset: number, string: string) => {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i))
+        }
+      }
+
+      writeString(0, 'RIFF')
+      view.setUint32(4, 36 + numSamples, true)
+      writeString(8, 'WAVE')
+      writeString(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, 1, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate, true)
+      view.setUint16(32, 1, true)
+      view.setUint16(34, 8, true)
+      writeString(36, 'data')
+      view.setUint32(40, numSamples, true)
+
+      // Generate dual-tone ringback (440Hz + 480Hz mixed)
+      for (let i = 0; i < numSamples; i++) {
+        const t = i / sampleRate
+        // Mix 440Hz and 480Hz (US ringback standard)
+        const value = (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2
+        view.setUint8(44 + i, (value * 100 + 128)) // Lower amplitude for ringback
+      }
+
+      const blob = new Blob([buffer], { type: 'audio/wav' })
+      el.src = URL.createObjectURL(blob)
+      this.ringbackEl = el
+    }
+
+    // Play 2s tone, then 4s silence (standard US ringback cadence)
+    const playTone = () => {
+      if (!this.ringbackEl) return
+      this.ringbackEl.currentTime = 0
+      this.ringbackEl.play().then(() => {
+        console.log('[RTC] 🔊 Ringback tone playing')
+      }).catch((err) => {
+        console.warn('[RTC] Could not play ringback:', err)
+      })
+
+      // Stop after 2 seconds (the tone duration)
+      setTimeout(() => {
+        if (this.ringbackEl) {
+          this.ringbackEl.pause()
+        }
+      }, 2000)
+    }
+
+    // Play immediately
+    playTone()
+
+    // Repeat every 6 seconds (2s tone + 4s silence)
+    this.ringbackInterval = setInterval(playTone, 6000)
+  }
+
+  // Stop ringback tone
+  private stopRingback() {
+    if (this.ringbackInterval) {
+      clearInterval(this.ringbackInterval)
+      this.ringbackInterval = null
+    }
+    if (this.ringbackEl) {
+      try {
+        this.ringbackEl.pause()
+        this.ringbackEl.currentTime = 0
+      } catch {}
+    }
+  }
+
   async ensureRegistered() {
     if (this.registered && this.client) return
 
@@ -480,9 +577,9 @@ class TelnyxWebRTCClient {
           // In power dialer mode, auto-answer the call immediately
           if (this.powerDialerMode) {
             console.log("[RTC] 🤖 POWER DIALER MODE: Auto-answering transferred call...")
-            this.answerInboundCall().then(() => {
+            this.answerInbound().then(() => {
               console.log("[RTC] ✅ Auto-answered call in power dialer mode")
-            }).catch((err) => {
+            }).catch((err: any) => {
               console.error("[RTC] ❌ Failed to auto-answer in power dialer mode:", err)
             })
             // Don't play ringtone in power dialer mode
@@ -507,8 +604,9 @@ class TelnyxWebRTCClient {
 
         // Call answered (either direction)
         if (state === 'active' || state === 'answering') {
-          // Stop ringtone
+          // Stop ringtone (for inbound) and ringback (for outbound)
           this.stopRingtone()
+          this.stopRingback()
 
           // Ensure remote audio is playing when call becomes active
           console.log('[RTC] Call active, checking remote audio...')
@@ -568,24 +666,30 @@ class TelnyxWebRTCClient {
         if (endStates.includes(state)) {
           console.log("[RTC] ☎️ Call ended with state:", state, "callId:", callId)
 
-          // Stop ringtone
+          // Stop ringtone (inbound) and ringback (outbound)
           this.stopRingtone()
+          this.stopRingback()
 
           // Remove from activeCalls map
           if (callId) {
             this.activeCalls.delete(callId)
           }
 
-          if (this.audioEl) {
+          // Clear current call reference (outbound calls)
+          const currentCallId = this.currentCall?.callId || this.currentCall?.id
+          const isCurrentCall = currentCallId === call.callId || currentCallId === call.id
+
+          // Only clear audio if this ending call is the one currently playing audio
+          // AND there are no more active calls - prevents clearing audio from active call when another call ends
+          if (this.audioEl && isCurrentCall && this.activeCalls.size === 0) {
             try {
               // @ts-ignore
               this.audioEl.srcObject = null
+              console.log('[RTC] Cleared audio srcObject (no more active calls)')
             } catch {}
           }
 
-          // Clear current call reference (outbound calls)
-          const currentCallId = this.currentCall?.callId || this.currentCall?.id
-          if (currentCallId === call.callId || currentCallId === call.id) {
+          if (isCurrentCall) {
             console.log("[RTC] Clearing currentCall reference")
             this.currentCall = null
             // Only clean up local stream if no other active calls
@@ -664,6 +768,9 @@ class TelnyxWebRTCClient {
       try { (call as any).setLocalStream(stream) } catch {}
     }
     this.currentCall = call
+
+    // Start playing ringback tone for outbound call
+    this.playRingback()
 
     // Clear the initiating flag after a short delay
     setTimeout(() => { this.isInitiatingOutbound = false }, 2000)
@@ -832,6 +939,9 @@ class TelnyxWebRTCClient {
     this.currentCall = this.inboundCall
     this.inboundCall = null
 
+    // Emit inboundCallEnded so the notification UI can dismiss
+    this.emit("inboundCallEnded", { answered: true })
+
     // CRITICAL: Immediately attach remote audio stream after answering
     // Wait a moment for the stream to be ready
     await new Promise(resolve => setTimeout(resolve, 500))
@@ -993,6 +1103,16 @@ class TelnyxWebRTCClient {
     return this.registered && !!this.client
   }
 
+  // Get a specific call by sessionId from activeCalls map
+  getCallById(callId: string): any | null {
+    return this.activeCalls.get(callId) || null
+  }
+
+  // Get all active calls
+  getAllActiveCalls(): Map<string, any> {
+    return new Map(this.activeCalls)
+  }
+
   // Manually ensure remote audio is playing (useful for troubleshooting)
   ensureRemoteAudioPlaying(): boolean {
     if (!this.currentCall) {
@@ -1030,6 +1150,49 @@ class TelnyxWebRTCClient {
       return true
     } catch (err) {
       console.error('[RTC] Error in ensureRemoteAudioPlaying:', err)
+      return false
+    }
+  }
+
+  // Switch audio to a specific call by ID
+  switchAudioToCall(callId: string): boolean {
+    const call = this.activeCalls.get(callId)
+    if (!call) {
+      console.warn('[RTC] Cannot switch audio - call not found:', callId)
+      return false
+    }
+
+    const remoteStream = call.remoteStream
+    if (!remoteStream) {
+      console.warn('[RTC] Cannot switch audio - no remote stream for call:', callId)
+      return false
+    }
+
+    if (!this.audioEl) {
+      console.error('[RTC] Audio element not initialized')
+      return false
+    }
+
+    try {
+      console.log('[RTC] Switching audio to call:', callId)
+      // Update currentCall reference to this call
+      this.currentCall = call
+      // @ts-ignore
+      this.audioEl.srcObject = remoteStream
+      this.audioEl.volume = 1.0
+      this.audioEl.muted = false
+      this.audioEl.play().then(() => {
+        console.log('[RTC] ✓ Audio switched to call:', callId)
+      }).catch((err) => {
+        if (err.name === 'AbortError') {
+          console.log('[RTC] Audio play interrupted by new source - this is expected')
+          return
+        }
+        console.error('[RTC] Failed to switch audio:', err)
+      })
+      return true
+    } catch (err) {
+      console.error('[RTC] Error switching audio to call:', err)
       return false
     }
   }

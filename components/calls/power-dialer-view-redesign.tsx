@@ -17,13 +17,31 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { PowerDialerCallWindow } from './power-dialer-call-window'
-import { ArrowLeft, Play, Pause, Square, User, Phone, Save, Edit2 } from 'lucide-react'
+import { ArrowLeft, Play, Pause, User, Phone, Save, Edit2, UserCog, MessageSquare, Mail, PhoneCall, History, Edit3, RotateCcw, Trash2, Tag, X, CheckSquare, Shuffle } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useContactPanel } from '@/lib/context/contact-panel-context'
+import { useCallUI } from '@/lib/context/call-ui-context'
+import { useSmsUI } from '@/lib/context/sms-ui-context'
+import { useEmailUI } from '@/lib/context/email-ui-context'
+import { usePhoneNumber } from '@/lib/context/phone-number-context'
+import { useTaskUI } from '@/lib/context/task-ui-context'
 
 interface Contact {
   id: string
@@ -33,6 +51,7 @@ interface Contact {
   phone: string
   phone2?: string
   phone3?: string
+  email?: string
   propertyAddress?: string
   propertyAddress2?: string
   propertyAddress3?: string
@@ -52,6 +71,19 @@ interface CallLine {
   startedAt?: Date
   callId?: string
   callerIdNumber?: string // The number we're using to call
+}
+
+// Session history entry - tracks each completed call in this session
+interface SessionHistoryEntry {
+  id: string // unique ID for this entry
+  contact: Contact
+  dispositionId: string
+  dispositionName: string
+  dispositionColor: string
+  notes: string
+  callerIdNumber?: string
+  calledAt: Date
+  talkDuration?: number // seconds
 }
 
 interface PowerDialerViewRedesignProps {
@@ -85,11 +117,31 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const [availableScripts, setAvailableScripts] = useState<{ id: string; name: string; content: string }[]>([])
   const [showScriptSelector, setShowScriptSelector] = useState(false)
   const [waitingForDisposition, setWaitingForDisposition] = useState(false) // True when hang up clicked, waiting for disposition
-  const [endedLineNumber, setEndedLineNumber] = useState<number | null>(null) // Track line with 'ended' call waiting for disposition
   const [dispositions, setDispositions] = useState<{ id: string; name: string; color: string; icon?: string; actions: any[] }[]>([])
+
+  // Session history - tracks completed calls in this dialing session
+  const [sessionHistory, setSessionHistory] = useState<SessionHistoryEntry[]>([])
+  const [editingDispositionId, setEditingDispositionId] = useState<string | null>(null) // Entry ID being edited
+
+  // Bulk selection state for queue actions
+  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set())
+  const [showBulkActions, setShowBulkActions] = useState(false)
+  const [availableTags, setAvailableTags] = useState<{ id: string; name: string; color: string }[]>([])
+  const [bulkTagDialogOpen, setBulkTagDialogOpen] = useState(false)
+  const [bulkTagOperation, setBulkTagOperation] = useState<'add' | 'remove'>('add')
+  const [selectedTagForBulk, setSelectedTagForBulk] = useState<string>('')
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
+  const [tagSearchQuery, setTagSearchQuery] = useState('')
 
   // Contact panel context for opening contact details
   const { openContactPanel } = useContactPanel()
+
+  // UI contexts for quick actions
+  const { openCall } = useCallUI()
+  const { openSms } = useSmsUI()
+  const { openEmail } = useEmailUI()
+  const { selectedPhoneNumber } = usePhoneNumber()
+  const { openTask } = useTaskUI()
 
   // Refs for latest state values (to avoid closure issues in setTimeout callbacks)
   const isRunningRef = useRef(isRunning)
@@ -118,30 +170,98 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     setCallLines(lines)
   }, [maxLines])
 
-  // Load queue from API
+  // Helper to build full address from parts
+  const buildFullAddress = (address?: string, city?: string, state?: string, zip?: string): string => {
+    if (!address) return ''
+    const parts = [address]
+    const cityStateZip = [city, state, zip].filter(Boolean).join(', ')
+    if (cityStateZip) parts.push(cityStateZip)
+    return parts.join(', ')
+  }
+
+  // Transform API contact data to Contact format
+  const transformContactData = (c: any): Contact => {
+    const contact = c.contact
+    const fullAddr1 = contact?.fullPropertyAddress || buildFullAddress(
+      contact?.propertyAddress, contact?.city, contact?.state, contact?.zipCode
+    )
+    const prop2 = contact?.properties?.[0]
+    const prop3 = contact?.properties?.[1]
+    const fullAddr2 = prop2 ? buildFullAddress(prop2.address, prop2.city, prop2.state, prop2.zipCode) : ''
+    const fullAddr3 = prop3 ? buildFullAddress(prop3.address, prop3.city, prop3.state, prop3.zipCode) : ''
+
+    return {
+      id: c.contactId as string,
+      listEntryId: c.id as string,
+      firstName: contact?.firstName || '',
+      lastName: contact?.lastName || '',
+      phone: contact?.phone1 || contact?.phone2 || contact?.phone3 || '',
+      phone2: contact?.phone2 || '',
+      phone3: contact?.phone3 || '',
+      email: contact?.email1 || '',
+      propertyAddress: fullAddr1,
+      propertyAddress2: fullAddr2,
+      propertyAddress3: fullAddr3,
+      city: contact?.city || '',
+      state: contact?.state || '',
+      zipCode: contact?.zipCode || '',
+      llcName: contact?.llcName || '',
+      dialAttempts: c.attemptCount || 0,
+      lastCalledAt: c.lastCalledAt || null
+    }
+  }
+
+  // Load queue from API (or restore from session state)
   useEffect(() => {
     const loadQueue = async () => {
       try {
+        // First check if we have saved queue state
+        const listRes = await fetch(`/api/power-dialer/lists/${listId}`)
+        if (listRes.ok) {
+          const listData = await listRes.json()
+
+          // If we have saved queue state with contact IDs and retry counts, restore it
+          if (listData.sessionState?.queueState?.length > 0) {
+            console.log('[PowerDialer] 📋 Found saved queue state, restoring...')
+            const savedQueueState = listData.sessionState.queueState
+
+            // Fetch all contacts from API to get fresh data
+            const res = await fetch(`/api/power-dialer/lists/${listId}/contacts?status=pending&limit=100`)
+            if (res.ok) {
+              const data = await res.json()
+              const allContacts: Contact[] = (data.contacts || []).map(transformContactData)
+
+              // Create a map for quick lookup
+              const contactMap = new Map(allContacts.map(c => [c.id, c]))
+
+              // Restore queue in saved order with retry counts
+              const restoredQueue: Contact[] = []
+              for (const savedContact of savedQueueState) {
+                const contact = contactMap.get(savedContact.id)
+                if (contact) {
+                  // Restore the __retryCount from saved state
+                  restoredQueue.push({ ...contact, __retryCount: savedContact.__retryCount || 0 } as Contact)
+                  contactMap.delete(savedContact.id) // Remove from map so we don't add duplicates
+                }
+              }
+
+              // Add any new contacts that weren't in saved state (added after session was saved)
+              contactMap.forEach(contact => {
+                restoredQueue.push(contact)
+              })
+
+              console.log('[PowerDialer] 📋 QUEUE: Restored', restoredQueue.length, 'contacts from saved state')
+              setQueue(restoredQueue)
+              return
+            }
+          }
+        }
+
+        // No saved state, load fresh from API
         const res = await fetch(`/api/power-dialer/lists/${listId}/contacts?status=pending&limit=100`)
         if (res.ok) {
           const data = await res.json()
-          // Transform to Contact format
-          const contacts: Contact[] = (data.contacts || []).map((c: any) => ({
-            id: c.contactId as string,
-            listEntryId: c.id as string,
-            firstName: c.contact?.firstName || '',
-            lastName: c.contact?.lastName || '',
-            phone: c.contact?.phone1 || c.contact?.phone2 || c.contact?.phone3 || '',
-            phone2: c.contact?.phone2 || '',
-            phone3: c.contact?.phone3 || '',
-            propertyAddress: c.contact?.propertyAddress || '',
-            propertyAddress2: c.contact?.properties?.[1]?.address || '',
-            propertyAddress3: c.contact?.properties?.[2]?.address || '',
-            city: c.contact?.city || '',
-            state: c.contact?.state || '',
-            zipCode: c.contact?.zipCode || '',
-            llcName: c.contact?.llcName || ''
-          }))
+          const contacts: Contact[] = (data.contacts || []).map(transformContactData)
           console.log('[PowerDialer] 📋 QUEUE: Loaded contacts', contacts.length)
           setQueue(contacts)
         }
@@ -152,14 +272,20 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     loadQueue()
   }, [listId])
 
-  // Load script from list (API now returns script relation)
+  // Load script and session state from list (API now returns script relation)
   useEffect(() => {
-    const loadScript = async () => {
+    const loadListData = async () => {
       try {
-        // Get list details - script is now included in the response
+        // Get list details - script and sessionState are included in the response
         const listRes = await fetch(`/api/power-dialer/lists/${listId}`)
         if (listRes.ok) {
           const listData = await listRes.json()
+
+          // Load session state (persisted session history)
+          if (listData.sessionState?.sessionHistory) {
+            setSessionHistory(listData.sessionState.sessionHistory)
+            console.log('[PowerDialer] 📋 Restored session history:', listData.sessionState.sessionHistory.length, 'entries')
+          }
 
           // If list has a script relation, use it directly
           if (listData.script) {
@@ -182,10 +308,10 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           }
         }
       } catch (err) {
-        console.error('[PowerDialer] Failed to load script:', err)
+        console.error('[PowerDialer] Failed to load list data:', err)
       }
     }
-    loadScript()
+    loadListData()
   }, [listId])
 
   // Load available script templates
@@ -233,6 +359,56 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     loadDispositions()
   }, [])
 
+  // Load available tags for bulk operations
+  useEffect(() => {
+    const loadTags = async () => {
+      try {
+        const res = await fetch('/api/tags')
+        if (res.ok) {
+          const data = await res.json()
+          setAvailableTags(data.tags || [])
+        }
+      } catch (err) {
+        console.error('[PowerDialer] Failed to load tags:', err)
+      }
+    }
+    loadTags()
+  }, [])
+
+  // Auto-save session state when session history OR queue changes (debounced)
+  useEffect(() => {
+    // Save if we have session history OR if queue has retry contacts (Round 2+)
+    const hasRetryContacts = queue.some(c => ((c as any).__retryCount || 0) > 0)
+    if (sessionHistory.length === 0 && !hasRetryContacts) return // Don't save empty state
+
+    const saveTimeout = setTimeout(async () => {
+      try {
+        // Save queue state: just the contact IDs and their retry counts (to preserve order)
+        const queueState = queue.map(c => ({
+          id: c.id,
+          __retryCount: (c as any).__retryCount || 0
+        }))
+
+        await fetch(`/api/power-dialer/lists/${listId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionState: {
+              sessionHistory,
+              queueState, // Save queue order and retry counts
+              savedAt: new Date().toISOString()
+            }
+          })
+        })
+        console.log('[PowerDialer] 💾 Session state saved (history:', sessionHistory.length, ', queue:', queueState.length, ')')
+      } catch (err) {
+        console.error('[PowerDialer] Failed to save session state:', err)
+      }
+    }, 2000) // Debounce 2 seconds
+
+    return () => clearTimeout(saveTimeout)
+  }, [sessionHistory, queue, listId])
+
   // Handle selecting a script template - saves to campaign for persistence
   const handleSelectScript = async (selectedScript: { id: string; name: string; content: string }) => {
     setScriptId(selectedScript.id)
@@ -268,6 +444,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
 
   const handleResume = () => {
     setIsPaused(false)
+    isPausedRef.current = false // Update ref immediately to avoid closure issue
     console.log('[PowerDialer] ▶️ Resumed')
     startDialingBatch()
   }
@@ -282,11 +459,85 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     setCallLines(prev => prev.map(line => ({ ...line, contact: null, status: 'idle', callerIdNumber: undefined })))
   }
 
-  // Save script changes
+  // Reset campaign to initial state - reloads all contacts from API and clears session state
+  const handleResetCampaign = async () => {
+    // Stop any running calls
+    handleStop()
+    // Clear session history
+    setSessionHistory([])
+
+    // Clear session state AND reset all contacts to PENDING in database
+    try {
+      await fetch(`/api/power-dialer/lists/${listId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionState: null, resetContacts: true })
+      })
+    } catch (err) {
+      console.error('[PowerDialer] Failed to clear session state:', err)
+    }
+
+    // Reload queue from API (all contacts now PENDING and fresh)
+    try {
+      const res = await fetch(`/api/power-dialer/lists/${listId}/contacts?status=pending&limit=100`)
+      if (res.ok) {
+        const data = await res.json()
+
+        // Helper to build full address from parts
+        const buildFullAddress = (address?: string, city?: string, state?: string, zip?: string): string => {
+          if (!address) return ''
+          const parts = [address]
+          const cityStateZip = [city, state, zip].filter(Boolean).join(', ')
+          if (cityStateZip) parts.push(cityStateZip)
+          return parts.join(', ')
+        }
+
+        const contacts: Contact[] = (data.contacts || []).map((c: any) => {
+          const contact = c.contact
+          const fullAddr1 = contact?.fullPropertyAddress || buildFullAddress(
+            contact?.propertyAddress,
+            contact?.city,
+            contact?.state,
+            contact?.zipCode
+          )
+          const prop2 = contact?.properties?.[0]
+          const prop3 = contact?.properties?.[1]
+          const fullAddr2 = prop2 ? buildFullAddress(prop2.address, prop2.city, prop2.state, prop2.zipCode) : ''
+          const fullAddr3 = prop3 ? buildFullAddress(prop3.address, prop3.city, prop3.state, prop3.zipCode) : ''
+
+          return {
+            id: c.contactId as string,
+            listEntryId: c.id as string,
+            firstName: contact?.firstName || '',
+            lastName: contact?.lastName || '',
+            phone: contact?.phone1 || contact?.phone2 || contact?.phone3 || '',
+            phone2: contact?.phone2 || '',
+            phone3: contact?.phone3 || '',
+            email: contact?.email1 || '',
+            propertyAddress: fullAddr1,
+            propertyAddress2: fullAddr2,
+            propertyAddress3: fullAddr3,
+            city: contact?.city || '',
+            state: contact?.state || '',
+            zipCode: contact?.zipCode || '',
+            llcName: contact?.llcName || '',
+            dialAttempts: 0, // Reset since we cleared attemptCount
+            lastCalledAt: null // Reset since we cleared lastCalledAt
+          }
+        })
+        setQueue(contacts)
+        toast.success('Campaign reset!', { description: `Reloaded ${contacts.length} contacts` })
+      }
+    } catch (err) {
+      console.error('[PowerDialer] Failed to reset campaign:', err)
+      toast.error('Failed to reset campaign')
+    }
+  }
+
+  // Save script changes - saves globally to the script template
   const handleSaveScript = async () => {
     setScript(editableScript)
     setIsEditingScript(false)
-    // In real implementation, save to API
     if (scriptId) {
       try {
         await fetch(`/api/call-scripts/${scriptId}`, {
@@ -294,20 +545,152 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: editableScript })
         })
-        toast.success('Script saved!')
+        toast.success('Script template updated!', { description: 'Changes saved globally to settings' })
       } catch (err) {
         console.error('[PowerDialer] Failed to save script:', err)
+        toast.error('Failed to save script')
       }
+    } else {
+      toast.info('Script changes saved locally', { description: 'Select a template to save globally' })
     }
     console.log('[PowerDialer] ✏️ Script saved')
+  }
+
+  // Bulk selection handlers
+  const toggleContactSelection = (contactId: string) => {
+    setSelectedContacts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(contactId)) {
+        newSet.delete(contactId)
+      } else {
+        newSet.add(contactId)
+      }
+      setShowBulkActions(newSet.size > 0)
+      return newSet
+    })
+  }
+
+  const selectAllContacts = () => {
+    const allIds = new Set(queue.map(c => c.id))
+    setSelectedContacts(allIds)
+    setShowBulkActions(allIds.size > 0)
+  }
+
+  const clearSelection = () => {
+    setSelectedContacts(new Set())
+    setShowBulkActions(false)
+  }
+
+  // Bulk add/remove tags
+  const handleBulkTagOperation = async () => {
+    if (!selectedTagForBulk || selectedContacts.size === 0) return
+
+    try {
+      const contactIds = Array.from(selectedContacts)
+      const endpoint = bulkTagOperation === 'add' ? '/api/contacts/bulk-assign-tags' : '/api/contacts/bulk-remove-tags'
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactIds, tagIds: [selectedTagForBulk] })
+      })
+
+      if (res.ok) {
+        const tagName = availableTags.find(t => t.id === selectedTagForBulk)?.name || 'tag'
+        toast.success(`${bulkTagOperation === 'add' ? 'Added' : 'Removed'} "${tagName}" ${bulkTagOperation === 'add' ? 'to' : 'from'} ${contactIds.length} contacts`)
+        clearSelection()
+      } else {
+        toast.error(`Failed to ${bulkTagOperation} tag`)
+      }
+    } catch (err) {
+      console.error('[PowerDialer] Bulk tag operation failed:', err)
+      toast.error('Bulk tag operation failed')
+    }
+    setBulkTagDialogOpen(false)
+    setSelectedTagForBulk('')
+  }
+
+  // Bulk remove from queue only (doesn't delete from CRM)
+  const handleBulkRemoveFromQueue = async () => {
+    if (selectedContacts.size === 0) return
+
+    try {
+      const contactIds = Array.from(selectedContacts)
+
+      // Remove from the PowerDialerList using contactId (API expects ?contactId=xxx)
+      await Promise.all(contactIds.map(contactId =>
+        fetch(`/api/power-dialer/lists/${listId}/contacts?contactId=${contactId}`, { method: 'DELETE' })
+      ))
+
+      // Remove from local queue
+      setQueue(prev => prev.filter(c => !selectedContacts.has(c.id)))
+      toast.success(`Removed ${contactIds.length} contacts from queue`)
+      clearSelection()
+    } catch (err) {
+      console.error('[PowerDialer] Bulk remove from queue failed:', err)
+      toast.error('Failed to remove contacts from queue')
+    }
+  }
+
+  // Shuffle queue (Fisher-Yates algorithm)
+  const handleShuffleQueue = () => {
+    if (queue.length <= 1) return
+
+    setQueue(prev => {
+      const shuffled = [...prev]
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      }
+      return shuffled
+    })
+    toast.success('Queue shuffled!', { description: `${queue.length} contacts randomized` })
+  }
+
+  // Bulk delete contacts from CRM
+  const handleBulkDelete = async () => {
+    if (selectedContacts.size === 0) return
+
+    try {
+      const contactIds = Array.from(selectedContacts)
+
+      const res = await fetch('/api/contacts/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactIds, hardDelete: false }) // Soft delete
+      })
+
+      if (res.ok) {
+        // Remove deleted contacts from queue
+        setQueue(prev => prev.filter(c => !selectedContacts.has(c.id)))
+        toast.success(`Deleted ${contactIds.length} contacts from CRM`)
+        clearSelection()
+      } else {
+        toast.error('Failed to delete contacts')
+      }
+    } catch (err) {
+      console.error('[PowerDialer] Bulk delete failed:', err)
+      toast.error('Bulk delete failed')
+    }
+    setBulkDeleteDialogOpen(false)
   }
 
   // Handle disposition selection - auto-hangs up, saves notes, executes automations, continues dialing
   const handleDisposition = async (dispositionId: string, dispositionName: string, lineNumber: number) => {
     const line = callLines.find(l => l.lineNumber === lineNumber)
     const contact = line?.contact
+    const dispo = dispositions.find(d => d.id === dispositionId)
 
     console.log('[PowerDialer] 📝 Disposition:', dispositionName, '(id:', dispositionId, ') for line', lineNumber, 'notes:', dispositionNotes)
+
+    // Check if disposition should requeue the contact
+    // Either has REQUEUE_CONTACT action OR is a "no answer" type disposition
+    const dispNameLower = dispositionName.toLowerCase()
+    const isNoAnswerType = dispNameLower.includes('no answer') ||
+                           dispNameLower.includes('no contact') ||
+                           dispNameLower.includes('voicemail') ||
+                           dispNameLower.includes('callback')
+    const hasRequeueAction = dispo?.actions?.some(a => a.actionType === 'REQUEUE_CONTACT') || isNoAnswerType
 
     // 1. First, hang up the call (visual transition)
     setCallLines(prev => prev.map(l =>
@@ -316,7 +699,37 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         : l
     ))
 
-    // 2. Save notes, disposition, and execute automations (API call)
+    // 2. Add to session history (most recent first)
+    if (contact) {
+      const talkDuration = line?.startedAt ? Math.floor((Date.now() - line.startedAt.getTime()) / 1000) : undefined
+      const historyEntry: SessionHistoryEntry = {
+        id: `${Date.now()}-${contact.id}`,
+        contact,
+        dispositionId,
+        dispositionName,
+        dispositionColor: dispo?.color || '#6b7280',
+        notes: dispositionNotes || '',
+        callerIdNumber: line?.callerIdNumber,
+        calledAt: new Date(),
+        talkDuration
+      }
+      setSessionHistory(prev => [historyEntry, ...prev])
+
+      // Only remove from queue if disposition does NOT have requeue action
+      // If it has requeue, keep them in the queue to be called again
+      if (!hasRequeueAction) {
+        setQueue(prev => prev.filter(c => c.id !== contact.id))
+      } else {
+        // Mark as attempted but keep in queue (move to end)
+        setQueue(prev => {
+          const withoutContact = prev.filter(c => c.id !== contact.id)
+          return [...withoutContact, { ...contact, __retryCount: ((contact as any).__retryCount || 0) + 1 }]
+        })
+        console.log('[PowerDialer] 🔄 Contact requeued for retry:', contact.firstName, contact.lastName)
+      }
+    }
+
+    // 3. Save notes, disposition, and execute automations (API call)
     if (contact) {
       try {
         // Call the disposition API that executes automations
@@ -336,7 +749,8 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         if (res.ok) {
           const result = await res.json()
           console.log('[PowerDialer] ✅ Disposition saved, actions executed:', result.actionsExecuted || 0)
-          toast.success(`${dispositionName}`, {
+          const requeueMsg = hasRequeueAction ? ' (will retry later)' : ''
+          toast.success(`${dispositionName}${requeueMsg}`, {
             description: `${contact.firstName} ${contact.lastName}${result.actionsExecuted ? ` • ${result.actionsExecuted} automation(s) run` : ''}`
           })
         } else {
@@ -349,7 +763,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
       }
     }
 
-    // 3. After short delay, clear the line and continue dialing
+    // 4. After short delay, clear the line and continue dialing
     setTimeout(() => {
       setCallLines(prev => prev.map(l =>
         l.lineNumber === lineNumber
@@ -357,18 +771,62 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           : l
       ))
       setConnectedLine(null)
-      setEndedLineNumber(null) // Clear the ended line tracker
       setDispositionNotes('')
 
       // CLEAR the waiting flag - disposition was clicked, OK to continue
       setWaitingForDisposition(false)
 
-      // 4. Resume calling if still running and not paused (use refs to get latest state)
+      // 5. Resume calling if still running and not paused (use refs to get latest state)
       if (isRunningRef.current && !isPausedRef.current) {
         console.log('[PowerDialer] ▶️ Resuming dialing after disposition...')
         setTimeout(() => startDialingBatch(), 300)
       }
     }, 500) // Short hang-up animation
+  }
+
+  // Update disposition for a session history entry
+  const handleUpdateHistoryDisposition = async (entryId: string, newDispositionId: string) => {
+    const entry = sessionHistory.find(e => e.id === entryId)
+    const newDispo = dispositions.find(d => d.id === newDispositionId)
+    if (!entry || !newDispo) return
+
+    // Update in session history state
+    setSessionHistory(prev => prev.map(e =>
+      e.id === entryId
+        ? { ...e, dispositionId: newDispositionId, dispositionName: newDispo.name, dispositionColor: newDispo.color }
+        : e
+    ))
+
+    // Handle calledAt - it may be a Date or a string (from JSON serialization)
+    const calledAtStr = entry.calledAt instanceof Date
+      ? entry.calledAt.toISOString()
+      : typeof entry.calledAt === 'string'
+        ? entry.calledAt
+        : new Date().toISOString()
+
+    // Update in database AND execute new disposition's automation actions
+    try {
+      const response = await fetch('/api/dialer/disposition', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId: entry.contact.id,
+          dispositionId: newDispositionId,
+          notes: entry.notes,
+          listId,
+          calledAt: calledAtStr,
+          callerIdNumber: entry.callerIdNumber,
+          isUpdate: true // Flag to indicate this is updating an existing disposition
+        })
+      })
+      const data = await response.json()
+      const actionsExecuted = data.actionsExecuted || 0
+      toast.success(`Updated to ${newDispo.name}${actionsExecuted > 0 ? ` (${actionsExecuted} action${actionsExecuted > 1 ? 's' : ''} executed)` : ''}`)
+    } catch (err) {
+      console.error('[PowerDialer] Failed to update disposition:', err)
+      toast.error('Failed to update disposition')
+    }
+    setEditingDispositionId(null)
   }
 
   // Start dialing a batch of contacts (up to maxLines)
@@ -459,28 +917,27 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         return updated
       })
 
-      // Clear hanging up calls after 2 seconds and put back in queue with incremented dial attempts
+      // Clear hanging up calls after 2 seconds - REQUEUE contacts that didn't connect
+      // User wants contacts who don't answer to go back in the queue for retry
       setTimeout(() => {
         setCallLines(prev => {
-          const toReturn: Contact[] = []
           const updated = prev.map(line => {
             if (line.status === 'hanging_up' && line.contact) {
-              // Increment dial attempts and set lastCalledAt for unanswered calls
-              const updatedContact: Contact = {
-                ...line.contact,
-                dialAttempts: (line.contact.dialAttempts || 0) + 1,
-                lastCalledAt: new Date().toISOString()
-              }
-              toReturn.push(updatedContact)
+              // Contact was auto-hung-up (another line answered) - requeue them for retry
+              console.log('[PowerDialer] 🔄 Requeuing auto-hung-up contact:', line.contact.firstName, line.contact.lastName)
+              // Add back to queue (at the end) for retry
+              const contactToRequeue = line.contact
+              setQueue(prevQueue => {
+                // Check if already in queue to avoid duplicates
+                if (prevQueue.some(c => c.id === contactToRequeue.id)) {
+                  return prevQueue
+                }
+                return [...prevQueue, { ...contactToRequeue, __retryCount: ((contactToRequeue as any).__retryCount || 0) + 1 }]
+              })
               return { ...line, contact: null, status: 'idle' as const, callerIdNumber: undefined }
             }
             return line
           })
-          // Add unanswered contacts back to end of queue (they will be after the separator)
-          if (toReturn.length > 0) {
-            console.log('[PowerDialer] 🔄 Returning', toReturn.length, 'unanswered contacts to queue')
-            setQueue(q => [...q, ...toReturn])
-          }
           return updated
         })
       }, 2000)
@@ -538,6 +995,15 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               value={maxLines.toString()}
               onValueChange={(v) => {
                 const newLines = parseInt(v)
+                // Check if we're reducing lines and there are active calls on higher lines
+                const activeHigherLines = callLines.filter(line =>
+                  line.lineNumber > newLines &&
+                  (line.status === 'ringing' || line.status === 'connected' || line.status === 'hanging_up')
+                )
+                if (activeHigherLines.length > 0) {
+                  toast.error(`Cannot reduce lines while Line ${activeHigherLines.map(l => l.lineNumber).join(', ')} has active calls`)
+                  return
+                }
                 setMaxLines(newLines)
                 // Update the call lines array to match new count
                 setCallLines(prev => {
@@ -588,123 +1054,49 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                   Pause
                 </Button>
               )}
-              <Button onClick={handleStop} variant="destructive">
-                <Square className="h-4 w-4 mr-2" />
-                Stop
-              </Button>
             </>
           )}
+
+          {/* Reset Campaign Button */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-gray-500 hover:text-red-600">
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset Campaign?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will stop all calls, clear session history, and reload all contacts from the original list.
+                  This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleResetCampaign} className="bg-red-600 hover:bg-red-700">
+                  Reset Campaign
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Center: Active Call Windows */}
-        <div className="flex-1 p-6 overflow-auto">
-
-          {/* DISPOSITION & NOTES SECTION - Shows DURING connected call OR after hang up (waiting for disposition) */}
-          {(connectedLine || endedLineNumber) && (() => {
-            const activeLineNumber = connectedLine || endedLineNumber
-            const activeLine = callLines.find(l => l.lineNumber === activeLineNumber)
-            const contact = activeLine?.contact
-            const isEnded = activeLine?.status === 'ended'
-
-            return (
-              <Card className={cn(
-                "mb-4 border-2",
-                isEnded ? "border-red-500 bg-red-50/30" : "border-green-500 bg-green-50/30"
-              )}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <Badge className={cn(
-                        "text-white text-sm px-3 py-1",
-                        isEnded ? "bg-red-600" : "bg-green-600 animate-pulse"
-                      )}>
-                        {isEnded ? '📝 Call Ended' : '🔴 Live Call'}
-                      </Badge>
-                      <span className={cn(
-                        "text-sm font-medium",
-                        isEnded ? "text-red-800" : "text-green-800"
-                      )}>
-                        {contact ? `${contact.firstName} ${contact.lastName}` : ''}
-                      </span>
-                    </div>
-                    <span className="text-xs text-gray-500">
-                      {isEnded ? 'Write notes & select disposition to continue' : 'Click a disposition to end call & continue dialing'}
-                    </span>
-                  </div>
-
-                  {/* Call Notes - can type during the call */}
-                  <div className="mb-3">
-                    <label className={cn(
-                      "text-sm font-medium",
-                      isEnded ? "text-red-800" : "text-green-800"
-                    )}>📝 Call Notes</label>
-                    <Textarea
-                      value={dispositionNotes}
-                      onChange={(e) => setDispositionNotes(e.target.value)}
-                      placeholder={isEnded ? "Add your call notes here before selecting disposition..." : "Type notes during the call... These will be saved when you select a disposition."}
-                      rows={2}
-                      className={cn(
-                        "resize-none mt-1",
-                        isEnded ? "border-red-300 focus:border-red-500" : "border-green-300 focus:border-green-500"
-                      )}
-                    />
-                  </div>
-
-                  {/* Disposition Buttons - dynamically loaded from database with automations */}
-                  <div className="flex flex-wrap gap-2">
-                    {dispositions.length > 0 ? (
-                      dispositions.map((dispo) => {
-                        // Map icon names to emojis
-                        const iconMap: Record<string, string> = {
-                          'ThumbsUp': '✅',
-                          'ThumbsDown': '❌',
-                          'Calendar': '📞',
-                          'PhoneMissed': '📵',
-                          'Voicemail': '📧',
-                          'PhoneOff': '📴',
-                          'Ban': '🚫',
-                          'Check': '✓'
-                        }
-                        const emoji = iconMap[dispo.icon || ''] || '📋'
-
-                        return (
-                          <Button
-                            key={dispo.id}
-                            size="sm"
-                            className="text-white"
-                            style={{ backgroundColor: dispo.color }}
-                            onClick={() => handleDisposition(dispo.id, dispo.name, activeLineNumber!)}
-                          >
-                            {emoji} {dispo.name}
-                            {dispo.actions?.length > 0 && (
-                              <span className="ml-1 text-xs opacity-75">⚡</span>
-                            )}
-                          </Button>
-                        )
-                      })
-                    ) : (
-                      // Fallback if no dispositions loaded yet
-                      <>
-                        <Button size="sm" className="bg-green-600 text-white" disabled>Loading...</Button>
-                      </>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })()}
-
-          {/* Call Windows Grid */}
+        <div className="flex-1 p-4 overflow-auto">
+          {/* Call Windows Grid - responsive layout with better spacing */}
           <div className={cn(
-            'grid gap-4',
+            'grid gap-3',
             maxLines === 1 ? 'grid-cols-1 max-w-md mx-auto' :
-            maxLines === 2 ? 'grid-cols-2' :
-            maxLines <= 4 ? 'grid-cols-2 lg:grid-cols-4' :
-            maxLines <= 6 ? 'grid-cols-3 lg:grid-cols-6' :
-            'grid-cols-4 lg:grid-cols-5'
+            maxLines === 2 ? 'grid-cols-2 max-w-2xl' :
+            maxLines === 3 ? 'grid-cols-3 max-w-3xl' :
+            maxLines === 4 ? 'grid-cols-2 lg:grid-cols-4 max-w-4xl' :
+            maxLines === 5 ? 'grid-cols-3 lg:grid-cols-5 max-w-5xl' :
+            maxLines <= 7 ? 'grid-cols-3 xl:grid-cols-7' :
+            'grid-cols-4 xl:grid-cols-5'
           )}>
             {callLines.map((line) => (
               <PowerDialerCallWindow
@@ -714,40 +1106,49 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                 status={line.status}
                 startedAt={line.startedAt}
                 callerIdNumber={line.callerIdNumber}
-                onEditContact={() => {
-                  // Open contact side panel to edit contact details
+                notes={dispositionNotes}
+                onNotesChange={(notes) => setDispositionNotes(notes)}
+                dispositions={dispositions}
+                onDisposition={(dispositionId, dispositionName) => {
+                  handleDisposition(dispositionId, dispositionName, line.lineNumber)
+                }}
+                onOpenContactPanel={() => {
                   if (line.contact) {
                     openContactPanel(line.contact.id)
                   }
                 }}
+                onCreateTask={() => {
+                  if (line.contact) {
+                    openTask({
+                      contact: {
+                        id: line.contact.id,
+                        firstName: line.contact.firstName,
+                        lastName: line.contact.lastName
+                      },
+                      subject: 'Follow up call',
+                      taskType: 'Call',
+                      description: `Follow up from power dialer call`
+                    })
+                  }
+                }}
                 onHangup={() => {
                   console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber, '- keeping contact visible for disposition')
-
-                  // SET FLAG: Wait for disposition before dialing next
                   setWaitingForDisposition(true)
-
-                  // Mark line as hanging up briefly, then switch to 'ended' status
-                  // KEEP the contact visible so user can write notes and select disposition
                   setCallLines(prev => prev.map(l =>
                     l.lineNumber === line.lineNumber
                       ? { ...l, status: 'hanging_up' as const }
                       : l
                   ))
-
-                  // Clear connected line but track that we're waiting for disposition on this line
                   if (line.lineNumber === connectedLine) {
                     setConnectedLine(null)
                   }
-                  setEndedLineNumber(line.lineNumber) // Track which line needs disposition
-
-                  // After brief animation, set to 'ended' status (RED) - contact stays visible
                   setTimeout(() => {
                     setCallLines(prev => prev.map(l =>
                       l.lineNumber === line.lineNumber
-                        ? { ...l, status: 'ended' as const } // Contact stays, just change status to ended
+                        ? { ...l, status: 'ended' as const }
                         : l
                     ))
-                    toast.info('Write notes & click a disposition to continue', { duration: 4000 })
+                    toast.info('Select a disposition to continue', { duration: 4000 })
                   }, 300)
                 }}
               />
@@ -857,147 +1258,522 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           </Card>
         </div>
 
-        {/* Right: Call Queue */}
-        <div className="w-80 bg-white border-l flex flex-col">
-          <div className="p-4 border-b">
-            <h2 className="font-semibold text-lg flex items-center gap-2">
-              Queue
-              <Badge variant="secondary">{queue.length} remaining</Badge>
-            </h2>
-            {isRunning && !isPaused && (
-              <p className="text-xs text-green-600 mt-1 animate-pulse">● Auto-dialing active</p>
-            )}
-            {connectedLine && (
-              <p className="text-xs text-blue-600 mt-1">📞 Call connected - use disposition to continue</p>
-            )}
-          </div>
-          <ScrollArea className="flex-1">
-            <div className="p-4 space-y-3">
-              {(() => {
-                // Helper: check if contact was called today
-                const isCalledToday = (contact: Contact) => {
-                  if (!contact.lastCalledAt) return false
-                  const lastCalled = new Date(contact.lastCalledAt)
-                  const today = new Date()
-                  return lastCalled.toDateString() === today.toDateString()
-                }
+        {/* Right Side: Queue + Session History */}
+        <div className="flex">
+          {/* Queue Panel */}
+          <div className="w-72 bg-white border-l flex flex-col">
+            <div className="p-4 border-b">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-lg flex items-center gap-2">
+                  Queue
+                  <Badge variant="secondary">{queue.length} remaining</Badge>
+                </h2>
+                {/* Queue Actions: Shuffle + Select All */}
+                {queue.length > 0 && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={handleShuffleQueue}
+                      disabled={isRunning && !isPaused}
+                      title="Shuffle queue order"
+                    >
+                      <Shuffle className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => selectedContacts.size === queue.length ? clearSelection() : selectAllContacts()}
+                    >
+                      <CheckSquare className="h-3 w-3 mr-1" />
+                      {selectedContacts.size === queue.length ? 'Clear' : 'All'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {isRunning && !isPaused && (
+                <p className="text-xs text-green-600 mt-1 animate-pulse">● Auto-dialing active</p>
+              )}
+              {connectedLine && (
+                <p className="text-xs text-blue-600 mt-1">📞 Call connected - use disposition to continue</p>
+              )}
+              {/* Selection count */}
+              {selectedContacts.size > 0 && (
+                <p className="text-xs text-blue-600 mt-1 font-medium">
+                  ✓ {selectedContacts.size} selected
+                </p>
+              )}
+            </div>
 
-                // Split queue into fresh and already-called-today
-                const freshContacts = queue.filter(c => !isCalledToday(c))
-                const calledTodayContacts = queue.filter(c => isCalledToday(c))
+            {/* Bulk Actions Bar */}
+            {showBulkActions && selectedContacts.size > 0 && (
+              <div className="p-2 border-b bg-blue-50 flex items-center gap-1 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => { setBulkTagOperation('add'); setBulkTagDialogOpen(true) }}
+                >
+                  <Tag className="h-3 w-3 mr-1" />
+                  Add Tag
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => { setBulkTagOperation('remove'); setBulkTagDialogOpen(true) }}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Remove Tag
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                  onClick={handleBulkRemoveFromQueue}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Remove from Queue
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => setBulkDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  Delete from CRM
+                </Button>
+              </div>
+            )}
+            <ScrollArea className="flex-1">
+              <div className="p-3 space-y-2">
+                {(() => {
+                  // Group contacts by their retry count (round number)
+                  // retryCount 0 = Round 1 (fresh), 1 = Round 2, 2 = Round 3, etc.
+                  const contactsByRound: Map<number, Contact[]> = new Map()
 
-                // Render a single contact card
-                const renderContactCard = (contact: Contact, queueIndex: number) => {
-                  const isBeingDialed = queueAnimation.includes(contact.id)
-                  const attempts = contact.dialAttempts || 0
-                  const isHighAttempts = attempts >= 10
-                  const isDeadLead = attempts >= 20
+                  queue.forEach(contact => {
+                    const retryCount = (contact as any).__retryCount || 0
+                    const round = retryCount + 1 // Round 1 for fresh, Round 2 for retry 1, etc.
+                    if (!contactsByRound.has(round)) {
+                      contactsByRound.set(round, [])
+                    }
+                    contactsByRound.get(round)!.push(contact)
+                  })
+
+                  // Get sorted round numbers
+                  const sortedRounds = Array.from(contactsByRound.keys()).sort((a, b) => a - b)
+
+                  // Render a single contact card
+                  const renderContactCard = (contact: Contact, queueIndex: number, showRoundBadge: boolean, roundNum: number) => {
+                    const isBeingDialed = queueAnimation.includes(contact.id)
+                    const attempts = contact.dialAttempts || 0
+                    const isHighAttempts = attempts >= 10
+                    const isDeadLead = attempts >= 20
+                    const isSelected = selectedContacts.has(contact.id)
+
+                    return (
+                      <Card
+                        key={contact.id}
+                        className={cn(
+                          "transition-all duration-300",
+                          isBeingDialed
+                            ? "opacity-50 scale-95 translate-x-[-20px] bg-blue-100 border-blue-400"
+                            : isSelected
+                              ? "border-blue-500 bg-blue-50"
+                              : isDeadLead
+                                ? "border-red-300 bg-red-50"
+                                : isHighAttempts
+                                  ? "border-orange-300 bg-orange-50"
+                                  : "hover:shadow-md"
+                        )}
+                      >
+                        <CardContent className="p-2">
+                          <div className="flex items-start gap-2">
+                            {/* Checkbox for selection */}
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleContactSelection(contact.id)}
+                              className="mt-1 flex-shrink-0"
+                            />
+                            <div className={cn(
+                              "h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
+                              isBeingDialed ? "bg-blue-500" : isDeadLead ? "bg-red-500" : isHighAttempts ? "bg-orange-500" : "bg-primary/10"
+                            )}>
+                              {isBeingDialed ? (
+                                <Phone className="h-3 w-3 text-white animate-pulse" />
+                              ) : (
+                                <span className={cn("text-xs font-bold", (isDeadLead || isHighAttempts) ? "text-white" : "text-primary")}>
+                                  {attempts > 0 ? attempts : <User className="h-3 w-3" />}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <Badge
+                                  variant={isBeingDialed ? "default" : "outline"}
+                                  className={cn("text-[10px] px-1 py-0", isBeingDialed && "bg-blue-600")}
+                                >
+                                  {isBeingDialed ? "📞" : `#${queueIndex + 1}`}
+                                </Badge>
+                                <h3 className="font-medium text-xs truncate">
+                                  {contact.firstName} {contact.lastName}
+                                </h3>
+                              </div>
+                              <p className="text-[10px] text-gray-600 font-mono">
+                                {contact.phone}
+                              </p>
+                              {/* Show call attempts and retry info */}
+                              <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                {attempts > 0 && (
+                                  <span className={cn(
+                                    "text-[9px] font-medium",
+                                    isDeadLead ? "text-red-600" : isHighAttempts ? "text-orange-600" : "text-gray-500"
+                                  )}>
+                                    Calls: {attempts} {isDeadLead ? '(Dead Lead)' : isHighAttempts ? '(Hard to Reach)' : ''}
+                                  </span>
+                                )}
+                                {showRoundBadge && roundNum > 1 && (
+                                  <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3 bg-orange-100 text-orange-700 border-orange-200">
+                                    Round {roundNum}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  }
+
+                  // Calculate running queue index
+                  let runningIndex = 0
 
                   return (
-                    <Card
-                      key={contact.id}
-                      className={cn(
-                        "transition-all duration-300",
-                        isBeingDialed
-                          ? "opacity-50 scale-95 translate-x-[-20px] bg-blue-100 border-blue-400"
-                          : isDeadLead
-                            ? "border-red-300 bg-red-50"
-                            : isHighAttempts
-                              ? "border-orange-300 bg-orange-50"
-                              : "hover:shadow-md"
-                      )}
-                    >
-                      <CardContent className="p-3">
-                        <div className="flex items-start gap-3">
-                          <div className={cn(
-                            "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
-                            isBeingDialed ? "bg-blue-500" : isDeadLead ? "bg-red-500" : isHighAttempts ? "bg-orange-500" : "bg-primary/10"
-                          )}>
-                            {isBeingDialed ? (
-                              <Phone className="h-4 w-4 text-white animate-pulse" />
-                            ) : (
-                              <span className={cn("text-xs font-bold", (isDeadLead || isHighAttempts) ? "text-white" : "text-primary")}>
-                                {attempts > 0 ? attempts : <User className="h-4 w-4" />}
-                              </span>
+                    <>
+                      {sortedRounds.map((roundNum) => {
+                        const contactsInRound = contactsByRound.get(roundNum) || []
+                        const startIndex = runningIndex
+                        runningIndex += contactsInRound.length
+
+                        return (
+                          <div key={`round-${roundNum}`}>
+                            {/* Round separator - only show for Round 2+ */}
+                            {roundNum > 1 && (
+                              <div className="py-2">
+                                <div className="flex items-center gap-1">
+                                  <div className="flex-1 border-t border-dashed border-orange-300"></div>
+                                  <span className="text-[10px] font-medium text-orange-600 px-1 bg-orange-50 rounded-full whitespace-nowrap">
+                                    🔄 Round {roundNum} ({contactsInRound.length} contacts)
+                                  </span>
+                                  <div className="flex-1 border-t border-dashed border-orange-300"></div>
+                                </div>
+                              </div>
+                            )}
+                            {/* Contacts in this round */}
+                            {contactsInRound.map((contact, idx) =>
+                              renderContactCard(contact, startIndex + idx, roundNum > 1, roundNum)
                             )}
                           </div>
+                        )
+                      })}
+
+                      {/* Empty state */}
+                      {queue.length === 0 && (
+                        <div className="text-center py-6 text-gray-400">
+                          <User className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                          <p className="text-xs">No contacts in queue</p>
+                          {isRunning && (
+                            <p className="text-[10px] text-green-600 mt-1">All done!</p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* Session History Panel */}
+          <div className="w-80 bg-gray-50 border-l flex flex-col">
+            <div className="p-4 border-b bg-white">
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <History className="h-5 w-5 text-gray-600" />
+                Session History
+                {sessionHistory.length > 0 && (
+                  <Badge variant="secondary">{sessionHistory.length} calls</Badge>
+                )}
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">Completed calls this session</p>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-3 space-y-2">
+                {sessionHistory.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <History className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No calls yet</p>
+                    <p className="text-xs mt-1">Completed calls will appear here</p>
+                  </div>
+                ) : (
+                  sessionHistory.map((entry) => (
+                    <Card key={entry.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
+                            {/* Contact name + disposition badge */}
                             <div className="flex items-center gap-2 flex-wrap">
-                              <Badge
-                                variant={isBeingDialed ? "default" : "outline"}
-                                className={cn("text-xs", isBeingDialed && "bg-blue-600")}
-                              >
-                                {isBeingDialed ? "📞 Dialing..." : `#${queueIndex + 1}`}
-                              </Badge>
-                              {attempts > 0 && (
-                                <Badge
-                                  variant="secondary"
-                                  className={cn(
-                                    "text-xs",
-                                    isDeadLead ? "bg-red-200 text-red-800" : isHighAttempts ? "bg-orange-200 text-orange-800" : ""
-                                  )}
+                              <h3 className="font-medium text-sm truncate">
+                                {entry.contact.firstName} {entry.contact.lastName}
+                              </h3>
+                              {editingDispositionId === entry.id ? (
+                                <Select
+                                  value={entry.dispositionId}
+                                  onValueChange={(val) => handleUpdateHistoryDisposition(entry.id, val)}
                                 >
-                                  {attempts} {attempts === 1 ? 'call' : 'calls'}
+                                  <SelectTrigger className="h-5 w-auto text-[10px] px-2">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {dispositions.map((d) => (
+                                      <SelectItem key={d.id} value={d.id}>
+                                        <span className="flex items-center gap-1">
+                                          <span
+                                            className="w-2 h-2 rounded-full"
+                                            style={{ backgroundColor: d.color }}
+                                          />
+                                          {d.name}
+                                        </span>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <Badge
+                                  className="text-[10px] text-white cursor-pointer hover:opacity-80"
+                                  style={{ backgroundColor: entry.dispositionColor }}
+                                  onClick={() => setEditingDispositionId(entry.id)}
+                                  title="Click to change disposition"
+                                >
+                                  {entry.dispositionName}
+                                  <Edit3 className="h-2 w-2 ml-1" />
                                 </Badge>
                               )}
-                              <h3 className="font-semibold text-sm truncate">
-                                {contact.firstName} {contact.lastName}
-                              </h3>
                             </div>
-                            <p className="text-xs text-gray-600 font-mono mt-1">
-                              {contact.phone}
+                            {/* Phone number called */}
+                            <p className="text-xs text-gray-600 font-mono mt-0.5">
+                              {entry.contact.phone}
                             </p>
-                            {isDeadLead && (
-                              <p className="text-xs text-red-600 mt-1">⚠️ 20+ calls - consider removing</p>
+                            {/* Caller ID used (which number we called from) */}
+                            {entry.callerIdNumber && (
+                              <p className="text-[10px] text-blue-500 font-mono mt-0.5">
+                                📞 From: {entry.callerIdNumber}
+                              </p>
                             )}
+                            {/* Notes preview */}
+                            {entry.notes && (
+                              <p className="text-xs text-gray-500 mt-1 line-clamp-2 italic">
+                                "{entry.notes}"
+                              </p>
+                            )}
+                            {/* Time ago */}
+                            <p className="text-[10px] text-gray-400 mt-1">
+                              {entry.talkDuration && `${Math.floor(entry.talkDuration / 60)}:${(entry.talkDuration % 60).toString().padStart(2, '0')} • `}
+                              {new Date(entry.calledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                          {/* Action buttons */}
+                          <div className="flex flex-col gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 hover:bg-blue-100"
+                              title="View contact details"
+                              onClick={() => openContactPanel(entry.contact.id)}
+                            >
+                              <UserCog className="h-3.5 w-3.5 text-blue-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 hover:bg-green-100"
+                              title="Call again"
+                              onClick={() => {
+                                const fromNumber = entry.callerIdNumber || selectedPhoneNumber?.phoneNumber || ''
+                                if (fromNumber && entry.contact.phone) {
+                                  openCall({
+                                    contact: { id: entry.contact.id, firstName: entry.contact.firstName, lastName: entry.contact.lastName },
+                                    fromNumber,
+                                    toNumber: entry.contact.phone,
+                                    mode: 'call_control'
+                                  })
+                                } else {
+                                  toast.error('No phone number available')
+                                }
+                              }}
+                            >
+                              <PhoneCall className="h-3.5 w-3.5 text-green-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 hover:bg-purple-100"
+                              title="Send text"
+                              onClick={() => {
+                                const fromNumber = entry.callerIdNumber || selectedPhoneNumber?.phoneNumber || ''
+                                openSms({
+                                  contact: { id: entry.contact.id, firstName: entry.contact.firstName, lastName: entry.contact.lastName },
+                                  phoneNumber: entry.contact.phone,
+                                  fromNumber
+                                })
+                              }}
+                            >
+                              <MessageSquare className="h-3.5 w-3.5 text-purple-600" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 hover:bg-orange-100"
+                              title="Send email"
+                              onClick={() => {
+                                if (entry.contact.email) {
+                                  openEmail({
+                                    contact: { id: entry.contact.id, firstName: entry.contact.firstName, lastName: entry.contact.lastName },
+                                    email: entry.contact.email
+                                  })
+                                } else {
+                                  toast.error('No email address for this contact')
+                                }
+                              }}
+                            >
+                              <Mail className="h-3.5 w-3.5 text-orange-600" />
+                            </Button>
                           </div>
                         </div>
                       </CardContent>
                     </Card>
-                  )
-                }
-
-                return (
-                  <>
-                    {/* Fresh contacts (not called today) */}
-                    {freshContacts.map((contact, idx) => renderContactCard(contact, idx))}
-
-                    {/* Separator when there are called-today contacts */}
-                    {calledTodayContacts.length > 0 && (
-                      <div className="py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 border-t-2 border-dashed border-orange-300"></div>
-                          <span className="text-xs font-medium text-orange-600 px-2 bg-orange-50 rounded-full whitespace-nowrap">
-                            📞 Already called today ({calledTodayContacts.length})
-                          </span>
-                          <div className="flex-1 border-t-2 border-dashed border-orange-300"></div>
-                        </div>
-                        <p className="text-xs text-center text-gray-500 mt-1">Consider waiting until tomorrow</p>
-                      </div>
-                    )}
-
-                    {/* Already called today contacts */}
-                    {calledTodayContacts.map((contact, idx) =>
-                      renderContactCard(contact, freshContacts.length + idx)
-                    )}
-
-                    {/* Empty state */}
-                    {queue.length === 0 && (
-                      <div className="text-center py-8 text-gray-400">
-                        <User className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">No contacts in queue</p>
-                        {isRunning && (
-                          <p className="text-xs text-green-600 mt-2">All contacts have been dialed!</p>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )
-              })()}
-            </div>
-          </ScrollArea>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
         </div>
       </div>
+
+      {/* Bulk Tag Dialog */}
+      <AlertDialog open={bulkTagDialogOpen} onOpenChange={(open) => {
+        setBulkTagDialogOpen(open)
+        if (!open) {
+          setTagSearchQuery('')
+          setSelectedTagForBulk('')
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkTagOperation === 'add' ? 'Add Tag to' : 'Remove Tag from'} {selectedContacts.size} Contacts
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulkTagOperation === 'add'
+                ? 'Select a tag to add to the selected contacts.'
+                : 'Select a tag to remove from the selected contacts.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4 space-y-3">
+            {/* Search input with icon */}
+            <div className="relative">
+              <Tag className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search tags..."
+                value={tagSearchQuery}
+                onChange={(e) => setTagSearchQuery(e.target.value)}
+                className="pl-8"
+              />
+            </div>
+            {/* Scrollable tag list */}
+            <ScrollArea className="h-48 border rounded-md">
+              <div className="p-2 space-y-1">
+                {availableTags
+                  .filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()))
+                  .map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => setSelectedTagForBulk(tag.id)}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors text-left",
+                        selectedTagForBulk === tag.id
+                          ? "bg-primary text-primary-foreground"
+                          : "hover:bg-muted"
+                      )}
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: tag.color }}
+                      />
+                      <span className="truncate">{tag.name}</span>
+                      {selectedTagForBulk === tag.id && (
+                        <span className="ml-auto text-xs">✓</span>
+                      )}
+                    </button>
+                  ))}
+                {availableTags.filter(tag => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase())).length === 0 && (
+                  <div className="py-4 text-center text-sm text-muted-foreground">No tags found</div>
+                )}
+              </div>
+            </ScrollArea>
+            {/* Selected tag indicator */}
+            {selectedTagForBulk && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Selected:</span>
+                <Badge
+                  variant="outline"
+                  style={{
+                    backgroundColor: `${availableTags.find(t => t.id === selectedTagForBulk)?.color}20`,
+                    borderColor: availableTags.find(t => t.id === selectedTagForBulk)?.color
+                  }}
+                >
+                  {availableTags.find(t => t.id === selectedTagForBulk)?.name}
+                </Badge>
+              </div>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setSelectedTagForBulk(''); setTagSearchQuery('') }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkTagOperation}
+              disabled={!selectedTagForBulk}
+              className={bulkTagOperation === 'remove' ? 'bg-red-600 hover:bg-red-700' : ''}
+            >
+              {bulkTagOperation === 'add' ? 'Add Tag' : 'Remove Tag'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedContacts.size} Contacts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the selected contacts from your CRM. This action can be undone by an admin.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete Contacts
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
