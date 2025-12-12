@@ -64,6 +64,17 @@ const LOAN_TYPES = [
   'Construction (Bridge)',
 ];
 
+// Property types
+const PROPERTY_TYPES = [
+  'SFR (Single Family)',
+  '2-4 Unit',
+  'Multi-family (5+)',
+  'Condo',
+  'Townhome',
+  'Mixed Use',
+  'Commercial',
+];
+
 export default function NewDealDialogV2({
   open,
   onOpenChange,
@@ -73,9 +84,12 @@ export default function NewDealDialogV2({
   onSuccess,
 }: NewDealDialogV2Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(false);
   const [saving, setSaving] = useState(false);
   const [contactSearchOpen, setContactSearchOpen] = useState(false);
   const [contactSearch, setContactSearch] = useState('');
+  const [showQuickAddContact, setShowQuickAddContact] = useState(false);
+  const [quickContactName, setQuickContactName] = useState('');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -90,6 +104,7 @@ export default function NewDealDialogV2({
     lenderId: '',
     llcName: '',
     propertyAddress: '',
+    propertyType: '',
     loanAmount: '',
     loanAmountFormatted: '',
     propertyValue: '',
@@ -113,14 +128,53 @@ export default function NewDealDialogV2({
   }, [isLoanPipeline]);
 
   const loadContacts = async () => {
+    setLoadingContacts(true);
     try {
       const res = await fetch('/api/contacts?limit=1000&includeProperties=true');
       if (res.ok) {
         const data = await res.json();
+        console.log('[NewDealDialog] Loaded contacts:', data.contacts?.length);
         setContacts(data.contacts || []);
+      } else {
+        console.error('[NewDealDialog] Failed to load contacts:', res.status);
       }
     } catch (error) {
       console.error('Error loading contacts:', error);
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  // Quick add contact
+  const handleQuickAddContact = async () => {
+    if (!quickContactName.trim()) return;
+
+    const nameParts = quickContactName.trim().split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    try {
+      const res = await fetch('/api/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firstName, lastName }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const newContact = data.contact;
+        setContacts(prev => [newContact, ...prev]);
+        setSelectedContact(newContact);
+        setFormData(prev => ({ ...prev, contactId: newContact.id }));
+        setShowQuickAddContact(false);
+        setQuickContactName('');
+        setContactSearchOpen(false);
+        toast.success('Contact created');
+      } else {
+        toast.error('Failed to create contact');
+      }
+    } catch (error) {
+      toast.error('Failed to create contact');
     }
   };
 
@@ -237,6 +291,7 @@ export default function NewDealDialogV2({
           lender_id: formData.lenderId || null,
           llc_name: formData.llcName || null,
           property_address: formData.propertyAddress || null,
+          property_type: formData.propertyType || null,
           loan_amount: formData.loanAmount ? parseFloat(formData.loanAmount) : null,
           property_value: formData.propertyValue ? parseFloat(formData.propertyValue) : null,
           ltv: formData.propertyValue ? parseFloat(calculateLTV()) : null,
@@ -265,7 +320,7 @@ export default function NewDealDialogV2({
     setFormData({
       title: '', value: '', valueFormatted: '', contactId: '', stageId: pipeline?.stages?.[0]?.id || '',
       expectedCloseDate: '', notes: '', isLoanDeal: isLoanPipeline, lenderId: '',
-      llcName: '', propertyAddress: '', loanAmount: '', loanAmountFormatted: '',
+      llcName: '', propertyAddress: '', propertyType: '', loanAmount: '', loanAmountFormatted: '',
       propertyValue: '', propertyValueFormatted: '', loanType: '', interestRate: '',
     });
   };
@@ -313,30 +368,79 @@ export default function NewDealDialogV2({
                       value={contactSearch}
                       onValueChange={setContactSearch}
                     />
-                    <CommandEmpty>No contacts found.</CommandEmpty>
-                    <CommandGroup className="max-h-[250px] overflow-y-auto">
-                      {filteredContacts.slice(0, 50).map((contact) => (
-                        <CommandItem
-                          key={contact.id}
-                          value={contact.id}
-                          onSelect={() => handleContactSelect(contact)}
-                          className="cursor-pointer"
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
-                            )}
-                          />
-                          <div className="flex flex-col">
-                            <span>{contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}</span>
-                            {contact.llcName && (
-                              <span className="text-xs text-muted-foreground">{contact.llcName}</span>
-                            )}
+                    {loadingContacts ? (
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                        <span className="ml-2 text-sm text-muted-foreground">Loading contacts...</span>
+                      </div>
+                    ) : (
+                      <>
+                        {filteredContacts.length === 0 && !showQuickAddContact && (
+                          <div className="py-4 px-2 text-center">
+                            <p className="text-sm text-muted-foreground mb-3">No contacts found.</p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setShowQuickAddContact(true)}
+                              className="gap-1"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add New Contact
+                            </Button>
                           </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
+                        )}
+                        {showQuickAddContact && (
+                          <div className="p-3 border-b">
+                            <div className="flex gap-2">
+                              <Input
+                                placeholder="Full name (e.g., John Doe)"
+                                value={quickContactName}
+                                onChange={(e) => setQuickContactName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleQuickAddContact()}
+                                autoFocus
+                              />
+                              <Button size="sm" onClick={handleQuickAddContact}>
+                                Add
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        <CommandGroup className="max-h-[250px] overflow-y-auto">
+                          {/* Quick add option at top */}
+                          {!showQuickAddContact && filteredContacts.length > 0 && (
+                            <CommandItem
+                              value="__add_new__"
+                              onSelect={() => setShowQuickAddContact(true)}
+                              className="cursor-pointer border-b mb-1 text-primary"
+                            >
+                              <Plus className="mr-2 h-4 w-4" />
+                              <span>Add New Contact</span>
+                            </CommandItem>
+                          )}
+                          {filteredContacts.slice(0, 50).map((contact) => (
+                            <CommandItem
+                              key={contact.id}
+                              value={contact.id}
+                              onSelect={() => handleContactSelect(contact)}
+                              className="cursor-pointer"
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                              <div className="flex flex-col">
+                                <span>{contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}</span>
+                                {contact.llcName && (
+                                  <span className="text-xs text-muted-foreground">{contact.llcName}</span>
+                                )}
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </>
+                    )}
                   </Command>
                 </PopoverContent>
               </Popover>
@@ -438,6 +542,25 @@ export default function NewDealDialogV2({
               />
             </div>
           </div>
+
+          {/* Property Type - for loan pipelines */}
+          {isLoanPipeline && (
+            <div>
+              <Label>Property Type</Label>
+              <Select value={formData.propertyType} onValueChange={(val) => setFormData({ ...formData, propertyType: val })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select property type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROPERTY_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Loan-specific fields */}
           {isLoanPipeline && (

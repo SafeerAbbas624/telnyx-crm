@@ -19,6 +19,8 @@ import LoanContacts from './loan-contacts';
 import LoanTasks from './loan-tasks';
 import LoanAIAssistant from './loan-ai-assistant';
 import LoanCommunications from './loan-communications';
+import DSCRCalculator from './dscr-calculator';
+import LoanFees from './loan-fees';
 
 interface LoanCopilotDashboardProps {
   deal: any;
@@ -160,6 +162,14 @@ export default function LoanCopilotDashboard({ deal, onDealUpdated }: LoanCopilo
                 <Mail className="h-4 w-4" />
                 Communications
               </TabsTrigger>
+              <TabsTrigger value="dscr" className="gap-2">
+                <DollarSign className="h-4 w-4" />
+                DSCR
+              </TabsTrigger>
+              <TabsTrigger value="fees" className="gap-2">
+                <DollarSign className="h-4 w-4" />
+                Fees
+              </TabsTrigger>
               <TabsTrigger value="ai-assistant" className="gap-2">
                 <Bot className="h-4 w-4" />
                 AI Assistant
@@ -273,6 +283,18 @@ export default function LoanCopilotDashboard({ deal, onDealUpdated }: LoanCopilo
 
             <TabsContent value="communications" className="mt-0 h-full">
               <LoanCommunications dealId={deal.id} contactId={deal.contactId} />
+            </TabsContent>
+
+            <TabsContent value="dscr" className="mt-0 h-full">
+              <div className="max-w-2xl">
+                <DSCRCalculator deal={deal} onDealUpdated={onDealUpdated} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="fees" className="mt-0 h-full">
+              <div className="max-w-2xl">
+                <LoanFees deal={deal} onDealUpdated={onDealUpdated} />
+              </div>
             </TabsContent>
 
             <TabsContent value="ai-assistant" className="mt-0 h-full">

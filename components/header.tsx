@@ -13,13 +13,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
-import { Moon, Sun, User, Settings, LogOut, OctagonX } from "lucide-react"
-import { useTheme } from "next-themes"
+import { User, Settings, LogOut, OctagonX } from "lucide-react"
 import { useSession, signOut } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import GlobalSearch from "./global-search"
 import HeaderPhoneSelector from "./header-phone-selector"
+import ThemeSelector from "./theme-selector"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,15 +33,10 @@ import {
 } from "@/components/ui/alert-dialog"
 
 export default function Header() {
-  const { theme, setTheme } = useTheme()
   const { data: session } = useSession()
   const router = useRouter()
   const { toast } = useToast()
   const [killingSending, setKillingSending] = useState(false)
-
-  const toggleTheme = () => {
-    setTheme(theme === "dark" ? "light" : "dark")
-  }
 
   const handleLogout = async () => {
     try {
@@ -158,17 +153,8 @@ export default function Header() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Theme Toggle */}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={toggleTheme}
-        className="relative hover:bg-accent"
-      >
-        <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all duration-200 dark:-rotate-90 dark:scale-0" />
-        <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all duration-200 dark:rotate-0 dark:scale-100" />
-        <span className="sr-only">Toggle theme</span>
-      </Button>
+      {/* Theme Selector */}
+      <ThemeSelector />
 
       {/* User Menu */}
       <DropdownMenu>

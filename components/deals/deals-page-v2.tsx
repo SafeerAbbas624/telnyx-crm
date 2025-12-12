@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Plus, LayoutGrid, List, Loader2, RefreshCw, FileText, Star, Settings, MoreVertical } from 'lucide-react';
+import { Plus, LayoutGrid, List, Loader2, FileText, Star, Settings, MoreVertical, Trophy, XCircle, Archive, Calendar, RefreshCw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Toggle } from '@/components/ui/toggle';
 import { toast } from 'sonner';
 import { Deal, Pipeline, PipelineStage, Lender } from '@/types/deals';
 import DealsKanbanView from './deals-kanban-view';
@@ -26,6 +28,12 @@ export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
   const [loading, setLoading] = useState(true);
   const [showNewDealDialog, setShowNewDealDialog] = useState(false);
   const [showPipelineManagement, setShowPipelineManagement] = useState(false);
+
+  // Status filters
+  const [showWon, setShowWon] = useState(false);
+  const [showLost, setShowLost] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [dateRange, setDateRange] = useState<'all' | 'week' | 'month' | 'quarter' | 'year'>('all');
 
   const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId);
   const isLoanPipeline = selectedPipeline?.isLoanPipeline || false;
@@ -240,23 +248,70 @@ export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
           </div>
         </div>
 
-        {/* Stats Bar */}
-        <div className="flex items-center gap-6 text-sm">
-          <div>
-            <span className="text-muted-foreground">Total Deals:</span>{' '}
-            <span className="font-semibold">{stats.totalDeals}</span>
+        {/* Stats Bar + Filters */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-6 text-sm">
+            <div>
+              <span className="text-muted-foreground">Total Deals:</span>{' '}
+              <span className="font-semibold">{stats.totalDeals}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Total Value:</span>{' '}
+              <span className="font-semibold text-green-600">{formatCurrency(stats.totalValue)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Weighted Value:</span>{' '}
+              <span className="font-semibold text-blue-600">{formatCurrency(stats.weightedValue)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Avg Probability:</span>{' '}
+              <span className="font-semibold">{stats.avgProbability}%</span>
+            </div>
           </div>
-          <div>
-            <span className="text-muted-foreground">Total Value:</span>{' '}
-            <span className="font-semibold text-green-600">{formatCurrency(stats.totalValue)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Weighted Value:</span>{' '}
-            <span className="font-semibold text-blue-600">{formatCurrency(stats.weightedValue)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Avg Probability:</span>{' '}
-            <span className="font-semibold">{stats.avgProbability}%</span>
+
+          {/* Status Filters */}
+          <div className="flex items-center gap-2">
+            <Toggle
+              pressed={showWon}
+              onPressedChange={setShowWon}
+              size="sm"
+              className="gap-1 data-[state=on]:bg-green-100 data-[state=on]:text-green-700"
+            >
+              <Trophy className="h-3.5 w-3.5" />
+              Won
+            </Toggle>
+            <Toggle
+              pressed={showLost}
+              onPressedChange={setShowLost}
+              size="sm"
+              className="gap-1 data-[state=on]:bg-red-100 data-[state=on]:text-red-700"
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              Lost
+            </Toggle>
+            <Toggle
+              pressed={showArchived}
+              onPressedChange={setShowArchived}
+              size="sm"
+              className="gap-1 data-[state=on]:bg-gray-100 data-[state=on]:text-gray-700"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              Archived
+            </Toggle>
+            <div className="h-4 w-px bg-border mx-1" />
+            <Select value={dateRange} onValueChange={(v) => setDateRange(v as typeof dateRange)}>
+              <SelectTrigger className="w-[120px] h-8 text-xs">
+                <Calendar className="h-3.5 w-3.5 mr-1" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Time</SelectItem>
+                <SelectItem value="week">This Week</SelectItem>
+                <SelectItem value="month">This Month</SelectItem>
+                <SelectItem value="quarter">This Quarter</SelectItem>
+                <SelectItem value="year">This Year</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>

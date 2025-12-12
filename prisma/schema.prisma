@@ -433,6 +433,7 @@ model Deal {
   propertyCity        String?   @map("property_city") @db.VarChar(100)
   propertyState       String?   @map("property_state") @db.VarChar(50)
   propertyZip         String?   @map("property_zip") @db.VarChar(20)
+  propertyType        String?   @map("property_type") @db.VarChar(50) // SFR, Multi-family, Condo, etc.
   loanAmount          Decimal?  @map("loan_amount") @db.Decimal(15, 2)
   propertyValue       Decimal?  @map("property_value") @db.Decimal(15, 2)
   ltv                 Decimal?  @db.Decimal(5, 2) // Loan-to-value ratio
@@ -440,7 +441,23 @@ model Deal {
   interestRate        Decimal?  @map("interest_rate") @db.Decimal(5, 3)
   dscr                Decimal?  @db.Decimal(5, 2) // Debt Service Coverage Ratio
   isLoanDeal          Boolean   @default(false) @map("is_loan_deal") // Flag to identify loan deals
-  loanCopilotData     Json?     @map("loan_copilot_data") // Extended loan data (documents, contacts, etc.)
+
+  // DSCR and rental income fields
+  isOccupied          Boolean?  @default(false) @map("is_occupied") // Vacant or Occupied
+  marketRent          Decimal?  @map("market_rent") @db.Decimal(10, 2) // Market estimated monthly rent
+  actualRent          Decimal?  @map("actual_rent") @db.Decimal(10, 2) // Actual monthly rent (if occupied)
+  annualInsurance     Decimal?  @map("annual_insurance") @db.Decimal(10, 2) // Annual insurance cost
+  annualTaxes         Decimal?  @map("annual_taxes") @db.Decimal(10, 2) // Annual property taxes
+  loanNumber          String?   @map("loan_number") @db.VarChar(50) // Loan identifier
+
+  // Loan terms
+  loanTerm            String?   @map("loan_term") @db.VarChar(50) // 5/1 ARM, 7/1 ARM, 30yr fixed
+  isInterestOnly      Boolean?  @default(false) @map("is_interest_only") // IO toggle
+  prepayPenalty       String?   @map("prepay_penalty") @db.VarChar(50) // 1yr@1%, 3-2-1, etc.
+  points              Decimal?  @db.Decimal(5, 2) // Points on the deal
+
+  // Extended loan data (fees, custom line items, etc.)
+  loanCopilotData     Json?     @map("loan_copilot_data")
 
   // Relations
   dealStage DealPipelineStage? @relation("DealPipelineStage", fields: [stageId], references: [id])
