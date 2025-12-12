@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
       const teamUsers = await prisma.user.findMany({
         where: {
           adminId: adminId,
-          role: 'TEAM_USER'
+          role: { in: ['PROCESSOR', 'ORIGINATOR', 'ADMIN'] }
         },
         include: {
           assignedEmail: {
@@ -55,13 +55,15 @@ export async function GET(request: NextRequest) {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
+        role: user.role,
         status: user.status,
+        allowedSections: user.allowedSections || [],
         assignedPhoneNumber: user.assignedPhoneNumber,
         assignedEmailId: user.assignedEmailId,
         assignedEmail: user.assignedEmail,
         defaultPhoneNumberId: user.defaultPhoneNumber?.id,
         defaultPhoneNumber: user.defaultPhoneNumber,
-        allowedPhoneNumbers: user.allowedPhoneNumbers.map(ap => ap.phoneNumber),
+        allowedPhoneNumbers: user.allowedPhoneNumbers.map(ap => ap.phoneNumber?.phoneNumber).filter(Boolean),
         allowedPhoneNumbersCount: user.allowedPhoneNumbers.length,
         assignedContactsCount: user._count.assignedContacts,
         createdAt: user.createdAt.toISOString(),
@@ -86,13 +88,16 @@ export async function POST(request: NextRequest) {
     try {
       const adminId = user.sub
       const body = await request.json()
-      const { 
-        firstName, 
-        lastName, 
-        email, 
-        password, 
-        assignedPhoneNumber, 
-        assignedEmailId 
+      const {
+        firstName,
+        lastName,
+        email,
+        password,
+        role = 'PROCESSOR',
+        allowedSections = [],
+        allowedPhoneNumbers = [],
+        assignedPhoneNumber,
+        assignedEmailId
       } = body
 
       // Validation
@@ -103,9 +108,18 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      if (!assignedPhoneNumber || !assignedEmailId) {
+      // Validate role
+      if (!['ADMIN', 'PROCESSOR', 'ORIGINATOR'].includes(role)) {
         return NextResponse.json(
-          { error: 'Both phone number and email account must be assigned' },
+          { error: 'Invalid role. Must be ADMIN, PROCESSOR, or ORIGINATOR' },
+          { status: 400 }
+        )
+      }
+
+      // For non-admin roles, require at least one section
+      if (role !== 'ADMIN' && (!allowedSections || allowedSections.length === 0)) {
+        return NextResponse.json(
+          { error: 'At least one section must be selected for non-admin users' },
           { status: 400 }
         )
       }
@@ -122,35 +136,18 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Verify email account exists and belongs to admin's organization
-      const emailAccount = await prisma.emailAccount.findUnique({
-        where: { id: assignedEmailId }
-      })
+      // Verify email account exists if provided
+      if (assignedEmailId) {
+        const emailAccount = await prisma.emailAccount.findUnique({
+          where: { id: assignedEmailId }
+        })
 
-      if (!emailAccount) {
-        return NextResponse.json(
-          { error: 'Email account not found' },
-          { status: 400 }
-        )
-      }
-
-      // Check if phone number or email is already assigned to another user
-      const existingAssignments = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { assignedPhoneNumber },
-            { assignedEmailId }
-          ],
-          adminId: adminId,
-          status: 'active'
+        if (!emailAccount) {
+          return NextResponse.json(
+            { error: 'Email account not found' },
+            { status: 400 }
+          )
         }
-      })
-
-      if (existingAssignments) {
-        return NextResponse.json(
-          { error: 'Phone number or email account is already assigned to another user' },
-          { status: 409 }
-        )
       }
 
       // Hash password
@@ -163,11 +160,12 @@ export async function POST(request: NextRequest) {
           lastName,
           email,
           password: hashedPassword,
-          role: 'TEAM_USER',
+          role: role as 'ADMIN' | 'PROCESSOR' | 'ORIGINATOR',
+          allowedSections: role === 'ADMIN' ? [] : allowedSections,
           status: 'active',
           adminId: adminId,
-          assignedPhoneNumber,
-          assignedEmailId
+          assignedPhoneNumber: assignedPhoneNumber || null,
+          assignedEmailId: assignedEmailId || null
         },
         include: {
           assignedEmail: {
@@ -180,6 +178,24 @@ export async function POST(request: NextRequest) {
         }
       })
 
+      // If phone numbers are specified for non-admin, create allowedPhoneNumbers relations
+      if (role !== 'ADMIN' && allowedPhoneNumbers.length > 0) {
+        // Find matching TelnyxPhoneNumber records
+        const phoneRecords = await prisma.telnyxPhoneNumber.findMany({
+          where: {
+            phoneNumber: { in: allowedPhoneNumbers }
+          }
+        })
+
+        // Create UserAllowedPhoneNumber records
+        await prisma.userAllowedPhoneNumber.createMany({
+          data: phoneRecords.map(phone => ({
+            userId: teamUser.id,
+            phoneNumberId: phone.id
+          }))
+        })
+      }
+
       return NextResponse.json({
         success: true,
         user: {
@@ -187,6 +203,8 @@ export async function POST(request: NextRequest) {
           firstName: teamUser.firstName,
           lastName: teamUser.lastName,
           email: teamUser.email,
+          role: teamUser.role,
+          allowedSections: teamUser.allowedSections,
           status: teamUser.status,
           assignedPhoneNumber: teamUser.assignedPhoneNumber,
           assignedEmailId: teamUser.assignedEmailId,

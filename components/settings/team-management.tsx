@@ -10,20 +10,36 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
-import { 
-  Users, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Phone, 
-  Mail, 
+import {
+  Users,
+  Plus,
+  Edit,
+  Trash2,
+  Phone,
+  Mail,
   User,
   AlertCircle,
   CheckCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  Shield,
+  ShieldCheck,
+  Briefcase
 } from "lucide-react"
+
+// Define available sections for role-based access
+const AVAILABLE_SECTIONS = [
+  { id: 'contacts', label: 'Contacts', description: 'View and manage contacts' },
+  { id: 'tasks', label: 'Tasks', description: 'Task management' },
+  { id: 'deals', label: 'Deals', description: 'Deal pipeline' },
+  { id: 'loan-copilot', label: 'Loan Co-Pilot', description: 'Loan calculations' },
+  { id: 'calls', label: 'Calls', description: 'Call history' },
+  { id: 'text-center', label: 'Text Center', description: 'SMS messaging' },
+  { id: 'power-dialer', label: 'Power Dialer', description: 'Auto-dialing campaigns' },
+  { id: 'settings', label: 'Settings', description: 'Account settings' },
+]
 
 interface TeamUser {
   id: string
@@ -31,6 +47,9 @@ interface TeamUser {
   lastName: string
   email: string
   status: string
+  role: 'ADMIN' | 'PROCESSOR' | 'ORIGINATOR'
+  allowedSections: string[]
+  allowedPhoneNumbers: string[]
   assignedPhoneNumber?: string
   assignedEmailId?: string
   assignedEmail?: {
@@ -70,6 +89,9 @@ export default function TeamManagement() {
     lastName: "",
     email: "",
     password: "",
+    role: "PROCESSOR" as 'ADMIN' | 'PROCESSOR' | 'ORIGINATOR',
+    allowedSections: [] as string[],
+    allowedPhoneNumbers: [] as string[],
     assignedPhoneNumber: "",
     assignedEmailId: ""
   })
@@ -112,8 +134,9 @@ export default function TeamManagement() {
     e.preventDefault()
     setError("")
 
-    if (!formData.assignedPhoneNumber || !formData.assignedEmailId) {
-      setError("Please assign both a phone number and email account")
+    // For non-admin roles, require section selection
+    if (formData.role !== 'ADMIN' && formData.allowedSections.length === 0) {
+      setError("Please select at least one section for this user to access")
       return
     }
 
@@ -134,14 +157,7 @@ export default function TeamManagement() {
       }
 
       setIsCreateDialogOpen(false)
-      setFormData({
-        firstName: "",
-        lastName: "",
-        email: "",
-        password: "",
-        assignedPhoneNumber: "",
-        assignedEmailId: ""
-      })
+      resetFormData()
       loadData()
       toast({
         title: "Success",
@@ -152,11 +168,31 @@ export default function TeamManagement() {
     }
   }
 
+  const resetFormData = () => {
+    setFormData({
+      firstName: "",
+      lastName: "",
+      email: "",
+      password: "",
+      role: "PROCESSOR",
+      allowedSections: [],
+      allowedPhoneNumbers: [],
+      assignedPhoneNumber: "",
+      assignedEmailId: ""
+    })
+  }
+
   const handleEditUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingUser) return
 
     setError("")
+
+    // For non-admin roles, require section selection
+    if (formData.role !== 'ADMIN' && formData.allowedSections.length === 0) {
+      setError("Please select at least one section for this user to access")
+      return
+    }
 
     try {
       const response = await fetch(`/api/admin/team-users/${editingUser.id}`, {
@@ -168,6 +204,9 @@ export default function TeamManagement() {
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
+          role: formData.role,
+          allowedSections: formData.allowedSections,
+          allowedPhoneNumbers: formData.allowedPhoneNumbers,
           assignedPhoneNumber: formData.assignedPhoneNumber,
           assignedEmailId: formData.assignedEmailId,
         }),
@@ -233,14 +272,67 @@ export default function TeamManagement() {
       lastName: user.lastName,
       email: user.email,
       password: "",
+      role: user.role || "PROCESSOR",
+      allowedSections: user.allowedSections || [],
+      allowedPhoneNumbers: user.allowedPhoneNumbers || [],
       assignedPhoneNumber: user.assignedPhoneNumber || "",
       assignedEmailId: user.assignedEmailId || ""
     })
     setIsEditDialogOpen(true)
   }
 
-  const handleInputChange = (field: keyof typeof formData, value: string) => {
+  const handleInputChange = (field: keyof typeof formData, value: string | string[]) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const toggleSection = (sectionId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      allowedSections: prev.allowedSections.includes(sectionId)
+        ? prev.allowedSections.filter(s => s !== sectionId)
+        : [...prev.allowedSections, sectionId]
+    }))
+  }
+
+  const togglePhoneNumber = (phoneNumber: string) => {
+    setFormData(prev => ({
+      ...prev,
+      allowedPhoneNumbers: prev.allowedPhoneNumbers.includes(phoneNumber)
+        ? prev.allowedPhoneNumbers.filter(p => p !== phoneNumber)
+        : [...prev.allowedPhoneNumbers, phoneNumber]
+    }))
+  }
+
+  const selectAllSections = () => {
+    setFormData(prev => ({
+      ...prev,
+      allowedSections: AVAILABLE_SECTIONS.map(s => s.id)
+    }))
+  }
+
+  const clearAllSections = () => {
+    setFormData(prev => ({
+      ...prev,
+      allowedSections: []
+    }))
+  }
+
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'ADMIN': return <ShieldCheck className="h-4 w-4" />
+      case 'PROCESSOR': return <Shield className="h-4 w-4" />
+      case 'ORIGINATOR': return <Briefcase className="h-4 w-4" />
+      default: return <User className="h-4 w-4" />
+    }
+  }
+
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'ADMIN': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+      case 'PROCESSOR': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+      case 'ORIGINATOR': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      default: return ''
+    }
   }
 
   const generatePassword = () => {
@@ -277,7 +369,7 @@ export default function TeamManagement() {
               Add Team User
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Create Team User</DialogTitle>
             </DialogHeader>
@@ -348,46 +440,139 @@ export default function TeamManagement() {
                 </div>
               </div>
 
+              {/* Role Selection */}
               <div className="space-y-2">
-                <Label htmlFor="assignedPhoneNumber">Assigned Phone Number</Label>
+                <Label>Role</Label>
                 <Select
-                  value={formData.assignedPhoneNumber}
-                  onValueChange={(value) => handleInputChange("assignedPhoneNumber", value)}
+                  value={formData.role}
+                  onValueChange={(value: 'ADMIN' | 'PROCESSOR' | 'ORIGINATOR') => handleInputChange("role", value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select phone number" />
+                    <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="ADMIN">
+                      <div className="flex items-center gap-2">
+                        <ShieldCheck className="h-4 w-4 text-red-600" />
+                        Admin - Full Access
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="PROCESSOR">
+                      <div className="flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-blue-600" />
+                        Processor - Configurable Access
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="ORIGINATOR">
+                      <div className="flex items-center gap-2">
+                        <Briefcase className="h-4 w-4 text-green-600" />
+                        Originator - Configurable Access
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Section Access (only for non-admin roles) */}
+              {formData.role !== 'ADMIN' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Section Access</Label>
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={selectAllSections}>
+                        Select All
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={clearAllSections}>
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 p-3 border rounded-md bg-muted/30">
+                    {AVAILABLE_SECTIONS.map((section) => (
+                      <div key={section.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`section-${section.id}`}
+                          checked={formData.allowedSections.includes(section.id)}
+                          onCheckedChange={() => toggleSection(section.id)}
+                        />
+                        <label
+                          htmlFor={`section-${section.id}`}
+                          className="text-sm cursor-pointer"
+                        >
+                          {section.label}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Phone Number Access (for non-admin roles) */}
+              {formData.role !== 'ADMIN' && phoneNumbers.length > 0 && (
+                <div className="space-y-3">
+                  <Label>Allowed Phone Numbers</Label>
+                  <div className="grid grid-cols-2 gap-2 p-3 border rounded-md bg-muted/30 max-h-32 overflow-y-auto">
                     {phoneNumbers.map((phone) => (
-                      <SelectItem key={phone.number} value={phone.number}>
-                        {phone.number}
-                      </SelectItem>
+                      <div key={phone.number} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`phone-${phone.number}`}
+                          checked={formData.allowedPhoneNumbers.includes(phone.number)}
+                          onCheckedChange={() => togglePhoneNumber(phone.number)}
+                        />
+                        <label
+                          htmlFor={`phone-${phone.number}`}
+                          className="text-sm cursor-pointer font-mono"
+                        >
+                          {phone.number}
+                        </label>
+                      </div>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="assignedPhoneNumber">Default Phone Number</Label>
+                  <Select
+                    value={formData.assignedPhoneNumber}
+                    onValueChange={(value) => handleInputChange("assignedPhoneNumber", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select phone number" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {phoneNumbers.map((phone) => (
+                        <SelectItem key={phone.number} value={phone.number}>
+                          {phone.number}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="assignedEmailId">Email Account</Label>
+                  <Select
+                    value={formData.assignedEmailId}
+                    onValueChange={(value) => handleInputChange("assignedEmailId", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select email account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {emailAccounts.map((email) => (
+                        <SelectItem key={email.id} value={email.id}>
+                          {email.displayName} ({email.emailAddress})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="assignedEmailId">Assigned Email Account</Label>
-                <Select
-                  value={formData.assignedEmailId}
-                  onValueChange={(value) => handleInputChange("assignedEmailId", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select email account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {emailAccounts.map((email) => (
-                      <SelectItem key={email.id} value={email.id}>
-                        {email.displayName} ({email.emailAddress})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => { setIsCreateDialogOpen(false); resetFormData(); }}>
                   Cancel
                 </Button>
                 <Button type="submit">Create User</Button>
@@ -427,9 +612,17 @@ export default function TeamManagement() {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <h3 className="font-medium">
-                        {user.firstName} {user.lastName}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">
+                          {user.firstName} {user.lastName}
+                        </h3>
+                        <Badge className={getRoleBadgeColor(user.role)}>
+                          <span className="flex items-center gap-1">
+                            {getRoleIcon(user.role)}
+                            {user.role}
+                          </span>
+                        </Badge>
+                      </div>
                       <p className="text-sm text-muted-foreground">{user.email}</p>
                       <div className="flex items-center gap-4 mt-2">
                         {user.assignedPhoneNumber && (
@@ -445,6 +638,15 @@ export default function TeamManagement() {
                           </div>
                         )}
                       </div>
+                      {user.role !== 'ADMIN' && user.allowedSections?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {user.allowedSections.map((section) => (
+                            <Badge key={section} variant="outline" className="text-xs">
+                              {AVAILABLE_SECTIONS.find(s => s.id === section)?.label || section}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -475,7 +677,7 @@ export default function TeamManagement() {
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Team User</DialogTitle>
           </DialogHeader>
@@ -519,45 +721,138 @@ export default function TeamManagement() {
               />
             </div>
 
+            {/* Role Selection */}
             <div className="space-y-2">
-              <Label htmlFor="editAssignedPhoneNumber">Assigned Phone Number</Label>
+              <Label>Role</Label>
               <Select
-                value={formData.assignedPhoneNumber}
-                onValueChange={(value) => handleInputChange("assignedPhoneNumber", value)}
+                value={formData.role}
+                onValueChange={(value: 'ADMIN' | 'PROCESSOR' | 'ORIGINATOR') => handleInputChange("role", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select phone number" />
+                  <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="ADMIN">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-red-600" />
+                      Admin - Full Access
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="PROCESSOR">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-blue-600" />
+                      Processor - Configurable Access
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="ORIGINATOR">
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="h-4 w-4 text-green-600" />
+                      Originator - Configurable Access
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Section Access (only for non-admin roles) */}
+            {formData.role !== 'ADMIN' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Section Access</Label>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={selectAllSections}>
+                      Select All
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" onClick={clearAllSections}>
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 p-3 border rounded-md bg-muted/30">
+                  {AVAILABLE_SECTIONS.map((section) => (
+                    <div key={section.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`edit-section-${section.id}`}
+                        checked={formData.allowedSections.includes(section.id)}
+                        onCheckedChange={() => toggleSection(section.id)}
+                      />
+                      <label
+                        htmlFor={`edit-section-${section.id}`}
+                        className="text-sm cursor-pointer"
+                      >
+                        {section.label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Phone Number Access (for non-admin roles) */}
+            {formData.role !== 'ADMIN' && phoneNumbers.length > 0 && (
+              <div className="space-y-3">
+                <Label>Allowed Phone Numbers</Label>
+                <div className="grid grid-cols-2 gap-2 p-3 border rounded-md bg-muted/30 max-h-32 overflow-y-auto">
                   {phoneNumbers.map((phone) => (
-                    <SelectItem key={phone.number} value={phone.number}>
-                      {phone.number}
-                    </SelectItem>
+                    <div key={phone.number} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`edit-phone-${phone.number}`}
+                        checked={formData.allowedPhoneNumbers.includes(phone.number)}
+                        onCheckedChange={() => togglePhoneNumber(phone.number)}
+                      />
+                      <label
+                        htmlFor={`edit-phone-${phone.number}`}
+                        className="text-sm cursor-pointer font-mono"
+                      >
+                        {phone.number}
+                      </label>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editAssignedPhoneNumber">Default Phone Number</Label>
+                <Select
+                  value={formData.assignedPhoneNumber}
+                  onValueChange={(value) => handleInputChange("assignedPhoneNumber", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select phone number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {phoneNumbers.map((phone) => (
+                      <SelectItem key={phone.number} value={phone.number}>
+                        {phone.number}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="editAssignedEmailId">Email Account</Label>
+                <Select
+                  value={formData.assignedEmailId}
+                  onValueChange={(value) => handleInputChange("assignedEmailId", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select email account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emailAccounts.map((email) => (
+                      <SelectItem key={email.id} value={email.id}>
+                        {email.displayName} ({email.emailAddress})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="editAssignedEmailId">Assigned Email Account</Label>
-              <Select
-                value={formData.assignedEmailId}
-                onValueChange={(value) => handleInputChange("assignedEmailId", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select email account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {emailAccounts.map((email) => (
-                    <SelectItem key={email.id} value={email.id}>
-                      {email.displayName} ({email.emailAddress})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>

@@ -707,6 +707,7 @@ export async function GET(request: NextRequest) {
       id: contact.id,
       firstName: contact.firstName || '',
       lastName: contact.lastName || '',
+      fullName: [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown',
       llcName: contact.llcName || '',
       phone1: contact.phone1 || '',
       phone2: contact.phone2 || '',

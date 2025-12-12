@@ -1299,8 +1299,9 @@ enum EmailAccountStatus {
 }
 
 enum UserRole {
-  ADMIN
-  TEAM_USER
+  ADMIN      // Full access to all sections and features
+  PROCESSOR  // Configurable section access + phone number access
+  ORIGINATOR // Configurable section access + phone number access
 }
 
 enum UserStatus {
@@ -1506,8 +1507,12 @@ model User {
   firstName String     @map("first_name")
   lastName  String     @map("last_name")
   password  String // Hashed password
-  role      UserRole   @default(TEAM_USER)
+  role      UserRole   @default(PROCESSOR)
   status    UserStatus @default(active)
+
+  // Role-based section access (for PROCESSOR and ORIGINATOR roles)
+  // Stores array of allowed sections: ["contacts", "tasks", "deals", "calls", "text-center", "loan-copilot", "power-dialer", "settings"]
+  allowedSections String[] @default([]) @map("allowed_sections")
 
   // Admin relationship
   adminId   String? @map("admin_id") @db.Uuid
