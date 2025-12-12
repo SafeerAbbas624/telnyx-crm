@@ -1,16 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Loader2 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command';
+import { Check, ChevronsUpDown, Loader2, Plus } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Pipeline, PipelineStage, Lender } from '@/types/deals';
+
+interface ContactProperty {
+  id: string;
+  propertyAddress?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+}
 
 interface Contact {
   id: string;
@@ -18,8 +28,23 @@ interface Contact {
   lastName?: string;
   fullName?: string;
   propertyAddress?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
   llcName?: string;
+  properties?: ContactProperty[];
 }
+
+// Helper to format number with commas
+const formatNumberWithCommas = (value: string): string => {
+  const num = value.replace(/[^0-9]/g, '');
+  return num.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+};
+
+// Helper to parse formatted number back to plain number string
+const parseFormattedNumber = (value: string): string => {
+  return value.replace(/,/g, '');
+};
 
 interface NewDealDialogV2Props {
   open: boolean;
@@ -29,6 +54,15 @@ interface NewDealDialogV2Props {
   isLoanPipeline: boolean;
   onSuccess: () => void;
 }
+
+// Loan types as requested
+const LOAN_TYPES = [
+  'Cashout Refinance (DSCR)',
+  'Rate/Term Refinance (DSCR)',
+  'Purchase (DSCR)',
+  'Fix & Flip (Bridge)',
+  'Construction (Bridge)',
+];
 
 export default function NewDealDialogV2({
   open,
@@ -40,9 +74,13 @@ export default function NewDealDialogV2({
 }: NewDealDialogV2Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [saving, setSaving] = useState(false);
+  const [contactSearchOpen, setContactSearchOpen] = useState(false);
+  const [contactSearch, setContactSearch] = useState('');
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     value: '',
+    valueFormatted: '',
     contactId: '',
     stageId: '',
     expectedCloseDate: '',
@@ -53,7 +91,9 @@ export default function NewDealDialogV2({
     llcName: '',
     propertyAddress: '',
     loanAmount: '',
+    loanAmountFormatted: '',
     propertyValue: '',
+    propertyValueFormatted: '',
     loanType: '',
     interestRate: '',
   });
@@ -74,7 +114,7 @@ export default function NewDealDialogV2({
 
   const loadContacts = async () => {
     try {
-      const res = await fetch('/api/contacts?limit=1000');
+      const res = await fetch('/api/contacts?limit=1000&includeProperties=true');
       if (res.ok) {
         const data = await res.json();
         setContacts(data.contacts || []);
@@ -84,14 +124,84 @@ export default function NewDealDialogV2({
     }
   };
 
-  const handleContactChange = (contactId: string) => {
-    const contact = contacts.find(c => c.id === contactId);
+  // Filter contacts based on search
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch) return contacts;
+    const search = contactSearch.toLowerCase();
+    return contacts.filter(c => {
+      const fullName = c.fullName || `${c.firstName || ''} ${c.lastName || ''}`;
+      return fullName.toLowerCase().includes(search) ||
+        c.llcName?.toLowerCase().includes(search) ||
+        c.propertyAddress?.toLowerCase().includes(search);
+    });
+  }, [contacts, contactSearch]);
+
+  // Get all properties for selected contact
+  const contactProperties = useMemo(() => {
+    if (!selectedContact) return [];
+    const properties: { id: string; address: string; isNew?: boolean }[] = [];
+
+    // Add primary property
+    if (selectedContact.propertyAddress) {
+      const fullAddress = [
+        selectedContact.propertyAddress,
+        selectedContact.city,
+        selectedContact.state,
+        selectedContact.zipCode
+      ].filter(Boolean).join(', ');
+      properties.push({ id: 'primary', address: fullAddress });
+    }
+
+    // Add additional properties
+    if (selectedContact.properties) {
+      selectedContact.properties.forEach(prop => {
+        if (prop.propertyAddress) {
+          const fullAddress = [
+            prop.propertyAddress,
+            prop.city,
+            prop.state,
+            prop.zipCode
+          ].filter(Boolean).join(', ');
+          properties.push({ id: prop.id, address: fullAddress });
+        }
+      });
+    }
+
+    return properties;
+  }, [selectedContact]);
+
+  const handleContactSelect = (contact: Contact) => {
+    setSelectedContact(contact);
+    setContactSearchOpen(false);
+    setContactSearch('');
+
+    // Build full property address
+    const fullAddress = [
+      contact.propertyAddress,
+      contact.city,
+      contact.state,
+      contact.zipCode
+    ].filter(Boolean).join(', ');
+
     setFormData(prev => ({
       ...prev,
-      contactId,
-      propertyAddress: contact?.propertyAddress || prev.propertyAddress,
-      llcName: contact?.llcName || prev.llcName,
+      contactId: contact.id,
+      propertyAddress: fullAddress || prev.propertyAddress,
+      llcName: contact.llcName || prev.llcName,
     }));
+  };
+
+  const handleCurrencyInput = (field: 'value' | 'loanAmount' | 'propertyValue', inputValue: string) => {
+    const plainValue = parseFormattedNumber(inputValue);
+    const formattedValue = formatNumberWithCommas(plainValue);
+
+    if (field === 'value') {
+      setFormData(prev => ({ ...prev, value: plainValue, valueFormatted: formattedValue }));
+    } else if (field === 'loanAmount') {
+      setFormData(prev => ({ ...prev, loanAmount: plainValue, loanAmountFormatted: formattedValue }));
+    } else if (field === 'propertyValue') {
+      setFormData(prev => ({ ...prev, propertyValue: plainValue, propertyValueFormatted: formattedValue }));
+    }
   };
 
   const calculateLTV = () => {
@@ -150,11 +260,13 @@ export default function NewDealDialogV2({
   };
 
   const resetForm = () => {
+    setSelectedContact(null);
+    setContactSearch('');
     setFormData({
-      title: '', value: '', contactId: '', stageId: pipeline?.stages?.[0]?.id || '',
+      title: '', value: '', valueFormatted: '', contactId: '', stageId: pipeline?.stages?.[0]?.id || '',
       expectedCloseDate: '', notes: '', isLoanDeal: isLoanPipeline, lenderId: '',
-      llcName: '', propertyAddress: '', loanAmount: '', propertyValue: '',
-      loanType: '', interestRate: '',
+      llcName: '', propertyAddress: '', loanAmount: '', loanAmountFormatted: '',
+      propertyValue: '', propertyValueFormatted: '', loanType: '', interestRate: '',
     });
   };
 
@@ -180,18 +292,54 @@ export default function NewDealDialogV2({
             </div>
             <div>
               <Label>Contact *</Label>
-              <Select value={formData.contactId} onValueChange={handleContactChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select contact" />
-                </SelectTrigger>
-                <SelectContent>
-                  {contacts.map((contact) => (
-                    <SelectItem key={contact.id} value={contact.id}>
-                      {contact.fullName || `${contact.firstName} ${contact.lastName}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={contactSearchOpen} onOpenChange={setContactSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={contactSearchOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    {selectedContact
+                      ? (selectedContact.fullName || `${selectedContact.firstName || ''} ${selectedContact.lastName || ''}`.trim())
+                      : "Search contacts..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[350px] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search by name, LLC, or address..."
+                      value={contactSearch}
+                      onValueChange={setContactSearch}
+                    />
+                    <CommandEmpty>No contacts found.</CommandEmpty>
+                    <CommandGroup className="max-h-[250px] overflow-y-auto">
+                      {filteredContacts.slice(0, 50).map((contact) => (
+                        <CommandItem
+                          key={contact.id}
+                          value={contact.id}
+                          onSelect={() => handleContactSelect(contact)}
+                          className="cursor-pointer"
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span>{contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}</span>
+                            {contact.llcName && (
+                              <span className="text-xs text-muted-foreground">{contact.llcName}</span>
+                            )}
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div>
               <Label>Stage</Label>
@@ -218,9 +366,8 @@ export default function NewDealDialogV2({
             <div>
               <Label>Deal Value ($)</Label>
               <Input
-                type="number"
-                value={formData.value}
-                onChange={(e) => setFormData({ ...formData, value: e.target.value })}
+                value={formData.valueFormatted}
+                onChange={(e) => handleCurrencyInput('value', e.target.value)}
                 placeholder="0"
               />
             </div>
@@ -238,11 +385,49 @@ export default function NewDealDialogV2({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>Property Address</Label>
-              <Input
-                value={formData.propertyAddress}
-                onChange={(e) => setFormData({ ...formData, propertyAddress: e.target.value })}
-                placeholder="123 Main St, City, State"
-              />
+              {contactProperties.length > 0 ? (
+                <Select
+                  value={formData.propertyAddress}
+                  onValueChange={(val) => {
+                    if (val === '__new__') {
+                      setFormData({ ...formData, propertyAddress: '' });
+                    } else {
+                      setFormData({ ...formData, propertyAddress: val });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select property" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {contactProperties.map((prop) => (
+                      <SelectItem key={prop.id} value={prop.address}>
+                        {prop.address}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__new__">
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <Plus className="h-4 w-4" />
+                        Add new property
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={formData.propertyAddress}
+                  onChange={(e) => setFormData({ ...formData, propertyAddress: e.target.value })}
+                  placeholder="123 Main St, City, State"
+                />
+              )}
+              {formData.propertyAddress === '' && contactProperties.length > 0 && (
+                <Input
+                  className="mt-2"
+                  value={formData.propertyAddress}
+                  onChange={(e) => setFormData({ ...formData, propertyAddress: e.target.value })}
+                  placeholder="Enter new property address..."
+                />
+              )}
             </div>
             <div>
               <Label>LLC Name</Label>
@@ -282,28 +467,27 @@ export default function NewDealDialogV2({
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Purchase">Purchase</SelectItem>
-                        <SelectItem value="Refinance">Refinance</SelectItem>
-                        <SelectItem value="Cash Out">Cash Out</SelectItem>
-                        <SelectItem value="DSCR">DSCR</SelectItem>
+                        {LOAN_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label>Loan Amount ($)</Label>
                     <Input
-                      type="number"
-                      value={formData.loanAmount}
-                      onChange={(e) => setFormData({ ...formData, loanAmount: e.target.value })}
+                      value={formData.loanAmountFormatted}
+                      onChange={(e) => handleCurrencyInput('loanAmount', e.target.value)}
                       placeholder="0"
                     />
                   </div>
                   <div>
                     <Label>Property Value ($)</Label>
                     <Input
-                      type="number"
-                      value={formData.propertyValue}
-                      onChange={(e) => setFormData({ ...formData, propertyValue: e.target.value })}
+                      value={formData.propertyValueFormatted}
+                      onChange={(e) => handleCurrencyInput('propertyValue', e.target.value)}
                       placeholder="0"
                     />
                   </div>

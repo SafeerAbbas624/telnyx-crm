@@ -1346,10 +1346,23 @@ export default function ContactsDataGrid({
         accessorFn: (row: any) => row.tags,
         cell: ({ row }) => {
           const tags = row.original.tags || [];
-          const [showTagSelect, setShowTagSelect] = React.useState(false);
+          const [tagPopoverOpen, setTagPopoverOpen] = React.useState(false);
+          const [tagSearch, setTagSearch] = React.useState('');
           const [selectedTagIds, setSelectedTagIds] = React.useState<string[]>(
             tags.map((t: any) => t.id)
           );
+
+          // Sync selectedTagIds when tags change
+          React.useEffect(() => {
+            setSelectedTagIds(tags.map((t: any) => t.id));
+          }, [tags]);
+
+          const filteredTags = React.useMemo(() => {
+            if (!tagSearch) return availableTags;
+            return availableTags.filter(t =>
+              t.name.toLowerCase().includes(tagSearch.toLowerCase())
+            );
+          }, [tagSearch, availableTags]);
 
           const handleTagToggle = async (tagId: string, checked: boolean) => {
             try {
@@ -1369,7 +1382,6 @@ export default function ContactsDataGrid({
               });
               if (response.ok) {
                 toast.success('Tag updated');
-                // Update local state instead of reloading entire table
                 setContacts(prevContacts =>
                   prevContacts.map(c =>
                     c.id === row.original.id
@@ -1384,87 +1396,81 @@ export default function ContactsDataGrid({
           };
 
           return (
-            <div className="relative">
-              <div
-                className="flex flex-wrap gap-1 cursor-pointer hover:bg-gray-50 p-1 rounded"
-                onClick={() => setShowTagSelect(!showTagSelect)}
-              >
-                {tags.slice(0, 2).map((tag: any) => (
-                  <Badge
-                    key={tag.id}
-                    variant="outline"
-                    style={{
-                      backgroundColor: `${tag.color}20`,
-                      borderColor: tag.color,
-                      color: tag.color
-                    }}
-                    className="text-xs"
-                  >
-                    {tag.name}
-                  </Badge>
-                ))}
-                {tags.length > 2 && (
-                  <Badge variant="outline" className="text-xs">
-                    +{tags.length - 2}
-                  </Badge>
-                )}
-                {tags.length === 0 && (
-                  <span className="text-xs text-gray-400">Add tags...</span>
-                )}
-              </div>
-
-              {showTagSelect && (
-                <div
-                  className="absolute z-50 mt-1 w-64 bg-white border rounded-lg shadow-lg p-3"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-gray-700">Select Tags</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 w-6 p-0"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowTagSelect(false);
+            <Popover open={tagPopoverOpen} onOpenChange={setTagPopoverOpen}>
+              <PopoverTrigger asChild>
+                <div className="flex flex-wrap gap-1 cursor-pointer hover:bg-gray-50 p-1 rounded min-h-[28px]">
+                  {tags.slice(0, 2).map((tag: any) => (
+                    <Badge
+                      key={tag.id}
+                      variant="outline"
+                      style={{
+                        backgroundColor: `${tag.color}20`,
+                        borderColor: tag.color,
+                        color: tag.color
                       }}
+                      className="text-xs"
                     >
-                      ×
-                    </Button>
-                  </div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {availableTags.map((tag: any) => (
-                      <label
-                        key={tag.id}
-                        className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Checkbox
-                          checked={selectedTagIds.includes(tag.id)}
-                          onCheckedChange={(checked) => {
-                            handleTagToggle(tag.id, !!checked);
-                          }}
-                        />
-                        <Badge
-                          variant="outline"
-                          style={{
-                            backgroundColor: `${tag.color}20`,
-                            borderColor: tag.color,
-                            color: tag.color
-                          }}
-                          className="text-xs"
-                        >
-                          {tag.name}
-                        </Badge>
-                      </label>
-                    ))}
-                  </div>
-                  <div className="mt-2 pt-2 border-t text-xs text-gray-500 text-center">
-                    Click tags to add/remove instantly
-                  </div>
+                      {tag.name}
+                    </Badge>
+                  ))}
+                  {tags.length > 2 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{tags.length - 2}
+                    </Badge>
+                  )}
+                  {tags.length === 0 && (
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <Plus className="h-3 w-3" /> Add tags
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0" align="start">
+                <div className="p-3 border-b">
+                  <Input
+                    placeholder="Search tags..."
+                    value={tagSearch}
+                    onChange={(e) => setTagSearch(e.target.value)}
+                    className="h-8"
+                  />
+                </div>
+                <div className="max-h-[250px] overflow-y-auto p-2">
+                  {filteredTags.length === 0 ? (
+                    <div className="text-sm text-gray-500 text-center py-4">
+                      No tags found
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {filteredTags.map((tag: any) => (
+                        <label
+                          key={tag.id}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-2 rounded"
+                        >
+                          <Checkbox
+                            checked={selectedTagIds.includes(tag.id)}
+                            onCheckedChange={(checked) => handleTagToggle(tag.id, !!checked)}
+                          />
+                          <Badge
+                            variant="outline"
+                            style={{
+                              backgroundColor: `${tag.color}20`,
+                              borderColor: tag.color,
+                              color: tag.color
+                            }}
+                            className="text-xs"
+                          >
+                            {tag.name}
+                          </Badge>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 border-t bg-gray-50 text-xs text-gray-500 text-center">
+                  Click to toggle tags instantly
+                </div>
+              </PopoverContent>
+            </Popover>
           );
         },
         filterFn: tagsFilter,

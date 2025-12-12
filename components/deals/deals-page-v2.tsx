@@ -4,12 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, LayoutGrid, List, Loader2, RefreshCw, FileText } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Plus, LayoutGrid, List, Loader2, RefreshCw, FileText, Star, Settings, MoreVertical } from 'lucide-react';
 import { toast } from 'sonner';
 import { Deal, Pipeline, PipelineStage, Lender } from '@/types/deals';
 import DealsKanbanView from './deals-kanban-view';
 import DealsTableView from './deals-table-view';
 import NewDealDialogV2 from './new-deal-dialog-v2';
+import PipelineManagementDialog from './pipeline-management-dialog';
 
 interface DealsPageV2Props {
   initialPipelineId?: string;
@@ -23,6 +25,7 @@ export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
   const [loading, setLoading] = useState(true);
   const [showNewDealDialog, setShowNewDealDialog] = useState(false);
+  const [showPipelineManagement, setShowPipelineManagement] = useState(false);
 
   const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId);
   const isLoanPipeline = selectedPipeline?.isLoanPipeline || false;
@@ -125,6 +128,25 @@ export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
     }
   };
 
+  const handleSetAsDefault = async (pipelineId: string) => {
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isDefault: true })
+      });
+
+      if (res.ok) {
+        toast.success('Default pipeline updated');
+        loadPipelines();
+      } else {
+        toast.error('Failed to set default pipeline');
+      }
+    } catch (error) {
+      toast.error('Failed to set default pipeline');
+    }
+  };
+
   // Calculate pipeline stats
   const stats = {
     totalDeals: deals.length,
@@ -152,21 +174,45 @@ export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold">Deals</h1>
             {/* Pipeline Selector */}
-            <Select value={selectedPipelineId} onValueChange={setSelectedPipelineId}>
-              <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="Select pipeline" />
-              </SelectTrigger>
-              <SelectContent>
-                {pipelines.map((pipeline) => (
-                  <SelectItem key={pipeline.id} value={pipeline.id}>
-                    <div className="flex items-center gap-2">
-                      {pipeline.isLoanPipeline && <FileText className="h-4 w-4 text-blue-500" />}
-                      {pipeline.name}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-1">
+              <Select value={selectedPipelineId} onValueChange={setSelectedPipelineId}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="Select pipeline" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pipelines.map((pipeline) => (
+                    <SelectItem key={pipeline.id} value={pipeline.id}>
+                      <div className="flex items-center gap-2">
+                        {pipeline.isDefault && <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />}
+                        {pipeline.isLoanPipeline && <FileText className="h-4 w-4 text-blue-500" />}
+                        {pipeline.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-9 w-9">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem
+                    onClick={() => handleSetAsDefault(selectedPipelineId)}
+                    disabled={selectedPipeline?.isDefault}
+                  >
+                    <Star className="h-4 w-4 mr-2" />
+                    {selectedPipeline?.isDefault ? 'Default Pipeline' : 'Set as Default'}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowPipelineManagement(true)}>
+                    <Settings className="h-4 w-4 mr-2" />
+                    Manage Pipelines
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {/* View Mode Toggle */}
@@ -249,6 +295,14 @@ export default function DealsPageV2({ initialPipelineId }: DealsPageV2Props) {
         lenders={lenders}
         isLoanPipeline={isLoanPipeline}
         onSuccess={handleDealCreated}
+      />
+
+      {/* Pipeline Management Dialog */}
+      <PipelineManagementDialog
+        open={showPipelineManagement}
+        onOpenChange={setShowPipelineManagement}
+        pipelines={pipelines}
+        onPipelinesChange={loadPipelines}
       />
     </div>
   );

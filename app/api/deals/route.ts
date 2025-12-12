@@ -166,14 +166,18 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // If stage_id is provided, get the stage key from the database
-    let stageKey = stage;
+    // Default to 'lead' which is a valid DealStage enum value
+    let stageKey = stage || 'lead';
     let stageProbability = probability;
     if (stage_id) {
       const pipelineStage = await prisma.dealPipelineStage.findUnique({
         where: { id: stage_id }
       });
       if (pipelineStage) {
-        stageKey = pipelineStage.key;
+        // Map custom stage keys to valid DealStage enum values
+        // The DealStage enum accepts: lead, qualified, proposal, negotiation, contract, closing, closed_won, closed_lost
+        const validEnumStages = ['lead', 'qualified', 'proposal', 'negotiation', 'contract', 'closing', 'closed_won', 'closed_lost'];
+        stageKey = validEnumStages.includes(pipelineStage.key) ? pipelineStage.key : 'lead';
         if (probability === undefined || probability === null) {
           stageProbability = pipelineStage.defaultProbability;
         }
