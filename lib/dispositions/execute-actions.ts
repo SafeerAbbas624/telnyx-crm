@@ -424,7 +424,6 @@ async function createTask(contactId: string, config: ActionConfig): Promise<Acti
 async function requeueContact(contactId: string, config: ActionConfig, context: ActionContext): Promise<ActionResult> {
   // Requeue the contact by resetting status to 'PENDING' with a delay
   const delayMinutes = (config as any).delayMinutes || 30
-  const nextAttemptAt = new Date(Date.now() + delayMinutes * 60 * 1000)
 
   if (context.listId) {
     // Reset status in the specific list
@@ -432,7 +431,7 @@ async function requeueContact(contactId: string, config: ActionConfig, context: 
       where: { contactId, listId: context.listId },
       data: {
         status: 'PENDING',
-        lastAttemptAt: new Date(),
+        lastCalledAt: new Date(),
         attemptCount: { increment: 1 }
       }
     })
@@ -442,7 +441,7 @@ async function requeueContact(contactId: string, config: ActionConfig, context: 
       where: { contactId },
       data: {
         status: 'PENDING',
-        lastAttemptAt: new Date(),
+        lastCalledAt: new Date(),
         attemptCount: { increment: 1 }
       }
     })
