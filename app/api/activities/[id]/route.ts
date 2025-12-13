@@ -15,6 +15,7 @@ const updateActivitySchema = z.object({
   durationMinutes: z.number().int().positive().optional(),
   reminderMinutes: z.number().int().positive().optional(),
   isAllDay: z.boolean().optional(),
+  isPinned: z.boolean().optional(),
   result: z.string().optional(),
   nextAction: z.string().optional(),
 })
@@ -52,6 +53,7 @@ export async function GET(
       durationMinutes: activity.duration_minutes,
       reminderMinutes: activity.reminder_minutes,
       isAllDay: activity.is_all_day,
+      isPinned: activity.is_pinned,
       completedAt: activity.completed_at?.toISOString(),
       completedBy: activity.completed_by,
       result: activity.result,
@@ -105,6 +107,7 @@ export async function PUT(
     if (validatedData.durationMinutes !== undefined) updateData.duration_minutes = validatedData.durationMinutes
     if (validatedData.reminderMinutes !== undefined) updateData.reminder_minutes = validatedData.reminderMinutes
     if (validatedData.isAllDay !== undefined) updateData.is_all_day = validatedData.isAllDay
+    if (validatedData.isPinned !== undefined) updateData.is_pinned = validatedData.isPinned
     if (validatedData.result !== undefined) updateData.result = validatedData.result
     if (validatedData.nextAction !== undefined) updateData.next_action = validatedData.nextAction
 
@@ -130,6 +133,7 @@ export async function PUT(
       durationMinutes: activity.duration_minutes,
       reminderMinutes: activity.reminder_minutes,
       isAllDay: activity.is_all_day,
+      isPinned: activity.is_pinned,
       completedAt: activity.completed_at?.toISOString(),
       completedBy: activity.completed_by,
       result: activity.result,
@@ -175,6 +179,9 @@ export async function PATCH(
     }
     if (body.completedAt !== undefined) {
       updateData.completed_at = body.completedAt ? new Date(body.completedAt) : null
+    }
+    if (body.isPinned !== undefined) {
+      updateData.is_pinned = body.isPinned
     }
 
     // Update the activity in the database

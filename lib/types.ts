@@ -129,6 +129,7 @@ export interface Activity {
   durationMinutes?: number;
   reminderMinutes?: number;
   isAllDay?: boolean;
+  isPinned?: boolean;
   completedAt?: string;
   completedBy?: string;
   result?: string;

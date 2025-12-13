@@ -10,7 +10,7 @@ import { useCallUI } from "@/lib/context/call-ui-context"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
 import { useToast } from "@/hooks/use-toast"
-import { Phone, X, Minimize2, Building, MapPin, Mail, Calendar, MessageSquare, Check, RefreshCw, PhoneCall, Send, Plus, FileText, Loader2 } from "lucide-react"
+import { Phone, X, Minimize2, Building, MapPin, Mail, Calendar, MessageSquare, Check, RefreshCw, PhoneCall, Send, Plus, FileText, Loader2, Clock, CheckSquare, Pin, PinOff } from "lucide-react"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { format } from "date-fns"
 
@@ -64,6 +64,27 @@ export default function RedesignedCallPopup() {
   const [showNewSmsTemplate, setShowNewSmsTemplate] = useState(false)
   const [showNewEmailTemplate, setShowNewEmailTemplate] = useState(false)
   const [newTemplateName, setNewTemplateName] = useState("")
+  const [savingNotes, setSavingNotes] = useState(false)
+
+  // Draft key for localStorage
+  const draftKey = call?.contact?.id ? `note-draft-${call.contact.id}` : null
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    if (draftKey && !localNotes) {
+      const savedDraft = localStorage.getItem(draftKey)
+      if (savedDraft) {
+        setLocalNotes(savedDraft)
+      }
+    }
+  }, [draftKey])
+
+  // Auto-save draft to localStorage on note change
+  useEffect(() => {
+    if (draftKey && localNotes) {
+      localStorage.setItem(draftKey, localNotes)
+    }
+  }, [localNotes, draftKey])
 
   // Reset all state when a new call starts (Issue: popup not refreshing on new call)
   useEffect(() => {
@@ -253,7 +274,19 @@ export default function RedesignedCallPopup() {
       }
     }
 
-    const cleanupPromise = setupEventListener()
+    let eventCleanup: (() => void) | undefined
+
+    // Set up event listener and store cleanup function
+    setupEventListener().then(cleanup => {
+      if (mounted) {
+        eventCleanup = cleanup
+      } else {
+        // If component unmounted while we were setting up, clean up immediately
+        cleanup?.()
+      }
+    }).catch(err => {
+      console.error('[CallPopup] Error in event listener setup:', err)
+    })
 
     // Also poll as fallback (in case events are missed)
     // But be very conservative - only end if we're SURE the call is done
@@ -286,7 +319,7 @@ export default function RedesignedCallPopup() {
     return () => {
       mounted = false
       clearInterval(checkInterval)
-      cleanupPromise.then(cleanup => cleanup?.())
+      eventCleanup?.()
     }
   }, [call?.mode, call?.webrtcSessionId, call?.startedAt])
 
@@ -340,6 +373,7 @@ export default function RedesignedCallPopup() {
       return
     }
 
+    setSavingNotes(true)
     try {
       await fetch("/api/activities", {
         method: "POST",
@@ -355,9 +389,20 @@ export default function RedesignedCallPopup() {
         }),
       })
       setActivitySaved(true)
+      setLocalNotes("")
+      // Clear draft from localStorage
+      if (draftKey) {
+        localStorage.removeItem(draftKey)
+      }
+      // Emit event to notify activity history to refresh
+      window.dispatchEvent(new CustomEvent('activity-created', {
+        detail: { contactId: call.contact.id }
+      }))
       toast({ title: "Success", description: "Notes saved successfully" })
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to save notes", variant: "destructive" })
+    } finally {
+      setSavingNotes(false)
     }
   }
 
@@ -385,6 +430,10 @@ export default function RedesignedCallPopup() {
         setTaskTitle("")
         setTaskDueDate("")
         toast({ title: "Success", description: "Task created successfully" })
+        // Emit event to notify task lists to refresh
+        window.dispatchEvent(new CustomEvent('task-created', {
+          detail: { contactId: call.contact.id, task: newTask }
+        }))
       }
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to create task", variant: "destructive" })
@@ -424,6 +473,7 @@ export default function RedesignedCallPopup() {
   }
 
   const handleCallBack = async () => {
+    const phoneNumber = call?.toNumber || call?.fromNumber || ''
     if (!phoneNumber) return
     try {
       const { rtcClient } = await import('@/lib/webrtc/rtc-client')
@@ -433,6 +483,12 @@ export default function RedesignedCallPopup() {
         fromNumber,
         toNumber: phoneNumber,
       })
+      // Reuse the same popup window instead of opening a new one
+      // Reset state for the new call
+      setHasEnded(false)
+      setActivitySaved(false)
+      setActiveTab("details")
+      setElapsed(0)
       openCall({
         toNumber: phoneNumber,
         fromNumber,
@@ -453,7 +509,7 @@ export default function RedesignedCallPopup() {
   const statusBadgeColor = isActive ? "bg-green-600" : "bg-orange-600"
   const statusText = isActive ? "Active Call" : "Call Ended"
 
-  const contactName = call.contact 
+  const contactName = call.contact
     ? `${call.contact.firstName || ''} ${call.contact.lastName || ''}`.trim() || 'Unknown Contact'
     : 'Unknown Contact'
 
@@ -461,7 +517,7 @@ export default function RedesignedCallPopup() {
 
   if (call.isMinimized) {
     return (
-      <div className="fixed bottom-4 right-4 z-[60]">
+      <div className="fixed bottom-4 left-4 z-[60]">
         <div className={`${borderColor} ${bgColor} border-2 rounded-lg p-3 shadow-lg flex items-center gap-3 cursor-pointer`} onClick={maximize}>
           <div className={`${statusBadgeColor} text-white px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
             <Phone className="h-3 w-3" />
@@ -481,7 +537,7 @@ export default function RedesignedCallPopup() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 z-[60] w-[380px]">
+    <div className="fixed bottom-4 left-4 z-[60] w-[760px]">
       <div className={`${borderColor} border-2 rounded-lg bg-white shadow-2xl overflow-hidden`}>
         {/* Compact Header */}
         <div className={`${bgColor} px-3 py-2`}>
@@ -560,22 +616,115 @@ export default function RedesignedCallPopup() {
               className="h-8 bg-red-600 hover:bg-red-700 text-white text-xs px-3"
               onClick={handleHangup}
             >
-              <Phone className="h-3 w-3 mr-1 rotate-135" />
+              <Phone className="h-3 w-3 mr-1 rotate-[135deg]" />
               Hang Up
             </Button>
           )}
         </div>
 
-        {/* Tabs - Fixed Height */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="px-3 pb-3">
-          <TabsList className="grid grid-cols-6 w-full h-8">
-            <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
-            <TabsTrigger value="sms" className="text-xs">SMS</TabsTrigger>
-            <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
-            <TabsTrigger value="activity" className="text-xs">Activity</TabsTrigger>
-            <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
-            <TabsTrigger value="tasks" className="text-xs">Tasks</TabsTrigger>
-          </TabsList>
+        {/* Two Column Layout - Activity on Left, Tabs on Right */}
+        <div className="flex h-[340px]">
+          {/* Left Column - Activity History */}
+          <div className="w-[300px] border-r bg-gray-50/50 flex flex-col">
+            <div className="px-3 py-2 border-b bg-white">
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5" />
+                Activity History ({activities.length})
+              </h3>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {activities.length === 0 ? (
+                <div className="text-center text-gray-500 text-xs py-8">No activities yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Sort: pinned items first, then by date */}
+                  {[...activities]
+                    .sort((a, b) => {
+                      if (a.isPinned && !b.isPinned) return -1
+                      if (!a.isPinned && b.isPinned) return 1
+                      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                    })
+                    .map((activity) => {
+                    const handleTogglePin = async () => {
+                      const newPinned = !activity.isPinned
+                      // Optimistic update
+                      setActivities(prev => prev.map(a =>
+                        a.id === activity.id ? { ...a, isPinned: newPinned } : a
+                      ))
+                      try {
+                        const res = await fetch(`/api/activities/${activity.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ isPinned: newPinned })
+                        })
+                        if (!res.ok) throw new Error('Failed to update')
+                        toast({ title: newPinned ? 'Note pinned' : 'Note unpinned' })
+                      } catch {
+                        // Revert on error
+                        setActivities(prev => prev.map(a =>
+                          a.id === activity.id ? { ...a, isPinned: !newPinned } : a
+                        ))
+                        toast({ title: 'Error', description: 'Failed to update pin status', variant: 'destructive' })
+                      }
+                    }
+
+                    return (
+                    <div
+                      key={activity.id}
+                      className={`p-2 rounded border text-sm shadow-sm ${
+                        activity.isPinned
+                          ? 'border-yellow-300 bg-yellow-50'
+                          : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5">
+                          {activity.type === 'call' && <Phone className="h-3 w-3 text-blue-500" />}
+                          {activity.type === 'email' && <Mail className="h-3 w-3 text-purple-500" />}
+                          {activity.type === 'sms' && <MessageSquare className="h-3 w-3 text-green-500" />}
+                          {activity.type === 'note' && <FileText className="h-3 w-3 text-yellow-500" />}
+                          {activity.type === 'task' && <CheckSquare className="h-3 w-3 text-indigo-500" />}
+                          {!['call', 'email', 'sms', 'note', 'task'].includes(activity.type) && <Clock className="h-3 w-3 text-gray-500" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-medium text-xs truncate">{activity.title}</span>
+                            <div className="flex items-center gap-1">
+                              {/* Pin/Unpin button for notes */}
+                              {activity.type === 'note' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleTogglePin() }}
+                                  className={`p-0.5 rounded hover:bg-gray-100 ${activity.isPinned ? 'text-yellow-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                  title={activity.isPinned ? 'Unpin note' : 'Pin note'}
+                                >
+                                  {activity.isPinned ? <PinOff className="h-2.5 w-2.5" /> : <Pin className="h-2.5 w-2.5" />}
+                                </button>
+                              )}
+                              <span className="text-[10px] text-gray-400 flex-shrink-0">{format(new Date(activity.createdAt), 'MM/dd')}</span>
+                            </div>
+                          </div>
+                          {activity.description && (
+                            <p className="text-[10px] text-gray-500 line-clamp-2 mt-0.5 whitespace-pre-wrap">{activity.description}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Column - Tabs */}
+          <div className="flex-1 flex flex-col">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col px-3 pb-3">
+              <TabsList className="grid grid-cols-5 w-full h-8 mt-2">
+                <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+                <TabsTrigger value="sms" className="text-xs">SMS</TabsTrigger>
+                <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
+                <TabsTrigger value="tasks" className="text-xs">Tasks</TabsTrigger>
+              </TabsList>
 
           {/* Fixed height content area */}
           <TabsContent value="details" className="h-[280px] overflow-y-auto py-3">
@@ -894,33 +1043,11 @@ export default function RedesignedCallPopup() {
             </div>
           </TabsContent>
 
-          <TabsContent value="activity" className="h-[280px] overflow-y-auto py-3">
-            <div className="space-y-2">
-              {activities.length === 0 ? (
-                <div className="text-center text-gray-500 text-xs py-8">No activities yet</div>
-              ) : (
-                activities.map((activity) => (
-                  <div key={activity.id} className="border-l-2 border-blue-500 pl-2 py-1">
-                    <div className="flex items-center gap-1 mb-0.5">
-                      {activity.type === 'call' && <Phone className="h-3 w-3 text-blue-500" />}
-                      {activity.type === 'email' && <Mail className="h-3 w-3 text-purple-500" />}
-                      {activity.type === 'sms' && <MessageSquare className="h-3 w-3 text-green-500" />}
-                      <span className="font-medium text-xs">{activity.title}</span>
-                      <span className="text-[10px] text-gray-500">{format(new Date(activity.createdAt), 'MM/dd')}</span>
-                    </div>
-                    {activity.description && (
-                      <div className="text-[10px] text-gray-600 truncate">{activity.description}</div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </TabsContent>
-
           <TabsContent value="notes" className="h-[280px] overflow-y-auto py-3">
             <div className="space-y-2 h-full flex flex-col">
-              <div className="text-[10px] text-gray-500">
-                Enter to save • Shift+Enter for new line
+              <div className="flex items-center justify-between text-[10px] text-gray-500">
+                <span>Enter to save • Shift+Enter for new line</span>
+                {localNotes && <span className="text-green-500 flex items-center gap-1">● Draft saved</span>}
               </div>
               <Textarea
                 placeholder="Write your notes here..."
@@ -929,7 +1056,7 @@ export default function RedesignedCallPopup() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    if (localNotes.trim()) {
+                    if (localNotes.trim() && !savingNotes) {
                       handleSaveNotes()
                     }
                   }
@@ -940,13 +1067,18 @@ export default function RedesignedCallPopup() {
                 size="sm"
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs"
                 onClick={handleSaveNotes}
-                disabled={!localNotes.trim()}
+                disabled={!localNotes.trim() || savingNotes}
               >
-                Save Notes
+                {savingNotes ? (
+                  <>
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Saving...
+                  </>
+                ) : 'Save Notes'}
               </Button>
               {activitySaved && (
                 <div className="text-[10px] text-green-600 text-center">
-                  Notes auto-saved on hangup
+                  ✓ Notes saved successfully
                 </div>
               )}
             </div>
@@ -1030,7 +1162,9 @@ export default function RedesignedCallPopup() {
               </div>
             </div>
           </TabsContent>
-        </Tabs>
+            </Tabs>
+          </div>
+        </div>
       </div>
     </div>
   )

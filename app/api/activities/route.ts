@@ -133,6 +133,7 @@ export async function GET(request: NextRequest) {
       durationMinutes: activity.duration_minutes,
       reminderMinutes: activity.reminder_minutes,
       isAllDay: activity.is_all_day,
+      isPinned: activity.is_pinned,
       completedAt: activity.completed_at?.toISOString(),
       completedBy: activity.completed_by,
       result: activity.result,

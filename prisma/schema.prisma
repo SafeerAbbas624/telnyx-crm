@@ -52,6 +52,7 @@ model Contact {
   deletedAt               DateTime?                @map("deleted_at") @db.Timestamptz(6)
   pipeline                Pipeline?                @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   contact_tags            ContactTag[]
+  contact_tag_history     ContactTagHistory[]
   messages                Message[]
   activities              Activity[]
   telnyx_messages         TelnyxMessage[]
@@ -111,6 +112,21 @@ model ContactTag {
 
   @@unique([contact_id, tag_id])
   @@map("contact_tags")
+}
+
+// Track tag additions and removals for activity history
+model ContactTagHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  contact_id String   @db.Uuid
+  tag_id     String   @db.Uuid
+  tag_name   String   // Store tag name for historical reference
+  action     String   // 'added' or 'removed'
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  created_by String?  @db.Uuid
+  contact    Contact  @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+
+  @@index([contact_id, created_at])
+  @@map("contact_tag_history")
 }
 
 model ActivityTag {
@@ -229,6 +245,7 @@ model Activity {
   completed_by         String?            @db.Uuid
   result               String?
   next_action          String?
+  is_pinned            Boolean            @default(false) @map("is_pinned")
   created_at           DateTime           @default(now()) @db.Timestamptz(6)
   updated_at           DateTime           @updatedAt @db.Timestamptz(6)
   pipeline             Pipeline?          @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
@@ -1760,6 +1777,11 @@ model PowerDialerCall {
   // Call tracking
   webrtcSessionId String? @map("webrtc_session_id")
   telnyxCallId    String? @map("telnyx_call_id")
+  callControlId   String? @map("call_control_id") // Telnyx Call Control ID for AMD calls
+
+  // AMD (Answering Machine Detection)
+  amdResult    String? @map("amd_result") // human, machine, fax, unknown
+  hangupCause  String? @map("hangup_cause")
 
   // Call status
   status PowerDialerCallStatus @default(INITIATED)
@@ -1787,6 +1809,7 @@ model PowerDialerCall {
   @@index([sessionId, status])
   @@index([queueItemId])
   @@index([contactId])
+  @@index([callControlId], name: "idx_power_dialer_calls_call_control_id")
   @@index([callOutcome], name: "idx_power_dialer_calls_outcome")
   @@index([sentiment], name: "idx_power_dialer_calls_sentiment")
   @@map("power_dialer_calls")

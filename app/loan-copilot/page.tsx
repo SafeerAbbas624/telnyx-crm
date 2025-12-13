@@ -10,9 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Send, Loader2, Search, FileText, DollarSign, Settings } from 'lucide-react';
+import { Send, Loader2, Search, FileText, DollarSign, Settings } from 'lucide-react';
 import { toast } from 'sonner';
-import NewDealDialogV2 from '@/components/deals/new-deal-dialog-v2';
 import FunderManagementDialog from '@/components/loan-copilot/funder-management-dialog';
 import { Pipeline, Lender } from '@/types/deals';
 
@@ -39,7 +38,6 @@ export default function LoanCoPilotPage() {
   const [loading, setLoading] = useState(true);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showNewDealDialog, setShowNewDealDialog] = useState(false);
   const [showFunderManagement, setShowFunderManagement] = useState(false);
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [lenders, setLenders] = useState<Lender[]>([]);
@@ -91,12 +89,6 @@ export default function LoanCoPilotPage() {
       deal.propertyAddress?.toLowerCase().includes(search)
     );
   }, [deals, searchQuery]);
-
-  const handleDealCreated = () => {
-    setShowNewDealDialog(false);
-    loadData();
-    toast.success('Loan created successfully');
-  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -151,14 +143,9 @@ export default function LoanCoPilotPage() {
                         className="h-8 text-xs pl-8"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Button size="sm" className="w-full" onClick={() => setShowNewDealDialog(true)}>
-                        <Plus className="mr-2 h-4 w-4" /> New Loan
-                      </Button>
-                      <Button size="sm" className="w-full" variant="outline" onClick={() => setShowFunderManagement(true)}>
-                        <Settings className="mr-2 h-4 w-4" /> Manage Funders
-                      </Button>
-                    </div>
+                    <Button size="sm" className="w-full" variant="outline" onClick={() => setShowFunderManagement(true)}>
+                      <Settings className="mr-2 h-4 w-4" /> Manage Funders
+                    </Button>
                   </div>
 
                   <ScrollArea className="flex-1">
@@ -169,7 +156,8 @@ export default function LoanCoPilotPage() {
                         </div>
                       ) : filteredDeals.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground text-sm">
-                          No loans found. Create a new loan to get started.
+                          <p>No loans found.</p>
+                          <p className="mt-2">Create loans in the <strong>Deals</strong> section with the "Loan Processing" pipeline.</p>
                         </div>
                       ) : (
                         filteredDeals.map(deal => (
@@ -213,7 +201,7 @@ export default function LoanCoPilotPage() {
                   <div className="text-center">
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p>Select a loan from the list to view details</p>
-                    <p className="text-sm">Or create a new loan to get started</p>
+                    <p className="text-sm mt-2">Loans are created in the Deals section with "Loan Processing" pipeline</p>
                   </div>
                 </div>
               </div>
@@ -222,16 +210,6 @@ export default function LoanCoPilotPage() {
           <Footer />
         </div>
       </div>
-
-      {/* New Loan Dialog - Same as Deals section */}
-      <NewDealDialogV2
-        open={showNewDealDialog}
-        onOpenChange={setShowNewDealDialog}
-        pipeline={pipeline || undefined}
-        lenders={lenders}
-        isLoanPipeline={true}
-        onSuccess={handleDealCreated}
-      />
 
       {/* Funder Management Dialog */}
       <FunderManagementDialog

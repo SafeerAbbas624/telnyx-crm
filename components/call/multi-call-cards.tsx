@@ -5,11 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2, Tag, Clock, FileText, CheckSquare, Pin, PinOff } from "lucide-react"
+import { format } from "date-fns"
 import { useMultiCall, ManualDialerCall } from "@/lib/context/multi-call-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
 import { useEmailUI } from "@/lib/context/email-ui-context"
+import { useContactPanel } from "@/lib/context/contact-panel-context"
 import { useToast } from "@/hooks/use-toast"
 import {
   Popover,
@@ -40,12 +43,38 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const [activeTab, setActiveTab] = useState("details")
   const [contactDetails, setContactDetails] = useState<any>(null)
   const [notes, setNotes] = useState("")
+  const [savingNotes, setSavingNotes] = useState(false)
   const [showQuickTask, setShowQuickTask] = useState(false)
   const [quickTaskTitle, setQuickTaskTitle] = useState("")
   const [quickTaskDueDate, setQuickTaskDueDate] = useState("")
   const [creatingTask, setCreatingTask] = useState(false)
+  const [showTagPopover, setShowTagPopover] = useState(false)
+  const [availableTags, setAvailableTags] = useState<any[]>([])
+  const [tagSearchQuery, setTagSearchQuery] = useState("")
+  const [loadingTags, setLoadingTags] = useState(false)
+  const [activities, setActivities] = useState<any[]>([])
   const { toast } = useToast()
   const { openEmail } = useEmailUI()
+
+  // Draft key for localStorage
+  const draftKey = call.contactId ? `note-draft-${call.contactId}` : null
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    if (draftKey) {
+      const savedDraft = localStorage.getItem(draftKey)
+      if (savedDraft) {
+        setNotes(savedDraft)
+      }
+    }
+  }, [draftKey])
+
+  // Auto-save draft to localStorage on note change
+  useEffect(() => {
+    if (draftKey && notes) {
+      localStorage.setItem(draftKey, notes)
+    }
+  }, [notes, draftKey])
 
   // Timer for elapsed time
   useEffect(() => {
@@ -61,7 +90,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
     return () => clearInterval(timer)
   }, [call.startedAt, call.status])
 
-  // Load contact details
+  // Load contact details and activities
   useEffect(() => {
     if (!call.contactId) return
     const loadContact = async () => {
@@ -75,7 +104,19 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         console.error('Error loading contact:', error)
       }
     }
+    const loadActivities = async () => {
+      try {
+        const res = await fetch(`/api/contacts/${call.contactId}/activity-history?limit=50`)
+        if (res.ok) {
+          const data = await res.json()
+          setActivities(data.items || [])
+        }
+      } catch (error) {
+        console.error('Error loading activities:', error)
+      }
+    }
     loadContact()
+    loadActivities()
   }, [call.contactId])
 
   // Status-based styling
@@ -128,6 +169,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   // Handle saving notes
   const handleSaveNotes = async () => {
     if (!notes.trim() || !call.contactId) return
+    setSavingNotes(true)
     try {
       const res = await fetch('/api/activities', {
         method: 'POST',
@@ -142,9 +184,19 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
       if (res.ok) {
         toast({ title: 'Note Saved', description: 'Note added to contact' })
         setNotes('')
+        // Clear draft from localStorage
+        if (draftKey) {
+          localStorage.removeItem(draftKey)
+        }
+        // Emit event to notify activity history to refresh
+        window.dispatchEvent(new CustomEvent('activity-created', {
+          detail: { contactId: call.contactId }
+        }))
       }
     } catch (error: any) {
       toast({ title: 'Error', description: error.message || 'Failed to save note', variant: 'destructive' })
+    } finally {
+      setSavingNotes(false)
     }
   }
 
@@ -157,17 +209,22 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: quickTaskTitle,
+          subject: quickTaskTitle,
           contactId: call.contactId,
           dueDate: quickTaskDueDate || undefined,
           status: 'pending',
         }),
       })
       if (res.ok) {
+        const newTask = await res.json()
         toast({ title: 'Task Created', description: 'Task added to contact' })
         setQuickTaskTitle('')
         setQuickTaskDueDate('')
         setShowQuickTask(false)
+        // Emit event to notify task lists to refresh
+        window.dispatchEvent(new CustomEvent('task-created', {
+          detail: { contactId: call.contactId, task: newTask }
+        }))
       } else {
         const error = await res.json()
         toast({ title: 'Error', description: error.error || 'Failed to create task', variant: 'destructive' })
@@ -178,6 +235,88 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
       setCreatingTask(false)
     }
   }
+
+  // Load available tags when popover opens
+  const loadTags = async () => {
+    if (loadingTags) return
+    setLoadingTags(true)
+    try {
+      const res = await fetch('/api/contacts/tags')
+      if (res.ok) {
+        const data = await res.json()
+        setAvailableTags(data)
+      }
+    } catch (error) {
+      console.error('Error loading tags:', error)
+    } finally {
+      setLoadingTags(false)
+    }
+  }
+
+  // Add tag to contact - optimistic update for instant feedback
+  const addTagToContact = async (tag: any) => {
+    if (!call.contactId) return
+    const currentTags = contactDetails?.tags || []
+    const newTags = [...currentTags, { id: tag.id, name: tag.name, color: tag.color }]
+
+    // Optimistic update - show immediately
+    setContactDetails((prev: any) => ({ ...prev, tags: newTags }))
+    toast({ title: 'Tag Added', description: `Added "${tag.name}" tag` })
+
+    // Then sync to server in background
+    try {
+      const res = await fetch(`/api/contacts/${call.contactId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: newTags }),
+      })
+      if (!res.ok) {
+        // Revert on failure
+        setContactDetails((prev: any) => ({ ...prev, tags: currentTags }))
+        toast({ title: 'Error', description: 'Failed to add tag', variant: 'destructive' })
+      }
+    } catch (error: any) {
+      // Revert on failure
+      setContactDetails((prev: any) => ({ ...prev, tags: currentTags }))
+      toast({ title: 'Error', description: 'Failed to add tag', variant: 'destructive' })
+    }
+  }
+
+  // Remove tag from contact - optimistic update for instant feedback
+  const removeTagFromContact = async (tagId: string) => {
+    if (!call.contactId) return
+    const currentTags = contactDetails?.tags || []
+    const removedTag = currentTags.find((t: any) => t.id === tagId)
+    const newTags = currentTags.filter((t: any) => t.id !== tagId)
+
+    // Optimistic update - show immediately
+    setContactDetails((prev: any) => ({ ...prev, tags: newTags }))
+    toast({ title: 'Tag Removed', description: `Removed "${removedTag?.name || 'tag'}"` })
+
+    // Then sync to server in background
+    try {
+      const res = await fetch(`/api/contacts/${call.contactId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: newTags }),
+      })
+      if (!res.ok) {
+        // Revert on failure
+        setContactDetails((prev: any) => ({ ...prev, tags: currentTags }))
+        toast({ title: 'Error', description: 'Failed to remove tag', variant: 'destructive' })
+      }
+    } catch (error: any) {
+      // Revert on failure
+      setContactDetails((prev: any) => ({ ...prev, tags: currentTags }))
+      toast({ title: 'Error', description: 'Failed to remove tag', variant: 'destructive' })
+    }
+  }
+
+  // Filter tags based on search and exclude already assigned
+  const contactTagIds = new Set((contactDetails?.tags || []).map((t: any) => t.id))
+  const filteredAvailableTags = availableTags.filter(
+    (t) => !contactTagIds.has(t.id) && t.name.toLowerCase().includes(tagSearchQuery.toLowerCase())
+  )
 
   // Minimized view
   if (isMinimized) {
@@ -194,7 +333,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
           <div className="font-medium text-sm">{contactName}</div>
           <div className="text-xs text-gray-600">{formatPhoneNumberForDisplay(phoneNumber)}</div>
         </div>
-        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); onDismiss(); }}>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); if (isActive) { onHangUp(); } onDismiss(); }}>
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -202,7 +341,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   }
 
   return (
-    <div className={`w-[380px] ${styles.border} border-2 rounded-lg bg-white shadow-2xl overflow-hidden flex-shrink-0 ${isPrimary && call.status === 'connected' ? 'ring-2 ring-blue-500' : ''}`}>
+    <div className={`w-[760px] ${styles.border} border-2 rounded-lg bg-white shadow-2xl overflow-hidden flex-shrink-0 ${isPrimary && call.status === 'connected' ? 'ring-2 ring-blue-500' : ''}`}>
       {/* Compact Header */}
       <div className={`${styles.bg} px-3 py-2`}>
         <div className="flex items-center justify-between">
@@ -234,7 +373,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-white/50" onClick={() => setIsMinimized(true)}>
               <Minimize2 className="h-3 w-3" />
             </Button>
-            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-white/50" onClick={onDismiss}>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-white/50" onClick={() => { if (isActive) { onHangUp(); } onDismiss(); }} title={isActive ? "Hang up and close" : "Close"}>
               <X className="h-3 w-3" />
             </Button>
           </div>
@@ -329,6 +468,83 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
               </PopoverContent>
             </Popover>
           )}
+          {/* Quick Tag Button */}
+          {call.contactId && (
+            <Popover open={showTagPopover} onOpenChange={(open) => { setShowTagPopover(open); if (open) loadTags(); }}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 hover:bg-cyan-100"
+                  title="Manage Tags"
+                >
+                  <Tag className="h-4 w-4 text-cyan-600" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-3" align="start" side="top" sideOffset={8}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-sm">Quick Tags</h4>
+                    {loadingTags && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+                  </div>
+
+                  {/* Current Tags */}
+                  <div className="min-h-[40px]">
+                    <div className="text-xs text-gray-500 mb-1.5">Current Tags</div>
+                    {contactDetails?.tags && contactDetails.tags.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {contactDetails.tags.map((tag: any) => (
+                          <Badge
+                            key={tag.id}
+                            variant="secondary"
+                            className="text-xs px-2 py-0.5 pr-1 flex items-center gap-1 cursor-pointer hover:opacity-80"
+                            style={{ backgroundColor: tag.color ? `${tag.color}20` : undefined, color: tag.color || undefined }}
+                            onClick={() => removeTagFromContact(tag.id)}
+                            title={`Remove "${tag.name}"`}
+                          >
+                            {tag.name}
+                            <X className="h-3 w-3" />
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-gray-400">No tags assigned</div>
+                    )}
+                  </div>
+
+                  {/* Search and Add Tags */}
+                  <div>
+                    <div className="text-xs text-gray-500 mb-1.5">Add Tag</div>
+                    <Input
+                      placeholder="Search tags..."
+                      value={tagSearchQuery}
+                      onChange={(e) => setTagSearchQuery(e.target.value)}
+                      className="h-8 text-sm mb-2"
+                    />
+                    {/* Fixed height container to prevent jumping */}
+                    <div className="h-[120px] overflow-y-auto space-y-1">
+                      {filteredAvailableTags.length > 0 ? (
+                        filteredAvailableTags.slice(0, 10).map((tag) => (
+                          <button
+                            key={tag.id}
+                            className="w-full text-left px-2 py-1.5 text-sm rounded hover:bg-gray-100 flex items-center gap-2"
+                            onClick={() => { addTagToContact(tag); setTagSearchQuery(''); }}
+                          >
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: tag.color || '#94a3b8' }} />
+                            {tag.name}
+                          </button>
+                        ))
+                      ) : (
+                        <div className="text-xs text-gray-400 text-center py-2">
+                          {tagSearchQuery ? 'No matching tags' : 'No tags available'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           {/* Call Back Button */}
           {isEnded && (
             <Button
@@ -356,75 +572,181 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         )}
       </div>
 
-      {/* Tabs - Simplified: Details, Email, Notes only */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="px-3 pb-3">
-        <TabsList className="grid grid-cols-3 w-full h-8 mt-2">
-          <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
-          <TabsTrigger value="email" className="text-xs">Email</TabsTrigger>
-          <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
-        </TabsList>
+      {/* Two Column Layout - Activity on Left, Tabs on Right */}
+      <div className="flex h-[280px]">
+        {/* Left Column - Activity History */}
+        <div className="w-[300px] border-r bg-gray-50/50 flex flex-col">
+          <div className="px-3 py-2 border-b bg-white">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+              <Clock className="h-3.5 w-3.5" />
+              Activity History ({activities.length})
+            </h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            {activities.length === 0 ? (
+              <div className="text-center text-gray-500 text-xs py-8">No activities yet</div>
+            ) : (
+              <div className="space-y-2">
+                {/* Sort: pinned items first, then by date */}
+                {[...activities]
+                  .sort((a, b) => {
+                    if (a.isPinned && !b.isPinned) return -1
+                    if (!a.isPinned && b.isPinned) return 1
+                    const aTime = new Date(a.timestamp || a.createdAt).getTime()
+                    const bTime = new Date(b.timestamp || b.createdAt).getTime()
+                    return bTime - aTime
+                  })
+                  .map((activity) => {
+                  const handleTogglePin = async () => {
+                    const newPinned = !activity.isPinned
+                    // Optimistic update
+                    setActivities(prev => prev.map(a =>
+                      a.id === activity.id ? { ...a, isPinned: newPinned } : a
+                    ))
+                    try {
+                      const res = await fetch(`/api/activities/${activity.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ isPinned: newPinned })
+                      })
+                      if (!res.ok) throw new Error('Failed to update')
+                      toast({ title: newPinned ? 'Note pinned' : 'Note unpinned' })
+                    } catch {
+                      // Revert on error
+                      setActivities(prev => prev.map(a =>
+                        a.id === activity.id ? { ...a, isPinned: !newPinned } : a
+                      ))
+                      toast({ title: 'Error', description: 'Failed to update pin status', variant: 'destructive' })
+                    }
+                  }
+
+                  return (
+                  <div
+                    key={activity.id}
+                    className={`p-2 rounded border text-sm shadow-sm ${
+                      activity.isPinned
+                        ? 'border-yellow-300 bg-yellow-50'
+                        : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="mt-0.5">
+                        {activity.type === 'call' && <Phone className="h-3 w-3 text-blue-500" />}
+                        {activity.type === 'email' && <Mail className="h-3 w-3 text-purple-500" />}
+                        {activity.type === 'sms' && <MessageSquare className="h-3 w-3 text-green-500" />}
+                        {activity.type === 'note' && <FileText className="h-3 w-3 text-yellow-500" />}
+                        {activity.type === 'task' && <CheckSquare className="h-3 w-3 text-indigo-500" />}
+                        {!['call', 'email', 'sms', 'note', 'task'].includes(activity.type) && <Clock className="h-3 w-3 text-gray-500" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-medium text-xs truncate">{activity.title}</span>
+                          <div className="flex items-center gap-1">
+                            {/* Pin/Unpin button for notes */}
+                            {activity.type === 'note' && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleTogglePin() }}
+                                className={`p-0.5 rounded hover:bg-gray-100 ${activity.isPinned ? 'text-yellow-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                title={activity.isPinned ? 'Unpin note' : 'Pin note'}
+                              >
+                                {activity.isPinned ? <PinOff className="h-2.5 w-2.5" /> : <Pin className="h-2.5 w-2.5" />}
+                              </button>
+                            )}
+                            <span className="text-[10px] text-gray-400 flex-shrink-0">{format(new Date(activity.timestamp || activity.createdAt), 'MM/dd')}</span>
+                          </div>
+                        </div>
+                        {activity.description && (
+                          <p className="text-[10px] text-gray-500 line-clamp-2 mt-0.5 whitespace-pre-wrap">{activity.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )})}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column - Tabs */}
+        <div className="flex-1 flex flex-col">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col px-3 pb-3">
+            <TabsList className="grid grid-cols-2 w-full h-8 mt-2">
+              <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+              <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
+            </TabsList>
 
         {/* Details Tab */}
         <TabsContent value="details" className="h-[200px] overflow-y-auto py-2">
           <div className="space-y-3">
+            {/* Contact Information */}
             <div>
-              <h3 className="font-semibold text-sm mb-2">Contact Information</h3>
-              <div className="space-y-1.5 text-sm">
+              <h3 className="font-semibold text-xs text-gray-500 uppercase tracking-wider mb-1.5">Contact</h3>
+              <div className="space-y-1 text-sm">
                 <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-gray-500" />
-                  <span>{formatPhoneNumberForDisplay(contactDetails?.phone1 || phoneNumber)}</span>
+                  <Phone className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                  <span className="font-medium">{formatPhoneNumberForDisplay(contactDetails?.phone1 || phoneNumber)}</span>
                 </div>
+                {contactDetails?.phone2 && (
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-600">{formatPhoneNumberForDisplay(contactDetails.phone2)}</span>
+                  </div>
+                )}
                 {contactDetails?.email1 && (
                   <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-gray-500" />
-                    <span className="truncate">{contactDetails.email1}</span>
+                    <Mail className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="truncate text-blue-600">{contactDetails.email1}</span>
+                  </div>
+                )}
+                {contactDetails?.email2 && (
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="truncate text-gray-600">{contactDetails.email2}</span>
                   </div>
                 )}
                 {contactDetails?.llcName && (
                   <div className="flex items-center gap-2">
-                    <Building className="h-4 w-4 text-gray-500" />
-                    <span>{contactDetails.llcName}</span>
+                    <Building className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="font-medium text-gray-700">{contactDetails.llcName}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            {contactDetails?.propertyAddress && (
+            {/* Property Address */}
+            {(contactDetails?.propertyAddress || contactDetails?.city) && (
               <div>
-                <h3 className="font-semibold text-sm mb-2">Property</h3>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="h-4 w-4 text-gray-500 mt-0.5" />
-                    <div>
-                      <div>{contactDetails.propertyAddress}</div>
-                      <div className="text-gray-500">{contactDetails.city}, {contactDetails.state} {contactDetails.zip}</div>
+                <h3 className="font-semibold text-xs text-gray-500 uppercase tracking-wider mb-1.5">Property</h3>
+                <div className="flex items-start gap-2 text-sm">
+                  <MapPin className="h-3.5 w-3.5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="leading-snug">
+                    {contactDetails.propertyAddress && <div className="font-medium">{contactDetails.propertyAddress}</div>}
+                    <div className="text-gray-600">
+                      {[contactDetails.city, contactDetails.state].filter(Boolean).join(', ')}
+                      {contactDetails.zip && ` ${contactDetails.zip}`}
                     </div>
                   </div>
                 </div>
               </div>
             )}
-          </div>
-        </TabsContent>
 
-        {/* Email Tab */}
-        <TabsContent value="email" className="h-[200px] overflow-y-auto py-2">
-          <div className="space-y-2 h-full flex flex-col">
-            {contactDetails?.email1 ? (
-              <>
-                <p className="text-sm text-gray-600">
-                  Email: <span className="font-medium">{contactDetails.email1}</span>
-                </p>
-                <Button
-                  size="sm"
-                  className="w-full h-8"
-                  onClick={() => openEmail({ email: contactDetails.email1, contact: contactDetails })}
-                >
-                  <Mail className="h-4 w-4 mr-2" />
-                  Compose Email
-                </Button>
-              </>
-            ) : (
-              <p className="text-sm text-gray-500 text-center py-4">No email address on file</p>
+            {/* Tags */}
+            {contactDetails?.tags && contactDetails.tags.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-xs text-gray-500 uppercase tracking-wider mb-1.5">Tags</h3>
+                <div className="flex flex-wrap gap-1">
+                  {contactDetails.tags.map((tag: any) => (
+                    <Badge
+                      key={tag.id}
+                      variant="secondary"
+                      className="text-xs px-2 py-0.5"
+                      style={{ backgroundColor: tag.color ? `${tag.color}20` : undefined, color: tag.color || undefined, borderColor: tag.color || undefined }}
+                    >
+                      {tag.name}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </TabsContent>
@@ -432,6 +754,10 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         {/* Notes Tab */}
         <TabsContent value="notes" className="h-[200px] overflow-y-auto py-2">
           <div className="space-y-2 h-full flex flex-col">
+            <div className="flex items-center justify-between text-[10px] text-gray-400">
+              <span>Draft auto-saved</span>
+              {notes && <span className="text-green-500">●</span>}
+            </div>
             <Textarea
               placeholder="Add a note about this call..."
               value={notes}
@@ -441,25 +767,36 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
             <Button
               size="sm"
               className="w-full h-8"
-              disabled={!notes.trim() || !call.contactId}
+              disabled={!notes.trim() || !call.contactId || savingNotes}
               onClick={handleSaveNotes}
             >
-              <Plus className="h-4 w-4 mr-2" />
-              Save Note
+              {savingNotes ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Save Note
+                </>
+              )}
             </Button>
           </div>
         </TabsContent>
 
-
-      </Tabs>
+          </Tabs>
+        </div>
+      </div>
     </div>
   )
 }
 
 // Main component that displays all call cards
 export default function MultiCallCards() {
-  const { activeCalls, primaryCallId, hangUpCall, dismissCall, startManualCall, switchPrimaryCall } = useMultiCall()
+  const { activeCalls, primaryCallId, hangUpCall, dismissCall, restartCall, switchPrimaryCall } = useMultiCall()
   const { openSms } = useSmsUI()
+  const { openContactPanel } = useContactPanel()
 
   const callsArray = Array.from(activeCalls.values())
 
@@ -475,13 +812,14 @@ export default function MultiCallCards() {
 
   const handleViewContact = (call: ManualDialerCall) => {
     if (call.contactId) {
-      window.open(`/contacts?contact=${call.contactId}`, '_blank')
+      openContactPanel(call.contactId)
     }
   }
 
   const handleCallBack = async (call: ManualDialerCall) => {
     try {
-      await startManualCall({
+      // Use restartCall to reuse the same window slot instead of creating a new window
+      await restartCall(call.id, {
         toNumber: call.phoneNumber,
         fromNumber: call.fromNumber,
         contact: call.contactId ? { id: call.contactId, firstName: call.contactName?.split(' ')[0], lastName: call.contactName?.split(' ').slice(1).join(' ') } as any : undefined,

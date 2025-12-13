@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { X, Phone, Mail, Building2, Calendar, Tag, MessageSquare, PhoneCall, FileText, CheckSquare, User, Plus, Save, Loader2, Trash2, ChevronDown, ChevronUp, Edit2, Check, Cloud, CloudOff, GripHorizontal, Minimize2, Maximize2 } from "lucide-react"
+import { X, Phone, Mail, Building2, Calendar, Tag, MessageSquare, PhoneCall, FileText, CheckSquare, User, Plus, Save, Loader2, Trash2, ChevronDown, ChevronUp, Edit2, Check, Cloud, CloudOff, GripHorizontal, Minimize2, Maximize2, Pin, PinOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +25,7 @@ import ContactSequences from "./contact-sequences"
 import { formatPhoneNumberForTelnyx, formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { normalizePropertyType, getStandardPropertyTypes } from "@/lib/property-type-mapper"
 import { CallButtonWithCellHover } from "@/components/ui/call-button-with-cell-hover"
+import { AddressAutocomplete, type AddressComponents } from "@/components/ui/address-autocomplete"
 
 interface ContactSidePanelProps {
   contact: Contact | null
@@ -82,8 +83,22 @@ interface TelnyxPhoneNumber {
   capabilities: string[]
 }
 
+interface ActivityHistoryItem {
+  id: string
+  type: 'call' | 'sms' | 'email' | 'activity' | 'sequence' | 'tag_added' | 'tag_removed' | 'task'
+  title: string
+  description?: string
+  direction?: 'inbound' | 'outbound'
+  status?: string
+  timestamp: string
+  isPinned?: boolean
+  activityId?: string
+  metadata?: Record<string, any>
+}
+
 export default function ContactSidePanel({ contact, open, onClose }: ContactSidePanelProps) {
   const [activities, setActivities] = useState<Activity[]>([])
+  const [activityHistory, setActivityHistory] = useState<ActivityHistoryItem[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(false)
@@ -113,6 +128,9 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
   // Task editing state
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTaskData, setEditingTaskData] = useState<Partial<Task>>({})
+
+  // Expanded activity items for long descriptions
+  const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set())
 
   // Dragging state for non-modal floating panel
   const [isMinimized, setIsMinimized] = useState(false)
@@ -145,7 +163,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     const newX = e.clientX - dragStartPos.current.x
     const newY = e.clientY - dragStartPos.current.y
     // Clamp to viewport
-    const maxX = window.innerWidth - 400 // panel width
+    const maxX = window.innerWidth - 800 // panel width
     const maxY = window.innerHeight - 100
     setPosition({
       x: Math.max(0, Math.min(newX, maxX)),
@@ -285,6 +303,26 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
       }
     }
   }, [open, contact?.id, setOnTaskCreated])
+
+  // Listen for activity-created and task-created events to refresh instantly
+  useEffect(() => {
+    const handleActivityCreated = (e: CustomEvent) => {
+      if (e.detail?.contactId === contact?.id) {
+        loadActivities()
+      }
+    }
+    const handleTaskCreated = (e: CustomEvent) => {
+      if (e.detail?.contactId === contact?.id) {
+        loadTasks()
+      }
+    }
+    window.addEventListener('activity-created', handleActivityCreated as EventListener)
+    window.addEventListener('task-created', handleTaskCreated as EventListener)
+    return () => {
+      window.removeEventListener('activity-created', handleActivityCreated as EventListener)
+      window.removeEventListener('task-created', handleTaskCreated as EventListener)
+    }
+  }, [contact?.id])
 
   // Removed loadTelnyxPhoneNumbers - now using global phone number context
 
@@ -558,6 +596,14 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     if (!contact?.id) return
     setLoading(true)
     try {
+      // Fetch comprehensive activity history (calls, SMS, emails, sequences, etc.)
+      const historyResponse = await fetch(`/api/contacts/${contact.id}/activity-history?limit=100`)
+      if (historyResponse.ok) {
+        const historyData = await historyResponse.json()
+        setActivityHistory(historyData.items || [])
+      }
+
+      // Also fetch traditional activities for backward compatibility
       const response = await fetch(`/api/activities?contactId=${contact.id}`)
       if (response.ok) {
         const data = await response.json()
@@ -666,12 +712,22 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
   const openTasks = tasks.filter(t => t.status !== 'completed')
   const completedTasks = tasks.filter(t => t.status === 'completed')
 
-  const getActivityIcon = (type: string) => {
+  const getActivityIcon = (type: string, direction?: string) => {
     switch (type) {
-      case 'call': return <PhoneCall className="h-4 w-4 text-blue-500" />
-      case 'sms': case 'text': return <MessageSquare className="h-4 w-4 text-green-500" />
-      case 'email': return <Mail className="h-4 w-4 text-purple-500" />
+      case 'call':
+        return direction === 'inbound'
+          ? <Phone className="h-4 w-4 text-blue-500" />
+          : <PhoneCall className="h-4 w-4 text-blue-600" />
+      case 'sms': case 'text':
+        return <MessageSquare className={`h-4 w-4 ${direction === 'inbound' ? 'text-green-500' : 'text-green-600'}`} />
+      case 'email':
+        return <Mail className={`h-4 w-4 ${direction === 'inbound' ? 'text-purple-500' : 'text-purple-600'}`} />
       case 'task': return <CheckSquare className="h-4 w-4 text-orange-500" />
+      case 'sequence': return <Calendar className="h-4 w-4 text-indigo-500" />
+      case 'tag_added': return <Tag className="h-4 w-4 text-emerald-500" />
+      case 'tag_removed': return <Tag className="h-4 w-4 text-red-400" />
+      case 'activity': case 'note': return <FileText className="h-4 w-4 text-gray-500" />
+      case 'meeting': return <Calendar className="h-4 w-4 text-cyan-500" />
       default: return <FileText className="h-4 w-4 text-gray-400" />
     }
   }
@@ -702,11 +758,11 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     ? { right: 0, top: 0 } // Default right-side position
     : { left: position.x, top: position.y, right: 'auto' } // Dragged position
 
+  // No overlay - panel is non-modal
   return (
-    // No overlay - panel is non-modal
     <div
       ref={panelRef}
-      className="fixed h-[calc(100vh-32px)] w-[420px] bg-white shadow-2xl z-50 flex flex-col rounded-lg border overflow-hidden"
+      className="fixed h-[calc(100vh-32px)] w-[800px] bg-white shadow-2xl z-50 flex flex-col rounded-lg border overflow-hidden"
       style={{ ...panelStyle, maxHeight: 'calc(100vh - 32px)', margin: position.x === 0 && position.y === 0 ? '16px' : 0 }}
     >
       {/* Draggable Header */}
@@ -765,8 +821,156 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
         </div>
       </div>
 
-      {/* Content */}
-      <ScrollArea className="flex-1">
+      {/* Content - Two Column Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Column - Activity History (always visible) */}
+        <div className="w-[340px] border-r bg-gray-50/50 flex flex-col">
+          <div className="p-3 border-b bg-white">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
+              <Calendar className="h-3.5 w-3.5" />
+              Activity History ({activityHistory.length})
+            </h3>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="p-3">
+              {loading ? (
+                <div className="text-center py-6 text-gray-500 text-xs">Loading...</div>
+              ) : activityHistory.length === 0 ? (
+                <div className="text-center py-6 text-gray-400 text-xs">No activity yet</div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Sort: pinned items first, then by timestamp */}
+                  {[...activityHistory]
+                    .sort((a, b) => {
+                      if (a.isPinned && !b.isPinned) return -1
+                      if (!a.isPinned && b.isPinned) return 1
+                      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                    })
+                    .map((item) => {
+                    const handleTogglePin = async () => {
+                      if (!item.activityId) return
+                      const newPinned = !item.isPinned
+                      // Optimistic update
+                      setActivityHistory(prev => prev.map(i =>
+                        i.id === item.id ? { ...i, isPinned: newPinned } : i
+                      ))
+                      try {
+                        const res = await fetch(`/api/activities/${item.activityId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ isPinned: newPinned })
+                        })
+                        if (!res.ok) throw new Error('Failed to update')
+                        toast.success(newPinned ? 'Note pinned' : 'Note unpinned')
+                      } catch {
+                        // Revert on error
+                        setActivityHistory(prev => prev.map(i =>
+                          i.id === item.id ? { ...i, isPinned: !newPinned } : i
+                        ))
+                        toast.error('Failed to update pin status')
+                      }
+                    }
+
+                    return (
+                    <div
+                      key={item.id}
+                      className={`p-2 rounded border text-sm shadow-sm ${
+                        item.isPinned
+                          ? 'border-yellow-300 bg-yellow-50'
+                          : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className="mt-0.5">{getActivityIcon(item.type, item.direction)}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-sm truncate text-gray-800">
+                              {item.title}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {/* Pin/Unpin button for activities (notes) */}
+                              {item.activityId && (item.type === 'activity' || item.metadata?.activityType === 'note') && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleTogglePin() }}
+                                  className={`p-0.5 rounded hover:bg-gray-100 ${item.isPinned ? 'text-yellow-600' : 'text-gray-400 hover:text-gray-600'}`}
+                                  title={item.isPinned ? 'Unpin note' : 'Pin note'}
+                                >
+                                  {item.isPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                                </button>
+                              )}
+                              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${
+                                item.type === 'call' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                item.type === 'sms' ? 'bg-green-50 text-green-700 border-green-200' :
+                                item.type === 'email' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                                item.type === 'sequence' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                item.type === 'tag_added' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                item.type === 'tag_removed' ? 'bg-red-50 text-red-700 border-red-200' :
+                                item.type === 'note' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                                item.type === 'task' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                'bg-gray-50 text-gray-700 border-gray-200'
+                              }`}>
+                                {item.type === 'tag_added' ? 'Tag +' :
+                                 item.type === 'tag_removed' ? 'Tag -' :
+                                 item.type.charAt(0).toUpperCase() + item.type.slice(1)}
+                              </Badge>
+                            </div>
+                          </div>
+                          {item.description && (
+                            <div className="mt-1">
+                              {expandedActivityIds.has(item.id) ? (
+                                <div>
+                                  <p className="text-xs text-gray-600 whitespace-pre-wrap">{item.description}</p>
+                                  <button
+                                    className="text-blue-500 hover:text-blue-700 text-[10px] mt-1"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setExpandedActivityIds(prev => {
+                                        const next = new Set(prev)
+                                        next.delete(item.id)
+                                        return next
+                                      })
+                                    }}
+                                  >
+                                    Show less ▲
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <p className="text-xs text-gray-500 line-clamp-1 flex-1">{item.description}</p>
+                                  {item.description.length > 50 || item.description.includes('\n') ? (
+                                    <button
+                                      className="text-blue-500 hover:text-blue-700 text-[10px] flex-shrink-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        setExpandedActivityIds(prev => {
+                                          const next = new Set(prev)
+                                          next.add(item.id)
+                                          return next
+                                        })
+                                      }}
+                                    >
+                                      ▼
+                                    </button>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-gray-400 mt-1">
+                            {format(new Date(item.timestamp), 'MMM d, yyyy h:mm a')}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )})}
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {/* Right Column - Contact Details */}
+        <ScrollArea className="flex-1">
           <div className="p-3 space-y-3">
             {/* Contact Information - Phones & Emails */}
             <Card>
@@ -890,9 +1094,15 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
                         </Button>
                       )}
                     </div>
-                    <Input
+                    <AddressAutocomplete
                       value={prop.address}
-                      onChange={(e) => updateProperty(idx, 'address', e.target.value)}
+                      onChange={(value) => updateProperty(idx, 'address', value)}
+                      onAddressSelect={(addr: AddressComponents) => {
+                        updateProperty(idx, 'address', addr.address);
+                        updateProperty(idx, 'city', addr.city);
+                        updateProperty(idx, 'state', addr.state);
+                        updateProperty(idx, 'zipCode', addr.zipCode);
+                      }}
                       placeholder="Address"
                       className="h-7 text-sm"
                     />
@@ -1227,80 +1437,10 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
               </CardContent>
             </Card>
 
-            {/* Activity History - Collapsible */}
-            <Card>
-              <CardHeader className="pb-2 pt-3 px-3">
-                <CardTitle
-                  className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center justify-between cursor-pointer"
-                  onClick={() => setShowActivityHistory(!showActivityHistory)}
-                >
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-3.5 w-3.5" />
-                    Activity History ({activities.length + completedTasks.length})
-                  </div>
-                  {showActivityHistory ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </CardTitle>
-              </CardHeader>
-              {showActivityHistory && (
-                <CardContent className="px-3 pb-3">
-                  {loading ? (
-                    <div className="text-center py-3 text-gray-500 text-xs">Loading...</div>
-                  ) : (activities.length === 0 && completedTasks.length === 0) ? (
-                    <div className="text-center py-3 text-gray-400 text-xs">No activity yet</div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                      {/* Combine activities and completed tasks, sort by date */}
-                      {[
-                        ...activities.map(a => ({ ...a, itemType: 'activity' as const, sortDate: new Date(a.createdAt || a.dueDate || 0) })),
-                        ...completedTasks.map(t => ({
-                          id: t.id,
-                          title: t.subject,
-                          description: t.description,
-                          type: 'task',
-                          itemType: 'completedTask' as const,
-                          sortDate: new Date(t.dueDate || 0)
-                        }))
-                      ]
-                        .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
-                        .map((item) => (
-                          <div key={item.id} className="p-2 rounded border border-gray-100 bg-gray-50/50 text-sm">
-                            <div className="flex items-start gap-2">
-                              {item.itemType === 'completedTask' ? (
-                                <Checkbox
-                                  checked={true}
-                                  onCheckedChange={(checked) => handleTaskComplete(item.id, !!checked)}
-                                  className="mt-0.5 h-4 w-4"
-                                />
-                              ) : (
-                                <div className="mt-0.5">{getActivityIcon(item.type)}</div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className={`font-medium text-sm truncate ${item.itemType === 'completedTask' ? 'text-gray-500 line-through' : 'text-gray-800'}`}>
-                                    {item.title}
-                                  </span>
-                                  <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${item.itemType === 'completedTask' ? 'text-green-600 border-green-300 bg-green-50' : 'text-gray-500'}`}>
-                                    {item.itemType === 'completedTask' ? 'completed' : item.type}
-                                  </Badge>
-                                </div>
-                                {item.description && (
-                                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.description}</p>
-                                )}
-                                <div className="text-[10px] text-gray-400 mt-1">
-                                  {format(item.sortDate, 'MMM d, yyyy h:mm a')}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </CardContent>
-              )}
-            </Card>
           </div>
         </ScrollArea>
       </div>
+    </div>
   )
 }
 
