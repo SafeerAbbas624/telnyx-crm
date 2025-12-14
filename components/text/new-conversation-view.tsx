@@ -9,11 +9,24 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Send, Phone, User, Loader2, X } from "lucide-react"
+import { ArrowLeft, Send, Phone, User, Loader2, X, FileText } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useContacts } from "@/lib/context/contacts-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import type { Contact } from "@/lib/types"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+interface SmsTemplate {
+  id: string
+  name: string
+  content: string
+  variables: string[]
+}
 
 interface TelnyxPhoneNumber {
   id: string
@@ -40,7 +53,8 @@ export default function NewConversationView({ onBack, onConversationStarted }: N
   const [matchingContacts, setMatchingContacts] = useState<Contact[]>([])
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [showSuggestions, setShowSuggestions] = useState(false)
-  
+  const [templates, setTemplates] = useState<SmsTemplate[]>([])
+
   const inputRef = useRef<HTMLInputElement>(null)
   const isAdmin = session?.user?.role === 'ADMIN'
 
@@ -48,6 +62,42 @@ export default function NewConversationView({ onBack, onConversationStarted }: N
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+
+  // Load templates
+  useEffect(() => {
+    const loadTemplates = async () => {
+      try {
+        const res = await fetch('/api/templates')
+        if (res.ok) {
+          const data = await res.json()
+          setTemplates(Array.isArray(data) ? data : [])
+        }
+      } catch (error) {
+        console.error('Error loading templates:', error)
+      }
+    }
+    loadTemplates()
+  }, [])
+
+  // Apply template with variable substitution
+  const applyTemplate = (template: SmsTemplate) => {
+    let content = template.content
+
+    // Replace contact-specific variables if we have a selected contact
+    if (selectedContact) {
+      content = content.replace(/\{firstName\}/gi, selectedContact.firstName || '')
+      content = content.replace(/\{lastName\}/gi, selectedContact.lastName || '')
+      content = content.replace(/\{propertyAddress\}/gi, selectedContact.propertyAddress || '')
+      content = content.replace(/\{city\}/gi, selectedContact.city || selectedContact.propertyCity || '')
+      content = content.replace(/\{state\}/gi, selectedContact.state || selectedContact.propertyState || '')
+    }
+
+    setMessage(content)
+    toast({ title: "Template applied", description: `"${template.name}" inserted` })
+
+    // Track usage
+    fetch(`/api/templates/${template.id}/use`, { method: 'POST' }).catch(() => {})
+  }
 
   // Load available phone numbers
   useEffect(() => {
@@ -265,6 +315,35 @@ export default function NewConversationView({ onBack, onConversationStarted }: N
 
       {/* Message area - takes remaining space */}
       <div className="flex-1 p-4 flex flex-col">
+        {/* Template selector */}
+        <div className="mb-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <FileText className="h-4 w-4 mr-2" />
+                Templates
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64 max-h-64 overflow-y-auto">
+              {templates.length === 0 ? (
+                <DropdownMenuItem disabled>No templates available</DropdownMenuItem>
+              ) : (
+                templates.map((template) => (
+                  <DropdownMenuItem
+                    key={template.id}
+                    onClick={() => applyTemplate(template)}
+                    className="flex flex-col items-start"
+                  >
+                    <span className="font-medium">{template.name}</span>
+                    <span className="text-xs text-muted-foreground truncate max-w-full">
+                      {template.content.substring(0, 50)}...
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <Textarea
           placeholder="Type your message..."
           value={message}
@@ -280,7 +359,7 @@ export default function NewConversationView({ onBack, onConversationStarted }: N
       </div>
 
       {/* Send button */}
-      <div className="border-t p-4 flex justify-end">
+      <div className="border-t p-4 flex justify-end gap-2">
         <Button
           onClick={handleSendMessage}
           disabled={isSending || !message.trim() || !phoneInput.trim() || !selectedSenderNumber}

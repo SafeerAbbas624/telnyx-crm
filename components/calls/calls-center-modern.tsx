@@ -31,7 +31,7 @@ import {
 import { format, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
 import { formatPhoneNumberForDisplay, formatPhoneNumberForTelnyx, getBestPhoneNumber } from '@/lib/phone-utils';
-import { useCallUI } from '@/lib/context/call-ui-context';
+import { useMultiCall } from '@/lib/context/multi-call-context';
 import CallRecordingPlayer from '@/components/calls/call-recording-player';
 import { ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { useContacts } from '@/lib/context/contacts-context';
@@ -103,7 +103,7 @@ function filterContactsBySearch(contacts: Contact[], searchTerm: string): Contac
 }
 
 export default function CallsCenterModern() {
-  const { openCall } = useCallUI();
+  const { startManualCall } = useMultiCall();
   const { allContacts, loadAllContacts, allContactsLoading } = useContacts();
   const { selectedPhoneNumber, availablePhoneNumbers } = usePhoneNumber(); // Use global phone number context
   const [dialNumber, setDialNumber] = useState('');
@@ -191,35 +191,21 @@ export default function CallsCenterModern() {
       setIsCalling(true);
       const fromNumber = selectedPhoneNumber.phoneNumber;
 
-      // Start WebRTC call
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client');
-      await rtcClient.ensureRegistered();
-      const { sessionId } = await rtcClient.startCall({ toNumber: normalizedTo, fromNumber });
-
-      // Log the call to database
-      fetch('/api/telnyx/webrtc-calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webrtcSessionId: sessionId,
-          contactId: contact?.id,
-          fromNumber,
-          toNumber: normalizedTo,
-        }),
-      }).catch(err => console.error('Failed to log call:', err));
-
-      // Open the call popup
-      openCall({
+      // Use multi-call context - this uses thin call window
+      const callId = await startManualCall({
+        toNumber: normalizedTo,
+        fromNumber,
         contact: contact ? {
           id: contact.id,
           firstName: contact.firstName,
-          lastName: contact.lastName
+          lastName: contact.lastName,
         } : undefined,
-        fromNumber,
-        toNumber: normalizedTo,
-        mode: 'webrtc',
-        webrtcSessionId: sessionId,
       });
+
+      if (!callId) {
+        toast.error('Max concurrent calls reached');
+        return;
+      }
 
       // Clear inputs
       setDialNumber('');
