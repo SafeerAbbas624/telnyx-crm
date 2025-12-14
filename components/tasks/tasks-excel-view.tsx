@@ -930,12 +930,15 @@ export default function TasksExcelView() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="General">General</SelectItem>
-                  {savedTaskTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
+                  {savedTaskTypes.length === 0 ? (
+                    <SelectItem value="General">General</SelectItem>
+                  ) : (
+                    savedTaskTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             );
@@ -1661,22 +1664,28 @@ export default function TasksExcelView() {
           <DropdownMenuContent align="start" className="w-48 max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Filter by Type</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {/* Show "General" first, then all saved task types from settings, plus any types from existing tasks */}
-            {['General', ...Array.from(new Set([...savedTaskTypes, ...tasks.map(t => t.taskType).filter(Boolean)]))].sort().map((type) => (
-              <DropdownMenuCheckboxItem
-                key={type}
-                checked={taskTypeFilter.includes(type!)}
-                onCheckedChange={(checked) => {
-                  setTaskTypeFilter(
-                    checked
-                      ? [...taskTypeFilter, type!]
-                      : taskTypeFilter.filter((t) => t !== type)
-                  );
-                }}
-              >
-                {type}
-              </DropdownMenuCheckboxItem>
-            ))}
+            {/* Only show task types from Settings - no hardcoded types */}
+            {savedTaskTypes.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                No task types configured
+              </div>
+            ) : (
+              savedTaskTypes.map((type) => (
+                <DropdownMenuCheckboxItem
+                  key={type}
+                  checked={taskTypeFilter.includes(type)}
+                  onCheckedChange={(checked) => {
+                    setTaskTypeFilter(
+                      checked
+                        ? [...taskTypeFilter, type]
+                        : taskTypeFilter.filter((t) => t !== type)
+                    );
+                  }}
+                >
+                  {type}
+                </DropdownMenuCheckboxItem>
+              ))
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="justify-center text-muted-foreground cursor-pointer"
@@ -2447,12 +2456,15 @@ export default function TasksExcelView() {
                   <SelectValue placeholder="Select task type" />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px] overflow-y-auto">
-                  <SelectItem value="General">General</SelectItem>
-                  {savedTaskTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
+                  {savedTaskTypes.length === 0 ? (
+                    <SelectItem value="General">General</SelectItem>
+                  ) : (
+                    savedTaskTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>

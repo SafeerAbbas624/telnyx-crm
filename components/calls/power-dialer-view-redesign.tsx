@@ -490,6 +490,16 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     return () => clearTimeout(saveTimeout)
   }, [sessionHistory, queue, listId])
 
+  // Cleanup: Disable power dialer mode when component unmounts
+  useEffect(() => {
+    return () => {
+      console.log('[PowerDialer] 🧹 Unmounting - disabling power dialer mode')
+      import('@/lib/webrtc/rtc-client').then(({ rtcClient }) => {
+        rtcClient.setPowerDialerMode(false)
+      }).catch(() => {})
+    }
+  }, [])
+
   // Handle selecting a script template - saves to campaign for persistence
   const handleSelectScript = async (selectedScript: { id: string; name: string; content: string }) => {
     setScriptId(selectedScript.id)
@@ -518,9 +528,20 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     startDialingBatch()
   }
 
-  const handlePause = () => {
+  const handlePause = async () => {
     setIsPaused(true)
+    isPausedRef.current = true
     console.log('[PowerDialer] ⏸️ Paused')
+
+    // Disable power dialer auto-answer mode when paused
+    // This prevents inbound calls from auto-answering while paused
+    try {
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      rtcClient.setPowerDialerMode(false)
+      console.log('[PowerDialer] 🔇 Disabled auto-answer mode (paused)')
+    } catch (err) {
+      console.error('[PowerDialer] Error disabling power dialer mode:', err)
+    }
   }
 
   const handleResume = () => {
@@ -530,7 +551,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     startDialingBatch()
   }
 
-  const handleStop = () => {
+  const handleStop = async () => {
     setIsRunning(false)
     setIsPaused(false)
     setConnectedLine(null)
@@ -538,6 +559,15 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     console.log('[PowerDialer] ⏹️ Stopped')
     // Clear all call lines
     setCallLines(prev => prev.map(line => ({ ...line, contact: null, status: 'idle', callerIdNumber: undefined })))
+
+    // Disable power dialer auto-answer mode when stopped
+    try {
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      rtcClient.setPowerDialerMode(false)
+      console.log('[PowerDialer] 🔇 Disabled auto-answer mode (stopped)')
+    } catch (err) {
+      console.error('[PowerDialer] Error disabling power dialer mode:', err)
+    }
   }
 
   // Reset campaign to initial state - reloads all contacts from API and clears session state
@@ -1162,25 +1192,11 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               }
 
               if (status.status === 'voicemail') {
-                // VOICEMAIL DETECTED - Treat as no answer, contact returned to queue
-                console.log('[PowerDialer AMD] 📵 VOICEMAIL detected for', contact.firstName, '- treating as no answer, returning to queue')
+                // VOICEMAIL DETECTED - Return contact to bottom of queue, don't add to session history
+                console.log('[PowerDialer AMD] 📵 VOICEMAIL detected for', contact.firstName, '- returning to bottom of queue')
 
-                // Add to session history as no answer - voicemail
-                const noAnswerDispo = dispositions.find(d =>
-                  d.name.toLowerCase().includes('no answer')
-                )
-
-                const historyEntry: SessionHistoryEntry = {
-                  id: `${Date.now()}-${contact.id}-${lineIdx}`,
-                  contact,
-                  calledAt: new Date(),
-                  dispositionId: noAnswerDispo?.id || '',
-                  dispositionName: 'No Answer - Voicemail',
-                  dispositionColor: noAnswerDispo?.color || '#f59e0b',
-                  notes: 'Voicemail detected by AMD - returned to queue',
-                  callerIdNumber
-                }
-                setSessionHistory(prevHistory => [historyEntry, ...prevHistory])
+                // DON'T add to session history - user didn't actually speak to them
+                // Just skip it entirely per user request
 
                 // Clear the line
                 setCallLines(prev => prev.map((line, idx) =>
@@ -1188,6 +1204,15 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                     ? { ...line, contact: null, status: 'idle' as const, callControlId: undefined, amdResult: 'machine' }
                     : line
                 ))
+
+                // MOVE CONTACT TO BOTTOM OF QUEUE (not just keep in place)
+                setQueue(prev => {
+                  const withoutContact = prev.filter(c => c.id !== contact.id)
+                  // Add to bottom with incremented retry count
+                  const retryCount = ((contact as any).__retryCount || 0) + 1
+                  console.log('[PowerDialer AMD] 🔄 Moving', contact.firstName, 'to bottom of queue (retry #', retryCount, ')')
+                  return [...withoutContact, { ...contact, __retryCount: retryCount }]
+                })
 
                 cleanupAMDCall(callControlId)
 
@@ -1200,25 +1225,8 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               }
 
               if (status.status === 'no_answer' || status.status === 'busy' || status.status === 'failed' || status.status === 'ended') {
-                // Call ended without answer
-                console.log('[PowerDialer AMD] 📵 Call ended:', status.status, 'for', contact.firstName)
-
-                const noAnswerDispo = dispositions.find(d =>
-                  d.name.toLowerCase().includes('no answer') ||
-                  d.name.toLowerCase().includes('retry')
-                )
-
-                const historyEntry: SessionHistoryEntry = {
-                  id: `${Date.now()}-${contact.id}-${lineIdx}`,
-                  contact,
-                  calledAt: new Date(),
-                  dispositionId: noAnswerDispo?.id || '',
-                  dispositionName: status.status === 'busy' ? 'Busy' : 'No Answer',
-                  dispositionColor: noAnswerDispo?.color || '#6b7280',
-                  notes: `Call ended: ${status.hangupCause || status.status}`,
-                  callerIdNumber
-                }
-                setSessionHistory(prevHistory => [historyEntry, ...prevHistory])
+                // Call ended without answer - DON'T add to session history (user didn't speak to them)
+                console.log('[PowerDialer AMD] 📵 Call ended:', status.status, 'for', contact.firstName, '- returning to bottom of queue')
 
                 // Clear the line
                 setCallLines(prev => prev.map((line, idx) =>
@@ -1226,6 +1234,14 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                     ? { ...line, contact: null, status: 'idle' as const, callControlId: undefined }
                     : line
                 ))
+
+                // MOVE CONTACT TO BOTTOM OF QUEUE
+                setQueue(prev => {
+                  const withoutContact = prev.filter(c => c.id !== contact.id)
+                  const retryCount = ((contact as any).__retryCount || 0) + 1
+                  console.log('[PowerDialer AMD] 🔄 Moving', contact.firstName, 'to bottom of queue (retry #', retryCount, ')')
+                  return [...withoutContact, { ...contact, __retryCount: retryCount }]
+                })
 
                 cleanupAMDCall(callControlId)
 

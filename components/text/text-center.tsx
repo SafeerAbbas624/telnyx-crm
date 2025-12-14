@@ -4,13 +4,14 @@ import { useState, useEffect, useRef } from "react"
 import { useContacts } from "@/lib/context/contacts-context"
 import EnhancedConversationsList from "@/components/text/enhanced-conversations-list"
 import EnhancedConversation from "@/components/text/enhanced-conversation"
+import NewConversationView from "@/components/text/new-conversation-view"
 import TextBlastQueue from "@/components/text/text-blast-queue"
 import TextBlastOperations from "@/components/text/text-blast-operations"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { MessageSquare, Send, Settings } from "lucide-react"
 import type { Contact } from "@/lib/types"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+
 
 interface TextCenterProps {
   selectedContactId?: string | null
@@ -21,9 +22,8 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
   const [activeTab, setActiveTab] = useState("conversations")
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null)
   const [showConversation, setShowConversation] = useState(false)
+  const [showNewConversation, setShowNewConversation] = useState(false)
   const isMobile = useMediaQuery("(max-width: 768px)")
-  const router = useRouter()
-  const pathname = usePathname()
   const conversationsListRef = useRef<any>(null)  // FIX: Ref to refresh conversations list
 
   // Initialize active sub-tab from URL exactly once to avoid race conditions
@@ -109,6 +109,21 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
     }
   }
 
+  // Mobile: Show new conversation view full screen
+  if (isMobile && showNewConversation) {
+    return (
+      <NewConversationView
+        onBack={() => setShowNewConversation(false)}
+        onConversationStarted={(contact) => {
+          setShowNewConversation(false)
+          setSelectedContact(contact)
+          setShowConversation(true)
+          conversationsListRef.current?.refreshConversations?.()
+        }}
+      />
+    )
+  }
+
   if (isMobile && showConversation && selectedContact) {
     return <EnhancedConversation contact={selectedContact} onBack={handleBackToList} onConversationRead={handleConversationRead} />
   }
@@ -147,11 +162,25 @@ export default function TextCenter({ selectedContactId }: TextCenterProps) {
                   ref={conversationsListRef}
                   selectedContactId={selectedContact?.id}
                   onSelectContact={handleSelectContact}
+                  onNewConversation={() => {
+                    setShowNewConversation(true)
+                    setSelectedContact(null)
+                  }}
                 />
               </div>
               {!isMobile && (
                 <div className="w-2/3">
-                  {selectedContact ? (
+                  {showNewConversation ? (
+                    <NewConversationView
+                      onBack={() => setShowNewConversation(false)}
+                      onConversationStarted={(contact) => {
+                        setShowNewConversation(false)
+                        setSelectedContact(contact)
+                        // Refresh conversations list
+                        conversationsListRef.current?.refreshConversations?.()
+                      }}
+                    />
+                  ) : selectedContact ? (
                     <EnhancedConversation contact={selectedContact} onConversationRead={handleConversationRead} />
                   ) : (
                     <div className="h-full flex items-center justify-center text-gray-500">

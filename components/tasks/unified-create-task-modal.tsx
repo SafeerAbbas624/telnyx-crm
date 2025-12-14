@@ -302,39 +302,50 @@ export default function UnifiedCreateTaskModal({
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[400px] p-0 z-[9999]" align="start">
-                <Command shouldFilter={true}>
+                <Command
+                  filter={(value, search) => {
+                    if (!search) return 1;
+                    const searchLower = search.toLowerCase();
+                    const valueLower = value.toLowerCase();
+                    return valueLower.includes(searchLower) ? 1 : 0;
+                  }}
+                >
                   <CommandInput placeholder="Search contacts..." />
                   <CommandList>
                     <CommandEmpty>No contacts found.</CommandEmpty>
                     <CommandGroup className="max-h-[300px] overflow-auto">
-                      {contacts.map((contact) => (
-                        <CommandItem
-                          key={contact.id}
-                          value={`${contact.firstName} ${contact.lastName} ${contact.propertyAddress || ''}`}
-                          onSelect={() => {
-                            setContactId(contact.id);
-                            setContactName(getContactDisplayName(contact));
-                            setContactSearchOpen(false);
-                          }}
-                        >
-                          <Check
-                            className={cn(
-                              'mr-2 h-4 w-4',
-                              contactId === contact.id ? 'opacity-100' : 'opacity-0'
-                            )}
-                          />
-                          <div className="flex flex-col">
-                            <span className="font-medium">
-                              {getContactDisplayName(contact)}
-                            </span>
-                            {contact.propertyAddress && (
-                              <span className="text-xs text-muted-foreground">
-                                {contact.propertyAddress}
+                      {contacts.map((contact) => {
+                        const displayName = getContactDisplayName(contact);
+                        const searchValue = `${contact.firstName || ''} ${contact.lastName || ''} ${contact.propertyAddress || ''} ${contact.phone1 || ''}`.trim();
+                        return (
+                          <CommandItem
+                            key={contact.id}
+                            value={searchValue}
+                            onSelect={() => {
+                              setContactId(contact.id);
+                              setContactName(displayName);
+                              setContactSearchOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                contactId === contact.id ? 'opacity-100' : 'opacity-0'
+                              )}
+                            />
+                            <div className="flex flex-col">
+                              <span className="font-medium">
+                                {displayName}
                               </span>
-                            )}
-                          </div>
-                        </CommandItem>
-                      ))}
+                              {contact.propertyAddress && (
+                                <span className="text-xs text-muted-foreground">
+                                  {contact.propertyAddress}
+                                </span>
+                              )}
+                            </div>
+                          </CommandItem>
+                        );
+                      })}
                     </CommandGroup>
                   </CommandList>
                 </Command>

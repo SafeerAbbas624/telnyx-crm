@@ -6,8 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2, Tag, Clock, FileText, CheckSquare, Pin, PinOff, Voicemail, Volume2 } from "lucide-react"
-import { format } from "date-fns"
+import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2, Tag, Voicemail, Volume2 } from "lucide-react"
+
 import { useMultiCall, ManualDialerCall } from "@/lib/context/multi-call-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { useSmsUI } from "@/lib/context/sms-ui-context"
@@ -52,7 +52,6 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const [availableTags, setAvailableTags] = useState<any[]>([])
   const [tagSearchQuery, setTagSearchQuery] = useState("")
   const [loadingTags, setLoadingTags] = useState(false)
-  const [activities, setActivities] = useState<any[]>([])
   const [showVoicemailDropPopover, setShowVoicemailDropPopover] = useState(false)
   const [voicemailMessages, setVoicemailMessages] = useState<any[]>([])
   const [loadingVoicemails, setLoadingVoicemails] = useState(false)
@@ -95,7 +94,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
     return () => clearInterval(timer)
   }, [call.startedAt, call.status])
 
-  // Load contact details and activities
+  // Load contact details
   useEffect(() => {
     if (!call.contactId) return
     const loadContact = async () => {
@@ -109,19 +108,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         console.error('Error loading contact:', error)
       }
     }
-    const loadActivities = async () => {
-      try {
-        const res = await fetch(`/api/contacts/${call.contactId}/activity-history?limit=50`)
-        if (res.ok) {
-          const data = await res.json()
-          setActivities(data.items || [])
-        }
-      } catch (error) {
-        console.error('Error loading activities:', error)
-      }
-    }
     loadContact()
-    loadActivities()
   }, [call.contactId])
 
   // Status-based styling
@@ -403,7 +390,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   }
 
   return (
-    <div className={`w-[760px] ${styles.border} border-2 rounded-lg bg-white shadow-2xl overflow-hidden flex-shrink-0 ${isPrimary && call.status === 'connected' ? 'ring-2 ring-blue-500' : ''}`}>
+    <div className={`w-[380px] ${styles.border} border-2 rounded-lg bg-white shadow-2xl overflow-hidden flex-shrink-0 ${isPrimary && call.status === 'connected' ? 'ring-2 ring-blue-500' : ''}`}>
       {/* Compact Header */}
       <div className={`${styles.bg} px-3 py-2`}>
         <div className="flex items-center justify-between">
@@ -695,108 +682,13 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         )}
       </div>
 
-      {/* Two Column Layout - Activity on Left, Tabs on Right */}
-      <div className="flex h-[280px]">
-        {/* Left Column - Activity History */}
-        <div className="w-[300px] border-r bg-gray-50/50 flex flex-col">
-          <div className="px-3 py-2 border-b bg-white">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-2">
-              <Clock className="h-3.5 w-3.5" />
-              Activity History ({activities.length})
-            </h3>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            {activities.length === 0 ? (
-              <div className="text-center text-gray-500 text-xs py-8">No activities yet</div>
-            ) : (
-              <div className="space-y-2">
-                {/* Sort: pinned items first, then by date */}
-                {[...activities]
-                  .sort((a, b) => {
-                    if (a.isPinned && !b.isPinned) return -1
-                    if (!a.isPinned && b.isPinned) return 1
-                    const aTime = new Date(a.timestamp || a.createdAt).getTime()
-                    const bTime = new Date(b.timestamp || b.createdAt).getTime()
-                    return bTime - aTime
-                  })
-                  .map((activity) => {
-                  const handleTogglePin = async () => {
-                    const newPinned = !activity.isPinned
-                    // Optimistic update
-                    setActivities(prev => prev.map(a =>
-                      a.id === activity.id ? { ...a, isPinned: newPinned } : a
-                    ))
-                    try {
-                      const res = await fetch(`/api/activities/${activity.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ isPinned: newPinned })
-                      })
-                      if (!res.ok) throw new Error('Failed to update')
-                      toast({ title: newPinned ? 'Note pinned' : 'Note unpinned' })
-                    } catch {
-                      // Revert on error
-                      setActivities(prev => prev.map(a =>
-                        a.id === activity.id ? { ...a, isPinned: !newPinned } : a
-                      ))
-                      toast({ title: 'Error', description: 'Failed to update pin status', variant: 'destructive' })
-                    }
-                  }
-
-                  return (
-                  <div
-                    key={activity.id}
-                    className={`p-2 rounded border text-sm shadow-sm ${
-                      activity.isPinned
-                        ? 'border-yellow-300 bg-yellow-50'
-                        : 'border-gray-200 bg-white'
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5">
-                        {activity.type === 'call' && <Phone className="h-3 w-3 text-blue-500" />}
-                        {activity.type === 'email' && <Mail className="h-3 w-3 text-purple-500" />}
-                        {activity.type === 'sms' && <MessageSquare className="h-3 w-3 text-green-500" />}
-                        {activity.type === 'note' && <FileText className="h-3 w-3 text-yellow-500" />}
-                        {activity.type === 'task' && <CheckSquare className="h-3 w-3 text-indigo-500" />}
-                        {!['call', 'email', 'sms', 'note', 'task'].includes(activity.type) && <Clock className="h-3 w-3 text-gray-500" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-medium text-xs truncate">{activity.title}</span>
-                          <div className="flex items-center gap-1">
-                            {/* Pin/Unpin button for notes */}
-                            {activity.type === 'note' && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); handleTogglePin() }}
-                                className={`p-0.5 rounded hover:bg-gray-100 ${activity.isPinned ? 'text-yellow-600' : 'text-gray-400 hover:text-gray-600'}`}
-                                title={activity.isPinned ? 'Unpin note' : 'Pin note'}
-                              >
-                                {activity.isPinned ? <PinOff className="h-2.5 w-2.5" /> : <Pin className="h-2.5 w-2.5" />}
-                              </button>
-                            )}
-                            <span className="text-[10px] text-gray-400 flex-shrink-0">{format(new Date(activity.timestamp || activity.createdAt), 'MM/dd')}</span>
-                          </div>
-                        </div>
-                        {activity.description && (
-                          <p className="text-[10px] text-gray-500 line-clamp-2 mt-0.5 whitespace-pre-wrap">{activity.description}</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )})}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column - Tabs */}
-        <div className="flex-1 flex flex-col">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col px-3 pb-3">
-            <TabsList className="grid grid-cols-2 w-full h-8 mt-2">
-              <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
-              <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
-            </TabsList>
+      {/* Details and Notes Tabs */}
+      <div className="flex flex-col h-[280px]">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col px-3 pb-3">
+          <TabsList className="grid grid-cols-2 w-full h-8 mt-2">
+            <TabsTrigger value="details" className="text-xs">Details</TabsTrigger>
+            <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
+          </TabsList>
 
         {/* Details Tab */}
         <TabsContent value="details" className="h-[200px] overflow-y-auto py-2">
@@ -908,8 +800,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
           </div>
         </TabsContent>
 
-          </Tabs>
-        </div>
+        </Tabs>
       </div>
     </div>
   )

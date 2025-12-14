@@ -346,14 +346,39 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [handleCallAnswered, handleCallEnded])
 
-  const hangUpCall = useCallback((callId: string) => {
+  const hangUpCall = useCallback(async (callId: string) => {
     const call = activeCallsRef.current.get(callId)
     if (!call) return
 
-    console.log('[MultiCall] Hanging up call:', callId)
+    console.log('[MultiCall] Hanging up call:', callId, 'callControlId:', call.callControlId, 'hasTelnyxCall:', !!call.telnyxCall)
 
+    // Try WebRTC SDK hangup first
     if (call.telnyxCall) {
-      try { call.telnyxCall.hangup() } catch (e) { console.error('[MultiCall] Hangup error:', e) }
+      try {
+        call.telnyxCall.hangup()
+        console.log('[MultiCall] WebRTC hangup successful')
+      } catch (e) {
+        console.error('[MultiCall] WebRTC hangup error:', e)
+      }
+    }
+
+    // Also try server-side Call Control API hangup (for AMD calls or as backup)
+    if (call.callControlId) {
+      try {
+        console.log('[MultiCall] Calling server-side hangup for callControlId:', call.callControlId)
+        const response = await fetch('/api/telnyx/calls/hangup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telnyxCallId: call.callControlId })
+        })
+        if (response.ok) {
+          console.log('[MultiCall] Server-side hangup successful')
+        } else {
+          console.error('[MultiCall] Server-side hangup failed:', await response.text())
+        }
+      } catch (e) {
+        console.error('[MultiCall] Server-side hangup error:', e)
+      }
     }
 
     setActiveCalls(prev => {

@@ -56,7 +56,7 @@ export default function Sidebar({ activeTab = "contacts", setActiveTab, isOpen =
     { id: "contacts", label: "Contacts", icon: Users },
     { id: "tasks", label: "Tasks", icon: CheckSquare },
     { id: "deals", label: "Deals", icon: Target },
-    { id: "loan-copilot", label: "Loan Co-Pilot", icon: FileText },
+    // Loan Co-Pilot removed - it's accessed via the Deals section now
     { id: "sequences", label: "Sequences", icon: Zap },
     { id: "messaging", label: "Text Center", icon: MessageSquare },
     { id: "email", label: "Email Center", icon: Mail },

@@ -2,20 +2,30 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Phone, PhoneOff, PhoneIncoming } from "lucide-react"
-import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
+import { Phone, PhoneOff, PhoneIncoming, MessageCircle } from "lucide-react"
+import { formatPhoneNumberForDisplay, formatPhoneToE164 } from "@/lib/phone-utils"
 import type { InboundCallInfo } from "@/lib/webrtc/rtc-client"
+import { useToast } from "@/hooks/use-toast"
 
 interface InboundCallNotificationProps {
   onAnswer: () => void
   onDecline: () => void
 }
 
+// Quick text response options
+const QUICK_TEXT_RESPONSES = [
+  "I can't talk right now",
+  "I'll call you back in 5 min",
+  "Please text me instead"
+]
+
 export default function InboundCallNotification({ onAnswer, onDecline }: InboundCallNotificationProps) {
   const [inboundCall, setInboundCall] = useState<InboundCallInfo | null>(null)
   const [contactName, setContactName] = useState<string | null>(null)
   const [isAnswering, setIsAnswering] = useState(false)
   const [pulseCount, setPulseCount] = useState(0)
+  const [isSendingText, setIsSendingText] = useState(false)
+  const { toast } = useToast()
 
   // Listen for inbound calls
   useEffect(() => {
@@ -113,6 +123,44 @@ export default function InboundCallNotification({ onAnswer, onDecline }: Inbound
     setContactName(null)
   }
 
+  // Send a quick text response and decline the call
+  const handleQuickTextResponse = async (message: string) => {
+    if (!inboundCall?.callerNumber || !inboundCall?.destinationNumber) {
+      toast({ title: 'Error', description: 'Missing phone number info', variant: 'destructive' })
+      return
+    }
+
+    setIsSendingText(true)
+    try {
+      const toNumber = formatPhoneToE164(inboundCall.callerNumber)
+      const fromNumber = formatPhoneToE164(inboundCall.destinationNumber)
+
+      const res = await fetch('/api/telnyx/sms/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toNumber,
+          from: fromNumber,
+          message
+        })
+      })
+
+      if (res.ok) {
+        toast({ title: 'Text sent', description: `"${message}"` })
+      } else {
+        const err = await res.json()
+        toast({ title: 'Failed to send', description: err.error || 'Unknown error', variant: 'destructive' })
+      }
+    } catch (err) {
+      console.error('[INBOUND] Error sending quick text:', err)
+      toast({ title: 'Error', description: 'Failed to send text', variant: 'destructive' })
+    } finally {
+      setIsSendingText(false)
+      // Decline the call after sending text
+      handleDecline()
+    }
+  }
+
   // Visual pulse effect for attention
   useEffect(() => {
     if (!inboundCall) return
@@ -169,7 +217,7 @@ export default function InboundCallNotification({ onAnswer, onDecline }: Inbound
           <Button
             className="flex-1 bg-green-600 hover:bg-green-700 text-white h-12 text-base"
             onClick={handleAnswer}
-            disabled={isAnswering}
+            disabled={isAnswering || isSendingText}
           >
             <Phone className="h-5 w-5 mr-2" />
             {isAnswering ? "Connecting..." : "Answer"}
@@ -178,11 +226,33 @@ export default function InboundCallNotification({ onAnswer, onDecline }: Inbound
             variant="destructive"
             className="flex-1 h-12 text-base"
             onClick={handleDecline}
-            disabled={isAnswering}
+            disabled={isAnswering || isSendingText}
           >
             <PhoneOff className="h-5 w-5 mr-2" />
             Decline
           </Button>
+        </div>
+
+        {/* Quick text responses - decline with a text message */}
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <div className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+            <MessageCircle className="h-3 w-3" />
+            Send text & decline
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {QUICK_TEXT_RESPONSES.map((msg) => (
+              <Button
+                key={msg}
+                variant="outline"
+                size="sm"
+                className="w-full text-xs h-8 justify-start text-gray-700 hover:bg-gray-100"
+                onClick={() => handleQuickTextResponse(msg)}
+                disabled={isAnswering || isSendingText}
+              >
+                {isSendingText ? "Sending..." : msg}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

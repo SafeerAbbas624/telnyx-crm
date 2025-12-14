@@ -63,10 +63,11 @@ interface ConversationData {
 interface EnhancedConversationsListProps {
   selectedContactId?: string
   onSelectContact: (contact: Contact) => void
+  onNewConversation?: () => void  // Optional - if provided, uses inline view instead of modal
 }
 
 const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps>(
-  ({ selectedContactId, onSelectContact }, ref) => {
+  ({ selectedContactId, onSelectContact, onNewConversation }, ref) => {
     const [searchQuery, setSearchQuery] = useState("")
     const [conversations, setConversations] = useState<ConversationData[]>([])
     const [isLoading, setIsLoading] = useState(false)
@@ -511,7 +512,14 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
           <Button
             size="icon"
             variant="outline"
-            onClick={() => setShowNewMessageModal(true)}
+            onClick={() => {
+              // Use inline view if callback provided, otherwise use modal
+              if (onNewConversation) {
+                onNewConversation()
+              } else {
+                setShowNewMessageModal(true)
+              }
+            }}
             title="Send new message"
           >
             <Plus className="h-4 w-4" />

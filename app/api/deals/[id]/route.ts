@@ -97,6 +97,7 @@ export async function PUT(
       name,
       stage,
       stageId,
+      stage_id, // Also accept snake_case version
       value,
       probability,
       contact_id,
@@ -128,11 +129,14 @@ export async function PUT(
       loanCopilotData,
     } = body;
 
+    // Support both stageId and stage_id
+    const effectiveStageId = stageId || stage_id;
+
     // If stageId is provided, get the stage key
     let stageKey = stage;
-    if (stageId) {
+    if (effectiveStageId) {
       const pipelineStage = await prisma.dealPipelineStage.findUnique({
-        where: { id: stageId }
+        where: { id: effectiveStageId }
       });
       if (pipelineStage) {
         stageKey = pipelineStage.key;
@@ -144,7 +148,7 @@ export async function PUT(
       data: {
         name,
         stage: stageKey,
-        stageId: stageId || undefined,
+        stageId: effectiveStageId || undefined,
         value: value !== undefined ? parseFloat(value) : undefined,
         probability: probability !== undefined ? parseInt(probability) : undefined,
         contact_id,
