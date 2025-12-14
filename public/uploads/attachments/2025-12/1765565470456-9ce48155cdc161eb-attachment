@@ -1,0 +1,107 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 9FE804E5032
+	for <cmarasow@coomcast.net>; Mon,  1 Sep 2025 01:37:21 +0000 (UTC)
+Received: from fr-int-smtpout19.hostinger.io (100-101-131-94.trex-nlb.outbound.svc.cluster.local [100.101.131.94])
+	(Authenticated sender: hostingeremailsmtpin)
+	by relay.mailchannels.net (Postfix) with ESMTPA id B062B4E4DB5
+	for <cmarasow@coomcast.net>; Mon,  1 Sep 2025 01:37:18 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1756690639; a=rsa-sha256;
+	cv=none;
+	b=n7WVECpYLZQEykifXsX7CoPVS+2QlbygFK8obCEWAY/IDDPEWHRbOWhkmCnchu7b0lsXoI
+	s4dJZ/waLberWzNwcv/1RPchLbr7lbOuxnkyVnqxmnNahtdQAcO0BZcUlvA0rSgL10Bmb9
+	E7EG0TFUfoXggztICgRoFdGFNJFLvEGX/F6Rb+HJprEBIrrncI2eRIgw8gK850oEk5oO0c
+	Z/BYDU8aKaCyEB/xr9PF9KfOUaj7tM+JXDuvBY+hfcRYbrg1YnJe81xrYEYkiSNnyh0XlQ
+	t9nPT/gkEDO+n5H5yZwGpFhLN5js1UzrkmJQ6Kguwls7iy0UoKs+5SaBwPe3yw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1756690639;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 dkim-signature; bh=Ck7BfZg6gc/VUtCvo4BMnPVW8zZ4U/2vBx6RtB3C2MI=;
+	b=uHVU7n00E+HnYXsEgQLzT0oO0kzgaLWq7pfyVpYA10J50wTUlxp7L8w7H7CtBnlm/X8905
+	f3AgpqkTk5ssLPuRolaOWv2CNc+SdXQUFTpbhYiBp+Ue7gg9gyPuVClFmw+TDHYY5gDR9X
+	Jwgmv1xR17KEK+jXW0T65CZibr0AjsUm0A6KaOnw1d/WWZRLLSLG77Uy7/6+onlPKdnHIv
+	Axsiaie24e9BuV2MpdMEvhW2xDyiZhKrVcZDIuleEhFHMi0uN0Iioh663rQPlHPibZt4lA
+	tY9I+P/GpPal86xNzEwwABM9ojLAXpfoOd7oZrElcmGxJ6/Qnb7DpU9VKY0yfQ==
+ARC-Authentication-Results: i=1;
+	rspamd-9594d4cf9-nfvm7;
+	auth=pass smtp.auth=hostingeremailsmtpin smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremailsmtpin|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremailsmtpin|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremailsmtpin
+X-Reign-Power: 76b5f7a51dec7ab6_1756690641388_911854815
+X-MC-Loop-Signature: 1756690641388:2388345328
+X-MC-Ingress-Time: 1756690641388
+Received: from fr-int-smtpout19.hostinger.io ([UNAVAILABLE]. [148.222.54.35])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.101.131.94 (trex/7.1.3);
+	Mon, 01 Sep 2025 01:37:21 +0000
+Received: from [127.0.0.1] (unknown [116.90.103.226])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4cFWhD66nzz1xq3
+	for <cmarasow@coomcast.net>; Mon,  1 Sep 2025 01:37:16 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1756690637;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type;
+	bh=Ck7BfZg6gc/VUtCvo4BMnPVW8zZ4U/2vBx6RtB3C2MI=;
+	b=ZwWilpffm/mWQDgsnkphWeiPPCrWwEVF7QlfA2TcewmQ3v3DDQsNOuAECVLEkhBFfa3+jp
+	T9EXjMfrCT5/2bIdhx16siJKswSkiZztUEC/qEW+qb3fhrRGnlH+S/DJAHhQZOu/juMmTx
+	Wuc6MbRjqhW4JM37rZXW0Y7TKNTzLxvKSjvYp7eU1/6FcEnsFnRjNI53syix97GaYjUW9r
+	dxrw6/mPr7SvHre3OkxCJpXukzx3s/68Ed8jYGosUDi/+DNC6Pwp/n6GyZXswn/6G9XkZw
+	N/08E/lYAx/1rnqit0H0d3hqgvjJABmxx0YyI21duSeqTjTP8DFlDM7Wc/9Mmw==
+From: Dan Adler <dan@adlercapital.info>
+To: cmarasow@coomcast.net
+Subject: Test template
+Message-ID: <785f3b81-6bb0-8749-967c-ed85d87536b7@adlercapital.info>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-53b225407240012d-Part_1"
+Date: Mon,  1 Sep 2025 01:37:16 +0000 (UTC)
+X-CM-Envelope: MS4xfMk4Un73rfFVGASMDjXW7g2J4gtYWd4X4xf9o+1DKAdttwD2rKzJDiVaPWOfINxLjYM6A8TfEhT6ZYMLTCa61tR+6VFdp7NSAb2H09yeZKZ5x/pdpTFv 96kfFCL6ZpS+KlkIz2zV67m2W7FW76pXDtdZYEh4Z4JqfbsVUI8YyKZYqeN2d9BGxLrU7Nxwke54Xw==
+X-CM-Analysis: v=2.4 cv=DJTd4DNb c=1 sm=1 tr=0 ts=68b4f8cd a=zqcyq3XfZB/eTZ+5ycYafQ==:117 a=zqcyq3XfZB/eTZ+5ycYafQ==:17 a=MKtGQD3n3ToA:10 a=1oJP67jkp3AA:10 a=xXB1-AWIAAAA:8 a=hVlrxl-6BjlaS8-VzRgA:9 a=QEXdDO2ut3YA:10 a=pYulTYF_WJAA:10 a=VTTS6FkyiZe70Pf1K232:22 a=anY3-BeULjlUbdkdsFmX:22
+X-AuthUser: dan@adlercapital.info
+
+----_NmP-53b225407240012d-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+test template 1 for email. 
+Chaim
+Marasow
+
+
+cmarasow@coomcast.net
+
+
+
+
+
+
+
+
+
+
+----_NmP-53b225407240012d-Part_1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+test template 1 for email. 
+Chaim
+Marasow
+
+
+cmarasow@coomcast.net
+
+
+
+
+
+
+
+
+
+
+----_NmP-53b225407240012d-Part_1--

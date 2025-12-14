@@ -1,0 +1,131 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 9E6A08C2635
+	for <cmatz@wmconnect.com>; Wed, 30 Apr 2025 15:49:57 +0000 (UTC)
+Received: from nl-srv-smtpout5.hostinger.io (100-108-8-242.trex-nlb.outbound.svc.cluster.local [100.108.8.242])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id E1E338C1EE5
+	for <cmatz@wmconnect.com>; Wed, 30 Apr 2025 15:49:56 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1746028197; a=rsa-sha256;
+	cv=none;
+	b=Rngfj21uSN2gYKbUNJxC1DZcg6NdBSy5bypq8frQfWL2EEuWYymIc6BCa930O6Q/Fhg2xw
+	3VAppEWDH1vmwAlJjVxp1pUHMczyC5fnejcbzPnk9H5bN7avldvXZeKab+mXHRm8gu8fxq
+	ppw842RrC3o7504t1lRDzkTg3S3kzX0gmWZaAYOAbf5SEMi9+uJMhlmDrcaHEpQmniDnK1
+	mqxvZRGzYiwLeAIcP80aGQC19HoiVmLS8+PvacIkgD7K0qVsLxseClJ3PAH67kgfjzKSFy
+	aQ6mmYhxPmN0nstw5PwW3w/savsCwteITJhcPmOXJE9L2cLiN9ICgdt3YfQBGw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1746028197;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to:references:references:dkim-signature;
+	bh=Vk2r1LzUw66Wgdn3ZLC4ZKRqFqhaulqFm2qawhb1hxE=;
+	b=Zy7Qw7A82dXpelm1qe/JNsJ/yGLWF95aFF5haKWwE/kTHpzBpQ7/EZi5FQDXkT3uWdHEV5
+	gBZO3Z7X3Rv5ijvOUq02mhoPiv6/6c29Lcts4txMOWCFaBM//aq7rWgR/5vZtCi3BExJxg
+	wRQTmb312zkGDO08J3rU4EbjArDbgBBCcXr5zspzeI3hwAfCKhfhQpY2xCOEGO5thVZWZs
+	/LaW20bho/Shd/eF91Oyj3JaRt2d4cC4ff8nhl0rZah7XDOf3eRQmnIi9lB9VzP2uSoclX
+	h2Y+F1DYPmZ3aDMCQ9nUmLj7mEOlrDgOjOwymrKCZXqpHRT9Z2H+Mbb5ZtNsUw==
+ARC-Authentication-Results: i=1;
+	rspamd-56c68c6fd9-26k6h;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Descriptive-Unite: 59da77d10c77c59c_1746028197454_2485927992
+X-MC-Loop-Signature: 1746028197454:3906447161
+X-MC-Ingress-Time: 1746028197454
+Received: from nl-srv-smtpout5.hostinger.io (nl-srv-smtpout5.hostinger.io
+ [45.87.82.9])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.108.8.242 (trex/7.0.3);
+	Wed, 30 Apr 2025 15:49:57 +0000
+Received: from mail-ej1-f48.google.com (mail-ej1-f48.google.com [209.85.218.48])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4ZnhTG6g62z5G4YC
+	for <cmatz@wmconnect.com>; Wed, 30 Apr 2025 15:49:54 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1746028194;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to:references:references;
+	bh=Vk2r1LzUw66Wgdn3ZLC4ZKRqFqhaulqFm2qawhb1hxE=;
+	b=Won38vC9j0X6BlwDdjPZtn5cv0eQPM1XgWJvbCpNoBY/s2oNRRfPbHWjhjmJ+mll2MsCha
+	B8hhtXX6FasUc6NywfQtCUufj/EwbKVZAW1ke3bHp2LXcvdLMTcjH/NQTB8HGwk6G4l9Oh
+	Yp/zVymzCdsM1jiZgU8V4seuXCUXNAVGhG4Lrl2RTUqJzvX5e/dJNBx2Iz3CJKxaosbwL8
+	9thH4dEGioDgGC1kwVV8Y9gEah2q72pNESUo7cL4NQVXpXzSsHr4zl/j1plILfbtrNu4Jl
+	rkVqpXEQKKobuDrf+8uXu6pIZojgairxINseL7Molu1/l3L8AS+XEBBaEbTkxw==
+Received: by mail-ej1-f48.google.com with SMTP id a640c23a62f3a-ac29fd22163so1119801866b.3
+        for <cmatz@wmconnect.com>; Wed, 30 Apr 2025 08:49:54 -0700 (PDT)
+X-Gm-Message-State: AOJu0YxpbqzsZaMYobETUA+9VBiin7x3oN6JhwGLpuJdJyrZ+rzW3Utt
+	sxT6wWDt0WGskWYUl33lj3YmzlY+EIWGaaH2IuD2uFUjObWHuwLJ0ZurY5OAoPKKEzhKHObUaGV
+	j7EIHNeTKohUC8quinGyOL8tgXLA=
+X-Google-Smtp-Source: AGHT+IFAjw7BkwInXXZLV8rXVj4xeaKZCLP1i/4lYsoDSCFQxnosN5YXnNTIjuXbNmyFWEy5rVOGzrz5TvIJS5MEoPQ=
+X-Received: by 2002:a17:907:940c:b0:ac7:eece:17d6 with SMTP id
+ a640c23a62f3a-acedc5dfb86mr435113766b.17.1746028194530; Wed, 30 Apr 2025
+ 08:49:54 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 08:49:54 -0700
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 08:49:54 -0700
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+In-Reply-To: <CALKwW5ocARM_=cjLOJGW_52hawfUmrbAHv505uHLRP8G6ph36w@mail.gmail.com>
+References: <CALKwW5ocARM_=cjLOJGW_52hawfUmrbAHv505uHLRP8G6ph36w@mail.gmail.com>
+X-Gmail-Original-Message-ID: <CALKwW5rxRyZ4Ez+opghiO8M6jB+WgmU2xZ_4fROpQb_S1vYOcA@mail.gmail.com>
+X-Gm-Features: ATxdqUHE18WYU3VHQXQLff0RbZmsim49hqvwfAAuQHNkazGKNidCc7yZz2g67h4
+Message-ID: <CALKwW5rxRyZ4Ez+opghiO8M6jB+WgmU2xZ_4fROpQb_S1vYOcA@mail.gmail.com>
+Subject: Re: Refinancing 7271 Gary Ave - Term Sheet
+To: Cyril Matz <cmatz@wmconnect.com>
+Content-Type: multipart/alternative; boundary="0000000000004d8a31063400deb8"
+Date: Wed, 30 Apr 2025 15:49:54 +0000 (UTC)
+X-CM-Envelope: MS4xfHAu7jCPrxrJ1PrThWrkknXInaVgnmmOPvb0xhE2QMhbdPVAGs5pvHHJxzEQGQfxH48LSz32k8Q9RK0TOyngVN5+9El+9I3OOubX92/XjiDMxzZzOwRK cMVgr717L20t/r9ZAvyuM0rBOSEB7zHn+q96+SW6GQidDaC+waDKNoGB2b9btvfYDNB71VbT5/k/AAw8P07NbU0/WE57n0RFIsk=
+X-CM-Analysis: v=2.4 cv=AoO83/9P c=1 sm=1 tr=0 ts=681246a2 a=uB6qr+KF+w99YtxYp3i8Zg==:117 a=MKtGQD3n3ToA:10 a=XR8D0OoHHMoA:10 a=lFKJgX85bOAA:10 a=ckeoZe4WUqyPhRo-_aIA:9 a=QEXdDO2ut3YA:10 a=g8kNmUVFAAAA:8 a=wIdLm0aqXn2eMGNW7ToA:9 a=3ILcpJuVv2OZ-9tz:21 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=XBCFus3eppDTG1vohfyV:22
+X-AuthUser: dan@adlercapital.info
+
+--0000000000004d8a31063400deb8
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Cyril,
+
+I=E2=80=99ve got a *rental property analysis* tool and an *interest rate ca=
+lculator*
+I can send your way - super helpful if you're exploring refi or purchase
+options.
+
+Or if you=E2=80=99d rather skip the tools, just reply with a few quick deta=
+ils and
+I=E2=80=99ll send a personalized term sheet for 7271 Gary Ave:
+
+1. Current rent
+2. Annual property taxes
+3. Annual insurance cost
+4. Estimated property value
+5. Loan amount you're looking for
+
+Let me know what=E2=80=99s easier.
+
+=E2=80=93 Dan
+(917) 963-0181
+
+--0000000000004d8a31063400deb8
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><p>Hi Cyril, =C2=A0<br><=
+br>I=E2=80=99ve got a <b>rental property analysis</b> tool and an <b>intere=
+st rate calculator</b> I can send your way - super helpful if you&#39;re ex=
+ploring refi or purchase options.<br><br>Or if you=E2=80=99d rather skip th=
+e tools, just reply with a few quick details and I=E2=80=99ll send a person=
+alized term sheet for 7271 Gary Ave:<br><br>1. Current rent =C2=A0<br>2. An=
+nual property taxes =C2=A0<br>3. Annual insurance cost =C2=A0<br>4. Estimat=
+ed property value =C2=A0<br>5. Loan amount you&#39;re looking for<br><br>Le=
+t me know what=E2=80=99s easier.<br><br>=E2=80=93 Dan =C2=A0<br>(917) 963-0=
+181</p></div>
+</div>
+</div>
+<img src=3D"http://stads98.amailroute.net/y/o?t=3D253a3f0ed18d46f39f7b1737b=
+de98f10">
+
+--0000000000004d8a31063400deb8--

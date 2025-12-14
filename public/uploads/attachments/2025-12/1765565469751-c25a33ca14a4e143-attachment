@@ -1,0 +1,131 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 2730B8A3BB0
+	for <monaghten1@aol.com>; Wed, 30 Apr 2025 16:05:00 +0000 (UTC)
+Received: from uk-fast-smtpout10.hostinger.io (trex-4.trex.outbound.svc.cluster.local [100.113.14.132])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 789098A3FCD
+	for <monaghten1@aol.com>; Wed, 30 Apr 2025 16:04:59 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1746029099; a=rsa-sha256;
+	cv=none;
+	b=MyplN4OqSbT8CFPsgQRGTcTqvhAw6FQ4t+RzxEWzA9VXztWaIj5CedZ5d+6ocC9+SDUp4j
+	8qyno4U5+DGS7+G7BX40DLRMCBNFkbTcjXoYgsQfXNWm1RTLNvpKv6KJM0sRbCBw6vPcvc
+	Iv7/RbXxnu8XYNOzdSY+7NV0qO8W/OkaLea9fKGA3yYPSIDjYYQI1K+QH1R4caxbbYtwjm
+	q0WMkUuzm5lplFOwBnm3MtiWA0zF9Lbj/v/uuj25qCNB+J1a9th7vw8EaE9kc5WeRAMqHy
+	srk6Tef35D8joG1pEZGLrHp0W3Du0xHd40PY6ZncEb2IfB5S9+8zQktdylVWIw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1746029099;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to:references:references:dkim-signature;
+	bh=+PDh5UQLwqTJ6rvmUX2m/PH2BETX9+zXpD0rU0LhmI0=;
+	b=5zFTrFhxwtHDLGunncaoXUnzndZLelsBXh0av7Tt9+lUDn2JYrl3gyX0xuCXXdcf5hVmm/
+	1tFmcBylphiuTOO3mNswlCCXGiq1Ce4MdDz0h/T04XJgBNuACFAY9NcPnoWsUr4MJWoMv2
+	CRW2lrLACOWbrDLMVwT4moynwwJOMGLnwfKkK5ZSV6WiIRxCC8T56kuNzOC26vfVv+Cvti
+	HbITCuUc58ULTzSJjf4iLNn+AulJPp3A8GTyx1AiWzBT1h0RPDVDQG59VjpAYn0bh1aWBm
+	8A9Qv+IbJSiYF+do9eANLoQ8QX+1om/4+SG5OmLXxotWX5J4bzVRnlUw0+Gcfg==
+ARC-Authentication-Results: i=1;
+	rspamd-684646cf5b-8fx8z;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Abortive-Lettuce: 76b42ecc1bf96ed4_1746029099993_32160616
+X-MC-Loop-Signature: 1746029099992:2491374842
+X-MC-Ingress-Time: 1746029099992
+Received: from uk-fast-smtpout10.hostinger.io (uk-fast-smtpout10.hostinger.io
+ [145.14.155.68])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.113.14.132 (trex/7.0.3);
+	Wed, 30 Apr 2025 16:04:59 +0000
+Received: from mail-ej1-f53.google.com (mail-ej1-f53.google.com [209.85.218.53])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4ZnhpX4BPHzFK7Bq
+	for <monaghten1@aol.com>; Wed, 30 Apr 2025 16:04:52 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1746029093;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to:references:references;
+	bh=dH0KuJcEhV0tf20dm3eF4HvvcupO+USHHSXMcNEUr6o=;
+	b=dATlRsHC7FNEnj7CKt0LhbnYr/KKmn92UGb4+LBnIcwigwHWffKcVaYWUCjBFvqpzf4V4x
+	hWDMz9GEMn52Vv26S6UsLWsN9XUBsPdGymTUXPSVkqctC+39fny3FocNKtr+rPtQxVF6hU
+	EoD6zfM35lQy0rUfkg32wYdcic3V31r10bSk1thUBj3d9MUVVglMddywnqFcgDq4sEaRUi
+	c9ws6NHkXlSeRuac4OonXaCyHd7EY+W8GNqlwW86jNIhCuXb7nkycuL9/z9M+DCRvnIXON
+	wikvC+9IQWm/kBvNuRwDmWwykk/wOY3TYtxSErAaFkFPDUbNUE/NX6R54PcM3Q==
+Received: by mail-ej1-f53.google.com with SMTP id a640c23a62f3a-ac339f53df9so1457885866b.1
+        for <monaghten1@aol.com>; Wed, 30 Apr 2025 09:04:52 -0700 (PDT)
+X-Gm-Message-State: AOJu0YzNSCXt4yrkXo60Rv2d2bs8GQBK3YRGXgOUCDLeG+K1qxj6xRYJ
+	KmzOC3XG1VxXZl/iQ0iZ05zu9yI/PSw9+RnfA7GvQG59AXFJh66Oucg+2ztRJgRTB4f2oNRWnyk
+	54nQN6zVz1/Gf9WeqLRfdgCT8O0I=
+X-Google-Smtp-Source: AGHT+IEM9zlJRTkpwTYVc8Fd1jtq9paSEQpqrXW/CNVF5dG0Aq/he9WIbI1dQIeecnlHdaM/98GHRpgWhr1gWl9bQo8=
+X-Received: by 2002:a17:907:2d9f:b0:ac3:8895:2776 with SMTP id
+ a640c23a62f3a-acee2163c8fmr334640466b.5.1746029091461; Wed, 30 Apr 2025
+ 09:04:51 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 12:04:51 -0400
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 12:04:51 -0400
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+In-Reply-To: <CALKwW5oieYujTDj19=2Sv9ZTsgedmGdf-onP08Ww2u=ynw+aqQ@mail.gmail.com>
+References: <CALKwW5oieYujTDj19=2Sv9ZTsgedmGdf-onP08Ww2u=ynw+aqQ@mail.gmail.com>
+X-Gmail-Original-Message-ID: <CALKwW5rLHBXjseVb3e--8KT2t2L_rgubWLkkKkXygbth8a3yLg@mail.gmail.com>
+X-Gm-Features: ATxdqUH8Ilav5n6H5RoZDgzOTjYlTX5ucT0u4a89G3bliz4DgeSwcz2MCb6oO5U
+Message-ID: <CALKwW5rLHBXjseVb3e--8KT2t2L_rgubWLkkKkXygbth8a3yLg@mail.gmail.com>
+Subject: Re: Refinancing 101 Nw 59th St - Term Sheet
+To: "Cristina O'Naghten" <monaghten1@aol.com>
+Content-Type: multipart/alternative; boundary="000000000000c3a7fa063401134c"
+Date: Wed, 30 Apr 2025 16:04:52 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=IrhMc6/g c=1 sm=1 tr=0 ts=68124a25 a=xh+fAHEUOhwjonyMPiijzg==:117 a=MKtGQD3n3ToA:10 a=XR8D0OoHHMoA:10 a=lFKJgX85bOAA:10 a=ckeoZe4WUqyPhRo-_aIA:9 a=QEXdDO2ut3YA:10 a=g8kNmUVFAAAA:8 a=wIdLm0aqXn2eMGNW7ToA:9 a=3ILcpJuVv2OZ-9tz:21 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=XBCFus3eppDTG1vohfyV:22
+X-CM-Envelope: MS4xfBQ3SzSpbswfrMRNAhGN8V3auEMpCExQPZrsyakVy72BYmsMT2GD5wJ8TBck8K7X0GBcIxyJzh2vNqmuDNSxifVnBhaWXV+kPbiXGdByGYa6wBeDWxK9 T8XyZj5EMJmgPx2aFw8o/BS5Kp9yxvs9W+yZ8FrVfR2ItNPCvgAmFwDz2VyvNSxwGefiJ/AROymlxWWT/coxub9IoUN7DA/WSVQ=
+X-AuthUser: dan@adlercapital.info
+
+--000000000000c3a7fa063401134c
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Cristina,
+
+I=E2=80=99ve got a *rental property analysis* tool and an *interest rate ca=
+lculator*
+I can send your way - super helpful if you're exploring refi or purchase
+options.
+
+Or if you=E2=80=99d rather skip the tools, just reply with a few quick deta=
+ils and
+I=E2=80=99ll send a personalized term sheet for 101 Nw 59th St:
+
+1. Current rent
+2. Annual property taxes
+3. Annual insurance cost
+4. Estimated property value
+5. Loan amount you're looking for
+
+Let me know what=E2=80=99s easier.
+
+=E2=80=93 Dan
+(917) 963-0181
+
+--000000000000c3a7fa063401134c
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><p>Hi Cristina, =C2=A0<b=
+r><br>I=E2=80=99ve got a <b>rental property analysis</b> tool and an <b>int=
+erest rate calculator</b> I can send your way - super helpful if you&#39;re=
+ exploring refi or purchase options.<br><br>Or if you=E2=80=99d rather skip=
+ the tools, just reply with a few quick details and I=E2=80=99ll send a per=
+sonalized term sheet for 101 Nw 59th St:<br><br>1. Current rent =C2=A0<br>2=
+. Annual property taxes =C2=A0<br>3. Annual insurance cost =C2=A0<br>4. Est=
+imated property value =C2=A0<br>5. Loan amount you&#39;re looking for<br><b=
+r>Let me know what=E2=80=99s easier.<br><br>=E2=80=93 Dan =C2=A0<br>(917) 9=
+63-0181</p></div>
+</div>
+</div>
+<img src=3D"http://stads98.amailroute.net/y/o?t=3D255fef5ccce44d58a5c6da26b=
+b782457">
+
+--000000000000c3a7fa063401134c--

@@ -1425,6 +1425,7 @@ export default function TasksExcelView() {
                   onWebRTCCall={() => handleInitiateCall(phone, contactId, contactName)}
                   variant="ghost"
                   size="sm"
+                  className="h-8 w-8"
                   iconClassName="h-4 w-4"
                 />
               ) : (

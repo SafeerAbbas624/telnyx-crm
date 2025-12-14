@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -57,18 +57,26 @@ export default function QuickAddTaskButton({
     contactId: contactId || '',
   });
 
-  // Predefined task types
-  const predefinedTaskTypes = [
-    'Dan Task',
-    'Joe Task',
-    'Edwin Task',
-    'Call',
-    'Follow-up',
-    'Meeting',
-    'Email',
-    'Review',
-    'Custom',
-  ];
+  // Task types from database + Custom option
+  const [taskTypes, setTaskTypes] = useState<string[]>(['General', 'Custom']);
+
+  // Load task types from settings
+  useEffect(() => {
+    const loadTaskTypes = async () => {
+      try {
+        const res = await fetch('/api/settings/task-types');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.taskTypes?.length > 0) {
+            setTaskTypes(['General', ...data.taskTypes, 'Custom']);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load task types:', e);
+      }
+    };
+    loadTaskTypes();
+  }, []);
 
   const handleSubmit = async () => {
     // Validate task type
@@ -157,7 +165,7 @@ export default function QuickAddTaskButton({
                 <SelectValue placeholder="Select task type" />
               </SelectTrigger>
               <SelectContent>
-                {predefinedTaskTypes.map((type) => (
+                {taskTypes.map((type) => (
                   <SelectItem key={type} value={type}>
                     {type}
                   </SelectItem>

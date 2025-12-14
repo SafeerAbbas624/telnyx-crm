@@ -327,7 +327,7 @@ export default function NewDealDialogV2({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Create New {isLoanPipeline ? 'Loan' : 'Deal'}</DialogTitle>
           <DialogDescription>
@@ -347,7 +347,7 @@ export default function NewDealDialogV2({
             </div>
             <div>
               <Label>Contact *</Label>
-              <Popover open={contactSearchOpen} onOpenChange={setContactSearchOpen}>
+              <Popover open={contactSearchOpen} onOpenChange={setContactSearchOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
@@ -361,7 +361,13 @@ export default function NewDealDialogV2({
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[350px] p-0" align="start">
+                <PopoverContent
+                  className="w-[350px] p-0"
+                  align="start"
+                  side="bottom"
+                  sideOffset={4}
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                >
                   <Command shouldFilter={false}>
                     <CommandInput
                       placeholder="Search by name, LLC, or address..."
@@ -417,27 +423,30 @@ export default function NewDealDialogV2({
                               <span>Add New Contact</span>
                             </CommandItem>
                           )}
-                          {filteredContacts.slice(0, 50).map((contact) => (
-                            <CommandItem
-                              key={contact.id}
-                              value={contact.id}
-                              onSelect={() => handleContactSelect(contact)}
-                              className="cursor-pointer"
-                            >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
-                                )}
-                              />
-                              <div className="flex flex-col">
-                                <span>{contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim()}</span>
-                                {contact.llcName && (
-                                  <span className="text-xs text-muted-foreground">{contact.llcName}</span>
-                                )}
-                              </div>
-                            </CommandItem>
-                          ))}
+                          {filteredContacts.slice(0, 50).map((contact) => {
+                            const displayName = contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Unknown';
+                            return (
+                              <CommandItem
+                                key={contact.id}
+                                value={`${displayName}-${contact.id}`}
+                                onSelect={() => handleContactSelect(contact)}
+                                className="cursor-pointer"
+                              >
+                                <Check
+                                  className={cn(
+                                    "mr-2 h-4 w-4",
+                                    selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
+                                  )}
+                                />
+                                <div className="flex flex-col">
+                                  <span>{displayName}</span>
+                                  {contact.llcName && (
+                                    <span className="text-xs text-muted-foreground">{contact.llcName}</span>
+                                  )}
+                                </div>
+                              </CommandItem>
+                            );
+                          })}
                         </CommandGroup>
                       </>
                     )}

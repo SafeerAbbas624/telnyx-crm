@@ -79,12 +79,9 @@ const ACTION_TYPES = [
   { value: 'DELETE_CONTACT', label: 'Delete Contact', desc: 'Permanently delete the contact from CRM' }
 ]
 
-const TASK_TYPES = [
-  { value: 'call', label: 'Call' },
-  { value: 'email', label: 'Email' },
-  { value: 'meeting', label: 'Meeting' },
-  { value: 'follow_up', label: 'Follow Up' },
-  { value: 'other', label: 'Other' }
+// Default task types if none are configured
+const DEFAULT_TASK_TYPES = [
+  { value: 'General', label: 'General' }
 ]
 
 const DYNAMIC_FIELDS = [
@@ -164,6 +161,7 @@ export default function DispositionsSettings() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [tagSearch, setTagSearch] = useState('')
+  const [taskTypes, setTaskTypes] = useState<{ value: string; label: string }[]>(DEFAULT_TASK_TYPES)
 
   useEffect(() => {
     loadDispositions()
@@ -172,12 +170,13 @@ export default function DispositionsSettings() {
 
   const loadReferenceData = async () => {
     // Load all reference data in parallel
-    const [smsRes, emailRes, seqRes, teamRes, tagsRes] = await Promise.all([
+    const [smsRes, emailRes, seqRes, teamRes, tagsRes, taskTypesRes] = await Promise.all([
       fetch('/api/templates').catch(() => null),
       fetch('/api/email/templates').catch(() => null),
       fetch('/api/sequences').catch(() => null),
       fetch('/api/admin/team-users').catch(() => null),
-      fetch('/api/tags').catch(() => null)
+      fetch('/api/tags').catch(() => null),
+      fetch('/api/settings/task-types').catch(() => null)
     ])
 
     if (smsRes?.ok) {
@@ -199,6 +198,19 @@ export default function DispositionsSettings() {
     if (tagsRes?.ok) {
       const data = await tagsRes.json()
       setTags(Array.isArray(data) ? data : data.tags || [])
+    }
+    // Load custom task types from database
+    if (taskTypesRes?.ok) {
+      const data = await taskTypesRes.json()
+      const dbTaskTypes = data.taskTypes || []
+      if (dbTaskTypes.length > 0) {
+        // Convert string array to { value, label } format
+        const formattedTaskTypes = [
+          { value: 'General', label: 'General' },
+          ...dbTaskTypes.map((t: string) => ({ value: t, label: t }))
+        ]
+        setTaskTypes(formattedTaskTypes)
+      }
     }
   }
 
@@ -519,14 +531,14 @@ export default function DispositionsSettings() {
                               <div>
                                 <Label className="text-xs">Task Type</Label>
                                 <Select
-                                  value={(action.config.taskType as string) || 'follow_up'}
+                                  value={(action.config.taskType as string) || 'General'}
                                   onValueChange={(v) => updateAction(idx, 'taskType', v)}
                                 >
                                   <SelectTrigger>
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {TASK_TYPES.map(t => (
+                                    {taskTypes.map(t => (
                                       <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
                                     ))}
                                   </SelectContent>

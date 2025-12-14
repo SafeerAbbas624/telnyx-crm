@@ -404,13 +404,14 @@ async function createTask(contactId: string, config: ActionConfig): Promise<Acti
       .replace(/\{address\}/gi, contact?.propertyAddress || '')
   }
 
-  // Create an Activity record with type 'task' or specific task type
-  const taskType = config.taskType || 'follow_up'
+  // Create an Activity record with type 'task' and custom task_type for custom types
+  const customTaskType = config.taskType || 'General'
   await prisma.activity.create({
     data: {
       title: replaceVars(config.taskTitle) || 'Follow up',
       description: replaceVars(config.taskDescription),
-      type: taskType,
+      type: 'task', // ActivityType enum - always 'task' for created tasks
+      task_type: customTaskType, // Custom task type string (e.g., "Dan Task", "Joe Task")
       status: 'planned',
       priority: config.taskPriority || 'medium',
       due_date: dueDate,
@@ -418,7 +419,7 @@ async function createTask(contactId: string, config: ActionConfig): Promise<Acti
       assigned_to: config.assignToUserId || null
     }
   })
-  return { actionType: 'CREATE_TASK', success: true, details: { taskType, assignedTo: config.assignToUserId, dueDate: dueDate.toISOString() } }
+  return { actionType: 'CREATE_TASK', success: true, details: { taskType: customTaskType, assignedTo: config.assignToUserId, dueDate: dueDate.toISOString() } }
 }
 
 async function requeueContact(contactId: string, config: ActionConfig, context: ActionContext): Promise<ActionResult> {

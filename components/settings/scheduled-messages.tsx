@@ -187,6 +187,17 @@ export default function ScheduledMessagesSettings() {
                         )}
                       </div>
                     </div>
+                    {/* Show From number/email */}
+                    {message.channel === 'SMS' && message.fromNumber && (
+                      <p className="text-xs text-muted-foreground mb-1">
+                        <span className="font-medium">From:</span> {message.fromNumber}
+                      </p>
+                    )}
+                    {message.channel === 'EMAIL' && message.fromEmail && (
+                      <p className="text-xs text-muted-foreground mb-1">
+                        <span className="font-medium">From:</span> {message.fromEmail}
+                      </p>
+                    )}
                     {message.channel === 'EMAIL' && message.subject && (
                       <p className="text-xs font-medium mb-1">Subject: {message.subject}</p>
                     )}

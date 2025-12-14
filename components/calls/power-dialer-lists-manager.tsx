@@ -450,7 +450,7 @@ export function PowerDialerListsManager({ onSelectList, onCreateList }: PowerDia
         setIsCreateOpen(open)
         if (!open) resetCreateForm()
       }}>
-        <DialogContent className="max-w-lg z-[60]">
+        <DialogContent className="max-w-lg z-[60] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create Call List</DialogTitle>
             <DialogDescription>

@@ -82,17 +82,35 @@ export async function POST(request: NextRequest) {
 
     const finalTagIds = Array.from(allTagIds)
 
+    // Get tag names for history logging
+    const tagNameMap = new Map<string, string>()
+    if (finalTagIds.length > 0) {
+      const tags = await prisma.tag.findMany({
+        where: { id: { in: finalTagIds } },
+        select: { id: true, name: true }
+      })
+      tags.forEach(t => tagNameMap.set(t.id, t.name))
+    }
+
     // Perform bulk operations
     switch (operation) {
       case 'add':
         // Add tags to contacts (skip duplicates)
         if (finalTagIds.length > 0) {
           const associations = []
+          const historyRecords = []
           for (const contactId of contactIds) {
             for (const tagId of finalTagIds) {
               associations.push({
                 contact_id: contactId,
                 tag_id: tagId,
+                created_by: session.user.id
+              })
+              historyRecords.push({
+                contact_id: contactId,
+                tag_id: tagId,
+                tag_name: tagNameMap.get(tagId) || 'Unknown',
+                action: 'added',
                 created_by: session.user.id
               })
             }
@@ -101,6 +119,9 @@ export async function POST(request: NextRequest) {
           await prisma.contactTag.createMany({
             data: associations,
             skipDuplicates: true
+          })
+          await prisma.contactTagHistory.createMany({
+            data: historyRecords
           })
         }
         break
@@ -114,24 +135,67 @@ export async function POST(request: NextRequest) {
               tag_id: { in: finalTagIds }
             }
           })
+          // Log removals to history
+          const historyRecords = []
+          for (const contactId of contactIds) {
+            for (const tagId of finalTagIds) {
+              historyRecords.push({
+                contact_id: contactId,
+                tag_id: tagId,
+                tag_name: tagNameMap.get(tagId) || 'Unknown',
+                action: 'removed',
+                created_by: session.user.id
+              })
+            }
+          }
+          await prisma.contactTagHistory.createMany({
+            data: historyRecords
+          })
         }
         break
 
       case 'replace':
         // Replace all tags on contacts
+        // Get existing tags for history logging
+        const existingTags = await prisma.contactTag.findMany({
+          where: { contact_id: { in: contactIds } },
+          include: { tag: { select: { name: true } } }
+        })
+
         // First remove all existing tags
         await prisma.contactTag.deleteMany({
           where: { contact_id: { in: contactIds } }
         })
 
+        // Log removals
+        if (existingTags.length > 0) {
+          await prisma.contactTagHistory.createMany({
+            data: existingTags.map(et => ({
+              contact_id: et.contact_id,
+              tag_id: et.tag_id,
+              tag_name: et.tag.name,
+              action: 'removed',
+              created_by: session.user.id
+            }))
+          })
+        }
+
         // Then add new tags
         if (finalTagIds.length > 0) {
           const associations = []
+          const historyRecords = []
           for (const contactId of contactIds) {
             for (const tagId of finalTagIds) {
               associations.push({
                 contact_id: contactId,
                 tag_id: tagId,
+                created_by: session.user.id
+              })
+              historyRecords.push({
+                contact_id: contactId,
+                tag_id: tagId,
+                tag_name: tagNameMap.get(tagId) || 'Unknown',
+                action: 'added',
                 created_by: session.user.id
               })
             }
@@ -140,6 +204,9 @@ export async function POST(request: NextRequest) {
           await prisma.contactTag.createMany({
             data: associations,
             skipDuplicates: true
+          })
+          await prisma.contactTagHistory.createMany({
+            data: historyRecords
           })
         }
         break

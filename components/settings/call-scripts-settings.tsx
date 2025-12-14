@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -12,7 +11,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Label } from "@/components/ui/label"
 import { Plus, Edit, Trash2, FileText, Search, Variable, Copy, Check } from "lucide-react"
 import { toast } from "sonner"
-import { TemplateVariableSelector } from "@/components/ui/template-variable-selector"
+import dynamic from 'next/dynamic'
+
+// Dynamically import the rich editor to avoid SSR issues
+const ScriptRichEditor = dynamic(() => import('@/components/ui/script-rich-editor'), { ssr: false })
 
 interface CallScript {
   id: string
@@ -37,7 +39,6 @@ export default function CallScriptsSettings() {
   const [formData, setFormData] = useState({ name: "", description: "", content: "" })
   const [saving, setSaving] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const contentRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     fetchScripts()
@@ -113,21 +114,6 @@ export default function CallScriptsSettings() {
     } finally {
       setSaving(false)
     }
-  }
-
-  const insertVariable = (variable: string) => {
-    const textarea = contentRef.current
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    // Variable already comes formatted as {variableName} from TemplateVariableSelector
-    const newContent = formData.content.substring(0, start) + variable + formData.content.substring(end)
-    setFormData({ ...formData, content: newContent })
-    setTimeout(() => {
-      textarea.focus()
-      const newPos = start + variable.length
-      textarea.setSelectionRange(newPos, newPos)
-    }, 0)
   }
 
   const copyScript = (script: CallScript) => {
@@ -253,19 +239,14 @@ export default function CallScriptsSettings() {
               />
             </div>
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Script Content</Label>
-                <TemplateVariableSelector onSelect={insertVariable} />
-              </div>
-              <Textarea
-                ref={contentRef}
-                value={formData.content}
-                onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+              <Label className="mb-2 block">Script Content</Label>
+              <ScriptRichEditor
+                content={formData.content}
+                onChange={(html) => setFormData({ ...formData, content: html })}
                 placeholder="Hi {firstName}, this is [Your Name] calling about your property at {propertyAddress}..."
-                className="min-h-[200px] font-mono text-sm"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Use {'{variableName}'} to insert contact data. Click the variable picker above to insert variables.
+              <p className="text-xs text-muted-foreground mt-2">
+                Use the Variable button in the toolbar to insert contact data. Supports <strong>bold</strong>, <em>italic</em>, and headings.
               </p>
             </div>
           </div>

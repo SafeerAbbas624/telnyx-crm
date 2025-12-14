@@ -10,7 +10,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Phone, PhoneCall, PhoneOff, User, Building2, Clock, UserCog, Plus, Mail, PanelRight } from 'lucide-react'
+import { Phone, PhoneCall, PhoneOff, User, Building2, Clock, UserCog, Mail, PanelRight } from 'lucide-react'
+import { QuickTaskPopover } from '@/components/tasks/quick-task-popover'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -41,11 +42,10 @@ interface CallWindowProps {
     zipCode?: string
     llcName?: string
   } | null
-  status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up' | 'ended'
+  status: 'idle' | 'dialing' | 'ringing' | 'amd_checking' | 'connected' | 'hanging_up' | 'ended' | 'voicemail'
   startedAt?: Date
   onHangup?: () => void
   onOpenContactPanel?: () => void // Open full contact side panel
-  onCreateTask?: () => void // Create a new task for this contact
   callerIdNumber?: string // The number we're calling FROM
   callId?: string // The call ID for linking notes
   notes?: string // Initial notes value
@@ -72,7 +72,6 @@ export function PowerDialerCallWindow({
   startedAt,
   onHangup,
   onOpenContactPanel,
-  onCreateTask,
   callerIdNumber,
   callId,
   notes: initialNotes = '',
@@ -190,12 +189,16 @@ export function PowerDialerCallWindow({
         return <Badge className="bg-blue-500 text-white text-xs">Dialing...</Badge>
       case 'ringing':
         return <Badge className="bg-yellow-500 text-white text-xs animate-pulse">Ringing...</Badge>
+      case 'amd_checking':
+        return <Badge className="bg-cyan-500 text-white text-xs animate-pulse">🔍 Checking...</Badge>
       case 'connected':
         return <Badge className="bg-green-600 text-white text-xs">● CONNECTED</Badge>
       case 'hanging_up':
         return <Badge className="bg-red-500 text-white text-xs">Hanging Up...</Badge>
       case 'ended':
         return <Badge className="bg-red-600 text-white text-xs">📝 Select Disposition</Badge>
+      case 'voicemail':
+        return <Badge className="bg-purple-500 text-white text-xs">📵 Voicemail</Badge>
       default:
         return null
     }
@@ -208,12 +211,16 @@ export function PowerDialerCallWindow({
         return <Phone className="h-5 w-5 text-blue-600 animate-pulse" />
       case 'ringing':
         return <PhoneCall className="h-5 w-5 text-yellow-600 animate-bounce" />
+      case 'amd_checking':
+        return <PhoneCall className="h-5 w-5 text-cyan-600 animate-pulse" />
       case 'connected':
         return <Phone className="h-5 w-5 text-green-600" />
       case 'hanging_up':
         return <PhoneOff className="h-5 w-5 text-red-600" />
       case 'ended':
         return <PhoneOff className="h-5 w-5 text-red-700" />
+      case 'voicemail':
+        return <PhoneOff className="h-5 w-5 text-purple-600" />
       default:
         return <User className="h-5 w-5 text-gray-400" />
     }
@@ -253,16 +260,13 @@ export function PowerDialerCallWindow({
           {/* Action Icons: Call icon, + for task, contact panel */}
           <div className="flex items-center gap-0.5 flex-shrink-0">
             {getIcon()}
-            {onCreateTask && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-5 w-5 p-0 hover:bg-green-100"
-                onClick={onCreateTask}
-                title="Create new task"
-              >
-                <Plus className="h-3.5 w-3.5 text-green-600" />
-              </Button>
+            {contact && (
+              <QuickTaskPopover
+                contactId={contact.id}
+                contactName={`${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
+                className="h-5 w-5 hover:bg-green-100"
+                iconClassName="h-3.5 w-3.5 text-green-600"
+              />
             )}
             {onOpenContactPanel && (
               <Button
@@ -299,7 +303,7 @@ export function PowerDialerCallWindow({
           )}
 
           {/* Caller ID - Show which number we're calling FROM */}
-          {callerIdNumber && (status === 'connected' || status === 'ringing' || status === 'dialing') && (
+          {callerIdNumber && (status === 'connected' || status === 'ringing' || status === 'dialing' || status === 'amd_checking') && (
             <div className="flex items-center gap-1 text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
               <Phone className="h-2.5 w-2.5" />
               <span>From: <span className="font-mono font-semibold">{formatPhoneDisplay(callerIdNumber)}</span></span>
@@ -379,7 +383,7 @@ export function PowerDialerCallWindow({
               <span className="font-mono tabular-nums">{duration}</span>
             </div>
             {/* Hangup Button - always visible when call is active */}
-            {(status === 'dialing' || status === 'ringing' || status === 'connected') && onHangup && (
+            {(status === 'dialing' || status === 'ringing' || status === 'connected' || status === 'amd_checking') && onHangup && (
               <Button
                 variant="destructive"
                 size="sm"

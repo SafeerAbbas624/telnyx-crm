@@ -53,6 +53,7 @@ export default function ContactsSection() {
   useEffect(() => {
     // Always load the default, unfiltered list when visiting Contacts
     searchContacts('', {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
 

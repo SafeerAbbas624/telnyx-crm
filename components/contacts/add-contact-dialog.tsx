@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import type { Contact, Tag } from "@/lib/types"
 import { TagInput } from "@/components/ui/tag-input"
+import { AddressAutocomplete, type AddressComponents } from "@/components/ui/address-autocomplete"
 
 interface AddContactDialogProps {
   open: boolean
@@ -162,11 +163,29 @@ export default function AddContactDialog({ open, onOpenChange, onAddContact }: A
 
           <div className="space-y-2">
             <Label htmlFor="propertyAddress">Property Address</Label>
-            <Input id="propertyAddress" value={formData.propertyAddress} onChange={(e) => setFormData((p) => ({ ...p, propertyAddress: e.target.value }))} />
+            <AddressAutocomplete
+              id="propertyAddress"
+              value={formData.propertyAddress}
+              onChange={(value) => setFormData((p) => ({ ...p, propertyAddress: value }))}
+              onAddressSelect={(addr: AddressComponents) => {
+                setFormData((p) => ({
+                  ...p,
+                  propertyAddress: addr.address,
+                  city: addr.city,
+                  state: addr.state,
+                }))
+              }}
+              placeholder="Start typing an address..."
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="contactAddress">Contact Address</Label>
-            <Input id="contactAddress" value={formData.contactAddress} onChange={(e) => setFormData((p) => ({ ...p, contactAddress: e.target.value }))} />
+            <AddressAutocomplete
+              id="contactAddress"
+              value={formData.contactAddress}
+              onChange={(value) => setFormData((p) => ({ ...p, contactAddress: value }))}
+              placeholder="Where the person lives"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

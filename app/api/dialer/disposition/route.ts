@@ -9,7 +9,7 @@ import { executeDispositionActions } from '@/lib/dispositions/execute-actions'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { legId, contactId, dispositionId, notes, listId, dialerRunId, callerIdNumber, isUpdate } = body
+    const { legId, contactId, dispositionId, notes, listId, dialerRunId, callerIdNumber, isUpdate, previousDispositionId } = body
 
     if (!contactId || !dispositionId) {
       return NextResponse.json(
@@ -34,6 +34,39 @@ export async function POST(request: NextRequest) {
         { error: 'Disposition not found' },
         { status: 404 }
       )
+    }
+
+    // If this is an update (disposition change), first REMOVE tags from the previous disposition
+    if (isUpdate && previousDispositionId && previousDispositionId !== dispositionId) {
+      const previousDisposition = await prisma.callDisposition.findUnique({
+        where: { id: previousDispositionId },
+        include: {
+          actions: {
+            where: { isActive: true, actionType: 'ADD_TAG' }
+          }
+        }
+      })
+
+      if (previousDisposition?.actions) {
+        console.log(`[Disposition API] Removing ${previousDisposition.actions.length} tags from previous disposition "${previousDisposition.name}"`)
+        for (const action of previousDisposition.actions) {
+          const config = action.config as any
+          if (config?.tagId) {
+            await prisma.contactTag.deleteMany({
+              where: { contact_id: contactId, tag_id: config.tagId }
+            })
+            console.log(`[Disposition API] Removed tag ${config.tagId} from contact ${contactId}`)
+          } else if (config?.tagName) {
+            const tag = await prisma.tag.findUnique({ where: { name: config.tagName } })
+            if (tag) {
+              await prisma.contactTag.deleteMany({
+                where: { contact_id: contactId, tag_id: tag.id }
+              })
+              console.log(`[Disposition API] Removed tag "${config.tagName}" from contact ${contactId}`)
+            }
+          }
+        }
+      }
     }
 
     // Execute all disposition actions (pass callerIdNumber for SMS sending from same number)

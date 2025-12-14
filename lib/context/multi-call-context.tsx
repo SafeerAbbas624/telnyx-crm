@@ -18,13 +18,18 @@ export interface ManualDialerCall {
   telnyxCall?: any              // Reference to Telnyx SDK call object
 }
 
-const MAX_CONCURRENT = 3
+const MAX_CONCURRENT = 4
 
 type MultiCallContextType = {
   activeCalls: Map<string, ManualDialerCall>
   primaryCallId: string | null
   canStartNewCall: boolean
   startManualCall: (opts: {
+    contact?: Contact
+    toNumber: string
+    fromNumber: string
+  }) => Promise<string | null>
+  restartCall: (oldCallId: string, opts: {
     contact?: Contact
     toNumber: string
     fromNumber: string
@@ -191,6 +196,80 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [getCallCount, handleCallAnswered, handleCallEnded])
 
+  // Restart a call in the same window slot (for Call Back functionality)
+  const restartCall = useCallback(async (oldCallId: string, opts: {
+    contact?: Contact
+    toNumber: string
+    fromNumber: string
+  }): Promise<string | null> => {
+    try {
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      await rtcClient.ensureRegistered()
+
+      // Remove old call entry first
+      setActiveCalls(prev => {
+        const newMap = new Map(prev)
+        newMap.delete(oldCallId)
+        return newMap
+      })
+
+      // Start the new call
+      const result = await rtcClient.startCall({
+        toNumber: opts.toNumber,
+        fromNumber: opts.fromNumber
+      })
+      const callId = result.sessionId
+
+      const telnyxCall = rtcClient.getCallById(callId)
+      console.log('[MultiCall] Restart call - Got telnyxCall for', callId, ':', !!telnyxCall)
+
+      // Create call entry
+      const newCall: ManualDialerCall = {
+        id: callId,
+        contactId: opts.contact?.id,
+        contactName: opts.contact ? `${opts.contact.firstName || ''} ${opts.contact.lastName || ''}`.trim() : undefined,
+        phoneNumber: opts.toNumber,
+        fromNumber: opts.fromNumber,
+        status: 'ringing',
+        startedAt: Date.now(),
+        telnyxCall,
+      }
+
+      console.log('[MultiCall] Restarting call:', callId)
+      setActiveCalls(prev => new Map(prev).set(callId, newCall))
+
+      // Log to database
+      fetch('/api/telnyx/webrtc-calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webrtcSessionId: callId,
+          contactId: opts.contact?.id,
+          fromNumber: opts.fromNumber,
+          toNumber: opts.toNumber,
+        })
+      }).catch(err => console.error('[MultiCall] Failed to log call:', err))
+
+      // Listen for call state changes
+      const handleCallUpdate = (data: { state: string; callId: string }) => {
+        if (data.callId !== callId) return
+
+        if (data.state === 'active' || data.state === 'answering') {
+          handleCallAnswered(callId)
+        } else if (['hangup', 'destroy', 'failed', 'bye', 'cancel', 'rejected'].includes(data.state)) {
+          handleCallEnded(callId)
+          rtcClient.off('callUpdate', handleCallUpdate)
+        }
+      }
+      rtcClient.on('callUpdate', handleCallUpdate)
+
+      return callId
+    } catch (error: any) {
+      console.error('[MultiCall] Error restarting call:', error)
+      throw error
+    }
+  }, [handleCallAnswered, handleCallEnded])
+
   const hangUpCall = useCallback((callId: string) => {
     const call = activeCallsRef.current.get(callId)
     if (!call) return
@@ -274,6 +353,7 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     primaryCallId,
     canStartNewCall,
     startManualCall,
+    restartCall,
     hangUpCall,
     hangUpAllCalls,
     dismissCall,

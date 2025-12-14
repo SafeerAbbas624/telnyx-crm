@@ -1,0 +1,152 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 87D0F16146E
+	for <mmaslow@comcast.net>; Wed, 30 Apr 2025 23:49:52 +0000 (UTC)
+Received: from nl-srv-smtpout1.hostinger.io (trex-2.trex.outbound.svc.cluster.local [100.116.62.127])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id D04DE1617F8
+	for <mmaslow@comcast.net>; Wed, 30 Apr 2025 23:49:51 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1746056992; a=rsa-sha256;
+	cv=none;
+	b=Zz9jtDLseRuoqfYICfLl+xN6HlCwPzFYxthbI3IVcJv/ioTveIpjiCVH6E752XdZ4DIBYr
+	5t+52bKnwFD77jbBXkpTabSQMuDTT+2G7j43gp7MgElLAdgr21YSOTLBDTQnqvVjaOZObC
+	l0IZbLjosRzgbp1y1jm+HvYmLn/TAAzlh/Uam4jQOyQnyhN1Z95demcCu+TjgtEuwWy7G1
+	iYRvjFl5EXd/iZS52b3eOwMzaOFfugp29lP+Lw8LK8hpBdBqR94S6A2QEfr93bT+PyW282
+	qV6XXD4nIaDUElfWFKh21aHwzV+dKdHVm+PoX4YhMMkYjD8VAJcfVY0vUwm1pA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1746056992;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type:dkim-signature;
+	bh=8CnDUSGCBOpVebhmon9BE0qVmYVTB5r74V+O0ef4do4=;
+	b=UW7Hd1kdyDnd3kmg7Pu0lLxrONYCp82pNgw8uPQrW/QDvcX7QY5qHU9GMFJwJvOMP7TjMC
+	SJj3gBTxNtVuPmcOFrESczxTsRl5/lPm9nEtnK6r5Ont+Q1pgpJ9ReBbrR62V/vUJ3MkjP
+	rPTA1/L/UdXF4a0sw0qhC6Vz91f/iCr82sxQF03XeElv2Vz506MG7qNjbI/OekQQWIShdS
+	RoiU6LZuM/8GYqkjImw2C28D5cHBqvN9H2Oscs+UCqojWbuwf7NdD9fFesj3bcK4E2TJ/f
+	DqHRLhQJPQ4BpVc0dkbnDxLxU6kyPNIM7E/x2hxrhcqmUpD+WEOja/TimHzbvw==
+ARC-Authentication-Results: i=1;
+	rspamd-684646cf5b-rqt2s;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Skirt-Shrill: 13125e65254e1a8b_1746056992369_120922745
+X-MC-Loop-Signature: 1746056992369:2710286752
+X-MC-Ingress-Time: 1746056992368
+Received: from nl-srv-smtpout1.hostinger.io (nl-srv-smtpout1.hostinger.io
+ [145.14.150.87])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.116.62.127 (trex/7.0.3);
+	Wed, 30 Apr 2025 23:49:52 +0000
+Received: from mail-ej1-f47.google.com (mail-ej1-f47.google.com [209.85.218.47])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4Znv715pQJz35BGm
+	for <mmaslow@comcast.net>; Wed, 30 Apr 2025 23:49:49 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1746056989;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type; bh=8CnDUSGCBOpVebhmon9BE0qVmYVTB5r74V+O0ef4do4=;
+	b=uZBDq5TY0ZJXPsk86NvZM6NqA58rJtFV+uBZBIwEPQe+Zd56fogP/50ZFwv2r+djpecwf/
+	SEBY6kYKvBNQ9EAoPxCE2Ny5lTdqTGjafe3upwhKFh+ou7N7GlNe8ZYBBGCqiyAOPl3w4R
+	7KVmlOf7NkAQ/HTxsrmka2+fPqTOQd97ud/Kr9S2hzdm8HRQbK7S7o/iwtG+DndJeRfL/J
+	G7I3D7lJ6M3diYx6+DxAwwTijx04EaHAgRAwwnnDWQeHullOX+qQQNWerxai8DiQHSPZB4
+	6FW6ffEhSEn3mGRZlfaQImf/0cOLP8/brIcR3yQy3kB0+fbHL5DDkWDIbc8cZw==
+Received: by mail-ej1-f47.google.com with SMTP id a640c23a62f3a-ac2bb7ca40bso58258966b.3
+        for <mmaslow@comcast.net>; Wed, 30 Apr 2025 16:49:49 -0700 (PDT)
+X-Gm-Message-State: AOJu0YwO/+t6P0UjBwtnSjTG1q+f6lxy8475rzPyt5TgkwVn3entqHyK
+	yaFZqU9hjf2ijbgpF8g1MJINIEPM6MTGsPczuM5gXnh5zbGL6isy5Fb4qxp+cwp2wMji5kzanZN
+	JHXHNcrqDpg27ufkzC/rYViaUIwg=
+X-Google-Smtp-Source: AGHT+IF19MdPdeRKwa7lURGADPcVDUYX9UYOQsIxO/cS+KJq8yt+rgrTC5l+cgn0u8LCj8BrZtU6OxEpHMhciMrfUz8=
+X-Received: by 2002:a17:906:4fcc:b0:ac7:cfcc:690d with SMTP id
+ a640c23a62f3a-aceff52eb7emr31267366b.40.1746056988987; Wed, 30 Apr 2025
+ 16:49:48 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 19:49:48 -0400
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 19:49:48 -0400
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+Reply-To: dan@adlercapital.us
+X-Gmail-Original-Message-ID: <CALKwW5p3U=pFgo-8qTOzP5QK6YQymaf35icougq8S3q0M-NFtg@mail.gmail.com>
+X-Gm-Features: ATxdqUHjOCOqj4nMy2xWU_fpl4CTVd3P_u4I7l-MMHkPfSohZdLDhK5aFQAKtLo
+Message-ID: <CALKwW5p3U=pFgo-8qTOzP5QK6YQymaf35icougq8S3q0M-NFtg@mail.gmail.com>
+Subject: Refinancing 329 Ne 172nd St - Term Sheet
+To: Meyer Muschel <mmaslow@comcast.net>
+Content-Type: multipart/alternative; boundary="00000000000096183606340792dd"
+Date: Wed, 30 Apr 2025 23:49:49 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=AoO83/9P c=1 sm=1 tr=0 ts=6812b71d a=9JKJlijexIvT1S7cpBUTgA==:117 a=MKtGQD3n3ToA:10 a=XR8D0OoHHMoA:10 a=lFKJgX85bOAA:10 a=Sf7-u6fO2wGvV_ookeIA:9 a=QEXdDO2ut3YA:10 a=g8kNmUVFAAAA:8 a=QYFVi8MFJuxPQOZPrQgA:9 a=I4fyDjnKdtnRMGwj:21 a=lqcHg5cX4UMA:10 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=UdJEcHnZjgYWaL8AJcn4:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=XBCFus3eppDTG1vohfyV:22
+X-CM-Envelope: MS4xfEBAjyt4qldX94hDCnOwmIIgknsSrVqf710dg+SdUMW2HHwpkxzHOQObPD+0YvZOXMpDeUGNuyK5dLzp9L6PzU/Qw6ZjmTNvLO+LnpXYEnHgZjRRrfoQ bCPKzARdWajK1qDFE+z8OqS8j4CA8hEjiPdvPQnjF8DdFYCpgC5CTJbv6vyjV/8P3pAZrPq4CoT3Jgp8oQOjJDogp5lFzHBwuyw=
+X-AuthUser: dan@adlercapital.info
+
+--00000000000096183606340792dd
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+UHJpdmF0ZSBsZW5kaW5nOiBSYXRlcyBmcm9tIH42LjUlIHwgVXAgdG8gODAlIExUViB8IENsb3Nl
+IGluIDINCndlZWtzzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/i
+gIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwg
+zY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwNCs2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P
+4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCM
+IM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMDQrN
+j+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KA
+jCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDN
+j+KAjCDNj+KAjCDNj+KAjCDNj+KAjA0KzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/i
+gIwgzY/igIwgzY/igIwNCkhpIE1leWVyLA0KDQpJ4oCZbSBhIHByaXZhdGUgbGVuZGVyIHdvcmtp
+bmcgd2l0aCByZWFsIGVzdGF0ZSBpbnZlc3RvcnMgaW4gU291dGggRmxvcmlkYSwNCmZvY3VzZWQg
+b24gcmVmaXMgYW5kIHB1cmNoYXNlcyB1bmRlciBMTENzLiBJIHNwZWNpYWxpemUgaW4gMSAtIDQg
+dW5pdA0KcHJvcGVydGllcywgbGlrZSAqMzI5IE5lIDE3Mm5kIFN0LCogYW5kIGhlbHAgY2xpZW50
+cyBwdWxsIHRoZSAqbWF4aW11bQ0KbGV2ZXJhZ2UgKmZyb20gdGhlaXIgcHJvcGVydGllcyBhdCB0
+aGUgKmxvd2VzdCBwb3NzaWJsZSByYXRlKi4NCg0KSGVyZeKAmXMgd2hhdCBJIG9mZmVyOg0K4oCi
+ICpVcCB0byA4NSUgTFRWICAqDQrigKIgTm8gRFNDUiByYXRpbyByZXF1aXJlZA0K4oCiICpSYXRl
+cyBmcm9tIH42LjUlKg0K4oCiIE5vIHBlcnNvbmFsIGluY29tZSBkb2NzDQrigKIgQ2xvc2UgaW4g
+KjIgd2Vla3Mgb24gYXZlcmFnZSoNCuKAoiBMZW5kaW5nIGF2YWlsYWJsZSBuYXRpb253aWRlDQri
+gKIgRGFpbHkgdXBkYXRlcyBmcm9tIGFwcGxpY2F0aW9uIHRvIGNsb3NlDQoNCldhbnQgYSB0ZXJt
+IHNoZWV0IHdpdGggYWxsIGZlZXMgb3V0bGluZWQ/DQoqSnVzdCByZXBseSDigJx5ZXPigJ0gb3Ig
+ZHJvcCB5b3VyIGNlbGwqIGlmIHlvdeKAmWQgcHJlZmVyIGEgcXVpY2sgY2FsbCAtIEnigJlsbA0K
+dGV4dCB0byBzZXQgdXAgYSAyLW1pbiBjaGF0IGFuZCBwcmljZSBpdCBvdXQgYmFzZWQgb24gdGhl
+IHByb3BlcnR54oCZcw0KZmluYW5jaWFscy4NCg0KKkRhbmllbCBBZGxlcioNCipQcml2YXRlIExl
+bmRpbmcgQWR2aXNvcioNCmRhbkBhZGxlcmNhcGl0YWwudXMNCig5MTcpIDk2My0wMTgxDQo=
+--00000000000096183606340792dd
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+PGRpdiBzdHlsZT0iZGlzcGxheTpub25lO21heC1oZWlnaHQ6MHB4O292ZXJmbG93OmhpZGRlbiI+
+UHJpdmF0ZSBsZW5kaW5nOiBSYXRlcyBmcm9tIH42LjUlIHwgVXAgdG8gODAlIExUViB8IENsb3Nl
+IGluIDIgd2Vla3PNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KA
+jMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCM
+wqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzC
+oM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKg
+zY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDN
+j+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P
+4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/i
+gIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KA
+jMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCM
+wqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgPC9kaXY+PGRpdiBkaXI9Imx0ciI+PGRpdiBk
+aXI9Imx0ciI+PGRpdiBkaXI9Imx0ciI+PGRpdiBkaXI9Imx0ciI+SGkgTWV5ZXIsPGRpdj48YnI+
+PGRpdj48ZGl2PknigJltIGEgcHJpdmF0ZSBsZW5kZXIgd29ya2luZyB3aXRoIHJlYWwgZXN0YXRl
+IGludmVzdG9ycyBpbiBTb3V0aCBGbG9yaWRhLCBmb2N1c2VkIG9uIHJlZmlzIGFuZCBwdXJjaGFz
+ZXMgdW5kZXIgTExDcy4gSSBzcGVjaWFsaXplIGluIDEgLSA0IHVuaXQgcHJvcGVydGllcywgbGlr
+ZcKgPGI+MzI5IE5lIDE3Mm5kIFN0LDwvYj7CoGFuZCBoZWxwIGNsaWVudHMgcHVsbCB0aGUgPGI+
+bWF4aW11bSBsZXZlcmFnZcKgPC9iPmZyb20gdGhlaXIgcHJvcGVydGllcyBhdCB0aGUgPGI+bG93
+ZXN0IHBvc3NpYmxlIHJhdGU8L2I+Ljxicj48YnI+SGVyZeKAmXMgd2hhdCBJIG9mZmVyOjxicj7i
+gKIgPGI+VXAgdG8gODUlIExUViDCoDwvYj48YnI+4oCiIE5vIERTQ1IgcmF0aW8gcmVxdWlyZWQ8
+YnI+4oCiIDxiPlJhdGVzIGZyb20gfjYuNSU8L2I+IMKgPGJyPuKAoiBObyBwZXJzb25hbCBpbmNv
+bWUgZG9jcyDCoDxicj7igKIgQ2xvc2UgaW4gPGI+MiB3ZWVrcyBvbiBhdmVyYWdlPC9iPsKgwqA8
+L2Rpdj48ZGl2PuKAoiBMZW5kaW5nIGF2YWlsYWJsZSBuYXRpb253aWRlPC9kaXY+PGRpdj7igKIg
+RGFpbHkgdXBkYXRlcyBmcm9tIGFwcGxpY2F0aW9uIHRvIGNsb3NlPC9kaXY+PGRpdj48YnI+V2Fu
+dCBhIHRlcm0gc2hlZXQgd2l0aCBhbGwgZmVlcyBvdXRsaW5lZD/CoMKgPC9kaXY+PGRpdj48Yj5K
+dXN0IHJlcGx5IOKAnHllc+KAnSBvciBkcm9wIHlvdXIgY2VsbDwvYj4gaWYgeW914oCZZCBwcmVm
+ZXIgYSBxdWljayBjYWxsIC0gSeKAmWxsIHRleHQgdG8gc2V0IHVwIGEgMi1taW4gY2hhdCBhbmQg
+cHJpY2UgaXQgb3V0IGJhc2VkIG9uIHRoZSBwcm9wZXJ0eeKAmXMgZmluYW5jaWFscy48YnI+PC9k
+aXY+PGRpdj48YnI+PGI+RGFuaWVswqBBZGxlcjwvYj48L2Rpdj48L2Rpdj48L2Rpdj48ZGl2Pjxk
+aXY+PGk+UHJpdmF0ZSBMZW5kaW5nIEFkdmlzb3I8L2k+PC9kaXY+PGEgaHJlZj0ibWFpbHRvOmRh
+bkBhZGxlcmNhcGl0YWwudXMiPmRhbkBhZGxlcmNhcGl0YWwudXM8L2E+PGRpdj4oOTE3KSA5NjMt
+MDE4McKgPC9kaXY+PC9kaXY+PC9kaXY+DQo8L2Rpdj4NCjwvZGl2Pg0KPC9kaXY+DQo8aW1nIHNy
+Yz0iaHR0cHM6Ly9zdGFkczk4LmFtYWlscm91dGUubmV0L096cU5UOVVfNEdXd1dqYTBwNkZ5RExN
+SWZrc3RDZ1oyYzFCWEU5RHFHLTN4UUdGZHdfbk9wQWtkazVuUV9BX1Zjakt6TDVKTjhnbzVKbTZR
+RmFDZFJ5Nlk0eWZieXdwYkpsTWtiNC1tVjBOckJYWjdLSy1YcVdXRGNic0JHOHV1dFpIVFFsdVZT
+N19ITEV5TUx1SmU0Q2ZwTVNWZHlDU05SN1NDaEI0WnZjc2FqZ21BM2NXazQiIGFsdD0iIj4NCg==
+--00000000000096183606340792dd--

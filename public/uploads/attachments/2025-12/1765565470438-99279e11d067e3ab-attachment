@@ -1,0 +1,77 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id F0EFF162F08
+	for <cmarasow@coomcast.net>; Mon,  1 Sep 2025 01:06:21 +0000 (UTC)
+Received: from fr-int-smtpout19.hostinger.io (trex-blue-4.trex.outbound.svc.cluster.local [100.105.40.229])
+	(Authenticated sender: hostingeremailsmtpin)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 2024816193A
+	for <cmarasow@coomcast.net>; Mon,  1 Sep 2025 01:06:18 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1756688779; a=rsa-sha256;
+	cv=none;
+	b=WvT43FWwxClABDy/rjmpUY71vXJO46s8bLyD6EjT5+YqNkJZuiqt31uSXBK0P2ScJL4kt4
+	UGp+B1cuDcthJTX1OvZrBIwNvjQskhNWVmrM4CcpI6cZuUOCpsjT0VnEecx4TzYY2CDNo/
+	WCuemQ/7pIz90Hfqnn+LB6Dtl85bWT3Ug2W5JBc3WabkH3QWjV6SS9gLdF/o/voEtP4Q3H
+	1AXV5CmJvzCEy3LhXqTwf/5jMS7ug258YkyXmf36AqDYkEBDegD7KKPnAmoaYWi1b5X4Cu
+	IgUCXYomz0A9hms4ISjiUjACPozYIe3CAfuA8viDXecMlmI7yrstRImwK6hdMQ==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1756688779;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 dkim-signature; bh=6en6M+XtG51brlQI8NTbXPeBYUZrLvBXqPRAsmM1SwU=;
+	b=wo4l6FEkfSj3k5ksLID9eNsunwZx61ECHY79+ANUnR6PvhGWZ7KH268GFCXEAD6708eg17
+	/i3JfpmRCoSlA4JsM5OUta29RgcsT/WAiUarfxejkfYlp9ouD9vdGiU86JjYtxoE58xquY
+	TEeSzmOtZWdW3TTQ6swcM68ZHjGrdoNs5nm0jf+Lg2lFxGUs7u0MSQkVS3DhU0ANV6tESm
+	HLtWQ+1j21VC9RVUIQYiKzLs1gDhE13aEsw5ytcpl2vEfSEt1D22kuaAQciUHWARf0YfRD
+	ymzMv830YN8odAKMLDD4Vl16nYEHgI+5rgpJNbYuWi/tYtpWTH1w1iYLeFa0gQ==
+ARC-Authentication-Results: i=1;
+	rspamd-9594d4cf9-2gxqp;
+	auth=pass smtp.auth=hostingeremailsmtpin smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremailsmtpin|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremailsmtpin|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremailsmtpin
+X-Supply-Bubble: 0f500c8b3fcbdf92_1756688781886_266174739
+X-MC-Loop-Signature: 1756688781886:2701329810
+X-MC-Ingress-Time: 1756688781886
+Received: from fr-int-smtpout19.hostinger.io ([UNAVAILABLE]. [148.222.54.35])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.105.40.229 (trex/7.1.3);
+	Mon, 01 Sep 2025 01:06:21 +0000
+Received: from [127.0.0.1] (unknown [116.90.103.226])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4cFW0T1Nwmz1xtM
+	for <cmarasow@coomcast.net>; Mon,  1 Sep 2025 01:06:17 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1756688777;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type;
+	bh=6en6M+XtG51brlQI8NTbXPeBYUZrLvBXqPRAsmM1SwU=;
+	b=VgduNZKtft0JggazEzOenXbq+gjslzpBAoqczrFKib49M/939Ob2/TTz0LqCagMVJEFby2
+	MjXJxAQwCALVu3shmpO8ZzK1wgLoO+VYIt2m4Q2nLeQEimPpnqqdSO49UvgWkYq7K0GXld
+	PdWfXt7FqPH6IYMb0tyGF8Mw890SmclmZexo1ViKrVt44oaXarnwhRPKbg+Ef/YTM+Vhby
+	UW5EIJgtvFsHLUY7WSKvAQVLdBmadv07Eb/GAPLY8U1gfZgXdAHEuRzBVKf2XFfwXTl3Bh
+	7OcVsAiJvma9bi7VSSQ7OahrWXjNZh+T+qVQJ9omo89lUh7+dxZYFmgx50sHHQ==
+From: Dan Adler <dan@adlercapital.info>
+To: cmarasow@coomcast.net
+Subject: test 2
+Message-ID: <fbec6e44-e8c9-7f71-6ffa-87e01fca17dc@adlercapital.info>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="--_NmP-bb18f1a059196592-Part_1"
+Date: Mon,  1 Sep 2025 01:06:17 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=DJTd4DNb c=1 sm=1 tr=0 ts=68b4f189 a=zqcyq3XfZB/eTZ+5ycYafQ==:117 a=zqcyq3XfZB/eTZ+5ycYafQ==:17 a=MKtGQD3n3ToA:10 a=1oJP67jkp3AA:10 a=Enld7Icl5tVLK2MbqfYA:9 a=QEXdDO2ut3YA:10 a=anY3-BeULjlUbdkdsFmX:22
+X-CM-Envelope: MS4xfPe8k1cAkf3juRlaAKof5oGtFayA+Y5dE/TUK+o+Eh7EJ+i+FHbB+Mn/UpJnvOmxPMlPmxkqp8lXXHOHcau8kN+BiHDWbthB+bjDVjnH/7ZayW1hw3Pe eIVN89QHkG8IA49cGT/ExfsmAVHsQOQNV+0PFx7PJpQd48OsbepuTWeg3R5ZeTAqrETL44g2zuy9wA==
+X-AuthUser: dan@adlercapital.info
+
+----_NmP-bb18f1a059196592-Part_1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+test 2
+----_NmP-bb18f1a059196592-Part_1
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+test 2
+----_NmP-bb18f1a059196592-Part_1--

@@ -354,7 +354,7 @@ export default function SmartFilterPanel({
               <ChevronDown className="h-3 w-3 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-64 p-3" align="start">
+          <PopoverContent className="w-72 p-3" align="start">
             <div className="space-y-3">
               <div className="text-sm font-medium text-gray-700">Filter by Date Added</div>
               <div className="grid grid-cols-2 gap-2">
@@ -384,10 +384,10 @@ export default function SmartFilterPanel({
               </div>
               <div className="border-t pt-3">
                 <div className="text-xs text-gray-500 mb-2">Custom Range</div>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Input
                     type="date"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs w-full"
                     value={filters.createdAfter || ''}
                     onChange={(e) => setFilters(f => ({
                       ...f,
@@ -398,7 +398,7 @@ export default function SmartFilterPanel({
                   />
                   <Input
                     type="date"
-                    className="h-8 text-xs"
+                    className="h-8 text-xs w-full"
                     value={filters.createdBefore || ''}
                     onChange={(e) => setFilters(f => ({
                       ...f,

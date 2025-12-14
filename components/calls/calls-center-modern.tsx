@@ -76,12 +76,17 @@ interface Contact {
 }
 
 // Client-side contact search filter (instant, no API calls)
+// Only returns contacts that have at least one phone number (can be called)
 function filterContactsBySearch(contacts: Contact[], searchTerm: string): Contact[] {
   if (!searchTerm || searchTerm.length < 2) return [];
 
   const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
 
   return contacts.filter(contact => {
+    // Only include contacts that have at least one phone number
+    const hasPhone = contact.phone1 || contact.phone2 || contact.phone3;
+    if (!hasPhone) return false;
+
     const searchableFields = [
       contact.firstName,
       contact.lastName,
@@ -218,8 +223,7 @@ export default function CallsCenterModern() {
 
       // Clear inputs
       setDialNumber('');
-      setQuickSearch('');
-      setQuickSearchResults([]);
+      setQuickSearch(''); // This clears quickSearchResults since it's a useMemo dependent on quickSearch
       setShowSearchResults(false);
 
       toast.success('Call initiated');

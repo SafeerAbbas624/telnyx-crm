@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
+// DISABLED: This endpoint was creating duplicate test emails
+// If you need to test emails, use the email compose feature in the UI
 export async function GET(request: NextRequest) {
+  return NextResponse.json({
+    error: 'This debug endpoint has been disabled to prevent duplicate email creation',
+    message: 'Use the email compose feature in the UI to send test emails'
+  }, { status: 403 })
+}
+
+// Original implementation kept for reference but disabled
+async function _createTestEmail_DISABLED(request: NextRequest) {
   try {
     console.log('Creating test email message...')
-    
+
     // Get a sample contact
     const contact = await prisma.contact.findFirst({
       where: {

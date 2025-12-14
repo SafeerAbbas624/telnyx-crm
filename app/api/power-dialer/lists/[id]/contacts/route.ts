@@ -23,7 +23,7 @@ export async function GET(
     // Normalize status to uppercase to match enum (PENDING, CALLED, etc.)
     const status = statusParam ? statusParam.toUpperCase() : null
 
-    // Verify ownership
+    // Verify ownership and get exclude tags
     const list = await prisma.powerDialerList.findUnique({
       where: { id: listId }
     })
@@ -32,8 +32,26 @@ export async function GET(
       return NextResponse.json({ error: 'List not found' }, { status: 404 })
     }
 
+    // Check if we should apply exclude tag filtering (for reset/reload scenarios)
+    const applyExcludeFilter = searchParams.get('applyExcludeFilter') === 'true'
+    const excludeTagIds = list.excludeTagIds || []
+
     const where: any = { listId }
     if (status) where.status = status
+
+    // If applyExcludeFilter is true and there are exclude tags, filter out contacts with those tags
+    // This ensures contacts who got excluded tags during the campaign are not returned on reset
+    if (applyExcludeFilter && excludeTagIds.length > 0) {
+      where.contact = {
+        NOT: {
+          contact_tags: {
+            some: {
+              tag_id: { in: excludeTagIds }
+            }
+          }
+        }
+      }
+    }
 
     const skip = (page - 1) * limit
 

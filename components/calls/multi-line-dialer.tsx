@@ -18,17 +18,18 @@ import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
 import { cn } from "@/lib/utils"
 
 // Types for multi-line dialer
-export type DialerCallStatus = 
-  | 'idle' 
-  | 'queued' 
-  | 'dialing' 
-  | 'ringing' 
-  | 'answered' 
-  | 'voicemail' 
-  | 'no-answer' 
-  | 'busy' 
-  | 'failed' 
-  | 'completed' 
+export type DialerCallStatus =
+  | 'idle'
+  | 'queued'
+  | 'dialing'
+  | 'ringing'
+  | 'amd_checking'
+  | 'answered'
+  | 'voicemail'
+  | 'no-answer'
+  | 'busy'
+  | 'failed'
+  | 'completed'
   | 'skipped'
 
 export interface DialerContact {
@@ -51,8 +52,10 @@ export interface ActiveLeg {
   contact: DialerContact
   fromNumber: string
   toNumber: string
-  status: 'initiated' | 'ringing' | 'answered' | 'hangup'
+  status: 'initiated' | 'ringing' | 'amd_checking' | 'human_detected' | 'voicemail' | 'answered' | 'hangup'
   webrtcSessionId?: string
+  callControlId?: string // For AMD calls
+  amdResult?: 'human' | 'machine' | 'fax' | 'unknown'
   startedAt: number
   answeredAt?: number
   duration?: number
@@ -126,6 +129,11 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
   const [maxLines, setMaxLines] = useState(1)
   const [autoAdvance, setAutoAdvance] = useState(true)
 
+  // AMD (Answering Machine Detection) mode
+  // When enabled, uses server-side Call Control API with AMD
+  // Only connects to WebRTC when a human is detected
+  const [amdEnabled, setAmdEnabled] = useState(true)
+
   // Run state
   const [runState, setRunState] = useState<DialerRunState>({
     sessionId: null,
@@ -155,12 +163,14 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
   const queueRef = useRef(queue)
   const activeLegsRef = useRef(activeLegs)
   const autoAdvanceRef = useRef(autoAdvance)
+  const amdEnabledRef = useRef(amdEnabled)
 
   // Keep refs in sync
   useEffect(() => { runStateRef.current = runState }, [runState])
   useEffect(() => { queueRef.current = queue }, [queue])
   useEffect(() => { activeLegsRef.current = activeLegs }, [activeLegs])
   useEffect(() => { autoAdvanceRef.current = autoAdvance }, [autoAdvance])
+  useEffect(() => { amdEnabledRef.current = amdEnabled }, [amdEnabled])
 
   // Refs for polling and auto-scroll
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -362,55 +372,248 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
       // Update contact status to dialing
       updateContactStatus(contact.id, 'dialing')
 
-      // Start WebRTC call
-      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-      await rtcClient.ensureRegistered()
-      const { sessionId: webrtcSessionId } = await rtcClient.startCall({
-        toNumber: contact.phone,
-        fromNumber
-      })
-
-      // Create active leg
-      const leg: ActiveLeg = {
-        id: `leg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        contactId: contact.contactId,
-        contact,
-        fromNumber,
-        toNumber: contact.phone,
-        status: 'initiated',
-        webrtcSessionId,
-        startedAt: Date.now(),
+      // Check if AMD mode is enabled
+      if (amdEnabledRef.current) {
+        // Use server-side Call Control API with AMD
+        await initiateAMDCall(sessionId, contact, fromNumber)
+      } else {
+        // Use direct WebRTC call (no AMD)
+        await initiateWebRTCCall(sessionId, contact, fromNumber)
       }
-
-      setActiveLegs(prev => [...prev, leg])
-
-      // Log call to database
-      await fetch('/api/power-dialer/calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          queueItemId: contact.id,
-          contactId: contact.contactId,
-          fromNumber,
-          toNumber: contact.phone,
-          webrtcSessionId,
-        })
-      })
-
-      // Update stats
-      setRunState(prev => ({
-        ...prev,
-        stats: { ...prev.stats, totalCalls: prev.stats.totalCalls + 1 }
-      }))
-
-      // Setup call event listeners
-      setupCallListeners(leg, sessionId)
 
     } catch (error) {
       console.error('Error initiating call:', error)
       updateContactStatus(contact.id, 'failed')
     }
+  }
+
+  // Initiate call with AMD (server-side Call Control API)
+  const initiateAMDCall = async (sessionId: string, contact: DialerContact, fromNumber: string) => {
+    // Create active leg with AMD checking status
+    const leg: ActiveLeg = {
+      id: `leg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      contactId: contact.contactId,
+      contact,
+      fromNumber,
+      toNumber: contact.phone,
+      status: 'initiated',
+      startedAt: Date.now(),
+    }
+
+    setActiveLegs(prev => [...prev, leg])
+
+    // Initiate call via AMD API
+    const res = await fetch('/api/power-dialer/call-with-amd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        queueItemId: contact.id,
+        contactId: contact.contactId,
+        fromNumber,
+        toNumber: contact.phone,
+      })
+    })
+
+    if (!res.ok) {
+      throw new Error('Failed to initiate AMD call')
+    }
+
+    const { callControlId } = await res.json()
+
+    // Update leg with call control ID
+    setActiveLegs(prev => prev.map(l =>
+      l.id === leg.id ? { ...l, callControlId, status: 'amd_checking' as const } : l
+    ))
+
+    // Update contact status
+    updateContactStatus(contact.id, 'amd_checking')
+
+    // Update stats
+    setRunState(prev => ({
+      ...prev,
+      stats: { ...prev.stats, totalCalls: prev.stats.totalCalls + 1 }
+    }))
+
+    // Start polling for AMD result
+    pollAMDResult(leg.id, contact.id, callControlId, sessionId)
+  }
+
+  // Poll for AMD result
+  const pollAMDResult = async (legId: string, queueItemId: string, callControlId: string, sessionId: string) => {
+    let attempts = 0
+    const maxAttempts = 60 // 30 seconds max (500ms intervals)
+
+    const poll = async () => {
+      attempts++
+
+      try {
+        const res = await fetch(`/api/power-dialer/calls?queueItemId=${queueItemId}&callControlId=${callControlId}`)
+        if (!res.ok) return
+
+        const call = await res.json()
+
+        if (call.status === 'VOICEMAIL' || call.amdResult?.includes('machine')) {
+          // Voicemail detected - update UI and move to next
+          console.log('[AMD] Voicemail detected, moving to next contact')
+
+          setActiveLegs(prev => prev.map(l =>
+            l.id === legId ? { ...l, status: 'voicemail' as const, amdResult: 'machine' } : l
+          ))
+          updateContactStatus(queueItemId, 'voicemail')
+
+          // Update stats
+          setRunState(prev => ({
+            ...prev,
+            stats: { ...prev.stats, totalNoAnswer: prev.stats.totalNoAnswer + 1 }
+          }))
+
+          // Remove leg after brief display
+          setTimeout(() => {
+            setActiveLegs(prev => prev.filter(l => l.id !== legId))
+            // Auto-advance to next contact
+            if (autoAdvanceRef.current && runStateRef.current.status === 'running') {
+              dialNextBatch(sessionId)
+            }
+          }, 2000)
+
+          return // Stop polling
+        }
+
+        if (call.status === 'HUMAN_DETECTED' || call.amdResult === 'human') {
+          // Human detected - connect via WebRTC
+          console.log('[AMD] Human detected, connecting via WebRTC')
+
+          setActiveLegs(prev => prev.map(l =>
+            l.id === legId ? { ...l, status: 'human_detected' as const, amdResult: 'human' } : l
+          ))
+
+          // Now connect via WebRTC
+          const currentLeg = activeLegsRef.current.find(l => l.id === legId)
+          if (currentLeg) {
+            await connectToHumanCall(currentLeg, sessionId)
+          }
+
+          return // Stop polling
+        }
+
+        if (call.status === 'ENDED' || call.status === 'FAILED') {
+          // Call ended without answer
+          console.log('[AMD] Call ended:', call.hangupCause)
+
+          const outcome = call.callOutcome || 'NO_ANSWER'
+          const status = outcome === 'BUSY' ? 'busy' : 'no-answer'
+
+          setActiveLegs(prev => prev.filter(l => l.id !== legId))
+          updateContactStatus(queueItemId, status as DialerCallStatus)
+
+          setRunState(prev => ({
+            ...prev,
+            stats: { ...prev.stats, totalNoAnswer: prev.stats.totalNoAnswer + 1 }
+          }))
+
+          // Auto-advance
+          if (autoAdvanceRef.current && runStateRef.current.status === 'running') {
+            dialNextBatch(sessionId)
+          }
+
+          return // Stop polling
+        }
+
+        // Continue polling if still in progress
+        if (attempts < maxAttempts && runStateRef.current.status === 'running') {
+          setTimeout(poll, 500)
+        }
+      } catch (error) {
+        console.error('[AMD] Polling error:', error)
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 1000)
+        }
+      }
+    }
+
+    poll()
+  }
+
+  // Connect to a call where human was detected
+  const connectToHumanCall = async (leg: ActiveLeg, sessionId: string) => {
+    try {
+      // Start WebRTC call to the same number
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      await rtcClient.ensureRegistered()
+      const { sessionId: webrtcSessionId } = await rtcClient.startCall({
+        toNumber: leg.toNumber,
+        fromNumber: leg.fromNumber
+      })
+
+      // Update leg with WebRTC session
+      setActiveLegs(prev => prev.map(l =>
+        l.id === leg.id ? { ...l, webrtcSessionId, status: 'answered' as const, answeredAt: Date.now() } : l
+      ))
+      updateContactStatus(leg.contact.id, 'answered')
+
+      // Update stats
+      setRunState(prev => ({
+        ...prev,
+        stats: { ...prev.stats, totalAnswered: prev.stats.totalAnswered + 1 }
+      }))
+
+      // Setup call listeners
+      setupCallListeners({ ...leg, webrtcSessionId, status: 'answered' }, sessionId)
+
+    } catch (error) {
+      console.error('[AMD] Error connecting to human call:', error)
+      setActiveLegs(prev => prev.filter(l => l.id !== leg.id))
+      updateContactStatus(leg.contact.id, 'failed')
+    }
+  }
+
+  // Initiate direct WebRTC call (no AMD)
+  const initiateWebRTCCall = async (sessionId: string, contact: DialerContact, fromNumber: string) => {
+    // Start WebRTC call
+    const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+    await rtcClient.ensureRegistered()
+    const { sessionId: webrtcSessionId } = await rtcClient.startCall({
+      toNumber: contact.phone,
+      fromNumber
+    })
+
+    // Create active leg
+    const leg: ActiveLeg = {
+      id: `leg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      contactId: contact.contactId,
+      contact,
+      fromNumber,
+      toNumber: contact.phone,
+      status: 'initiated',
+      webrtcSessionId,
+      startedAt: Date.now(),
+    }
+
+    setActiveLegs(prev => [...prev, leg])
+
+    // Log call to database
+    await fetch('/api/power-dialer/calls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        queueItemId: contact.id,
+        contactId: contact.contactId,
+        fromNumber,
+        toNumber: contact.phone,
+        webrtcSessionId,
+      })
+    })
+
+    // Update stats
+    setRunState(prev => ({
+      ...prev,
+      stats: { ...prev.stats, totalCalls: prev.stats.totalCalls + 1 }
+    }))
+
+    // Setup call event listeners
+    setupCallListeners(leg, sessionId)
   }
 
   // Setup listeners for call events using proper event subscription
@@ -802,6 +1005,7 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
       'queued': 'bg-blue-100 text-blue-600',
       'dialing': 'bg-yellow-100 text-yellow-600',
       'ringing': 'bg-orange-100 text-orange-600',
+      'amd_checking': 'bg-cyan-100 text-cyan-600',
       'answered': 'bg-green-100 text-green-600',
       'voicemail': 'bg-purple-100 text-purple-600',
       'no-answer': 'bg-red-100 text-red-600',
@@ -818,10 +1022,14 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
       case 'dialing':
       case 'ringing':
         return <PhoneOutgoing className="h-4 w-4 animate-pulse" />
+      case 'amd_checking':
+        return <Loader2 className="h-4 w-4 animate-spin" />
       case 'answered':
         return <PhoneCall className="h-4 w-4" />
       case 'completed':
         return <CheckCircle2 className="h-4 w-4" />
+      case 'voicemail':
+        return <PhoneOff className="h-4 w-4" />
       case 'no-answer':
       case 'busy':
       case 'failed':
@@ -870,6 +1078,19 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
             <CardTitle className="text-sm font-medium">Configuration</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* AMD Toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium">Voicemail Detection</label>
+                <p className="text-xs text-gray-500">Skip voicemails, only connect to live people</p>
+              </div>
+              <Checkbox
+                checked={amdEnabled}
+                onCheckedChange={(checked) => setAmdEnabled(checked as boolean)}
+                disabled={runState.status === 'running'}
+              />
+            </div>
+
             {/* Auto-Advance Toggle */}
             <div className="flex items-center justify-between">
               <div>
@@ -1072,7 +1293,25 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
                   Connected
                 </Badge>
               )}
-              {activeLegs.length > 0 && activeLegs[0].status !== 'answered' && (
+              {activeLegs.length > 0 && activeLegs[0].status === 'amd_checking' && (
+                <Badge variant="outline" className="border-cyan-500 text-cyan-600 animate-pulse">
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Checking...
+                </Badge>
+              )}
+              {activeLegs.length > 0 && activeLegs[0].status === 'human_detected' && (
+                <Badge variant="default" className="bg-green-500 animate-pulse">
+                  <PhoneCall className="h-3 w-3 mr-1" />
+                  Human Detected!
+                </Badge>
+              )}
+              {activeLegs.length > 0 && activeLegs[0].status === 'voicemail' && (
+                <Badge variant="outline" className="border-purple-500 text-purple-600">
+                  <PhoneOff className="h-3 w-3 mr-1" />
+                  Voicemail
+                </Badge>
+              )}
+              {activeLegs.length > 0 && !['answered', 'amd_checking', 'human_detected', 'voicemail'].includes(activeLegs[0].status) && (
                 <Badge variant="outline" className="border-yellow-500 text-yellow-600 animate-pulse">
                   <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                   Ringing
@@ -1087,6 +1326,12 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
                   "w-full max-w-md p-6 rounded-xl border-2 transition-all",
                   activeLegs[0].status === 'answered'
                     ? "border-green-500 bg-green-50 dark:bg-green-900/20 ring-2 ring-green-500/50"
+                    : activeLegs[0].status === 'amd_checking'
+                    ? "border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20 animate-pulse"
+                    : activeLegs[0].status === 'human_detected'
+                    ? "border-green-400 bg-green-50 dark:bg-green-900/20 animate-pulse"
+                    : activeLegs[0].status === 'voicemail'
+                    ? "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
                     : "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20 animate-pulse"
                 )}
               >
@@ -1102,6 +1347,23 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
                   <p className="text-gray-500">
                     {formatPhoneNumberForDisplay(activeLegs[0].toNumber)}
                   </p>
+                  {/* AMD Status Indicator */}
+                  {activeLegs[0].status === 'amd_checking' && (
+                    <p className="text-cyan-600 text-sm mt-2 flex items-center justify-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Detecting voicemail...
+                    </p>
+                  )}
+                  {activeLegs[0].status === 'voicemail' && (
+                    <p className="text-purple-600 text-sm mt-2 font-medium">
+                      📞 Voicemail Detected - Skipping
+                    </p>
+                  )}
+                  {activeLegs[0].status === 'human_detected' && (
+                    <p className="text-green-600 text-sm mt-2 font-medium">
+                      ✓ Human Detected - Connecting...
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
@@ -1172,9 +1434,10 @@ export default function MultiLineDialer({ onCallAnswered, onSessionComplete }: M
             </CardHeader>
             {showScript && (
               <CardContent>
-                <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {selectedList.script.content}
-                </div>
+                <div
+                  className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm max-h-48 overflow-y-auto prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: selectedList.script.content }}
+                />
               </CardContent>
             )}
           </Card>

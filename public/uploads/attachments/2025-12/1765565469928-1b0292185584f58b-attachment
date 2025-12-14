@@ -1,0 +1,153 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 1687332424B
+	for <huntergroupspa@yahoo.com>; Wed, 30 Apr 2025 18:58:14 +0000 (UTC)
+Received: from uk-fast-smtpout3.hostinger.io (trex-2.trex.outbound.svc.cluster.local [100.107.188.211])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 6C063324149
+	for <huntergroupspa@yahoo.com>; Wed, 30 Apr 2025 18:58:13 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1746039493; a=rsa-sha256;
+	cv=none;
+	b=zVSVjryP9ZJjByP9fK0cO9xuFjhcv0UfIYZmv49hKjPZuo0UfuoQPewRpK9dywcWHc84Hv
+	hVuRDAhimJ4TyqjcFYHWnx0AqZPb05wj6bny+jut+kxAojM9BCpQsY0CxiYJlzJ4vH+VVn
+	6M7FKFSVCiSGkE96UEcKQGgEHsPTIkXDUUT4D0tg6jDQF639r3c3KWR6hB7V2rbNstJDN1
+	29TGU0Dp0WdEGzR/3NnpORmozqjmtETmn/rjJl0JkAc0zB9Hquyz07ovZwd0IPh3tx41In
+	gcE5XFJIptsOaHA3DPQWSEU/9cH4+2ZcXJdhtFS1o7PXRK6PD/7Lvc8S3No0Ug==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1746039493;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type:dkim-signature;
+	bh=f7uLjZJr4mJgEjpjiVlFnV89MlWFactm12P+aYdzyHA=;
+	b=oEWvAydIoyL2hL8Zb1te2CCEi8Hqn1P2RUdizXdnOD41Hbz4D/98nI8BMNFPN9tZEJQTFK
+	Np2Gkz+BBJH+O1xuWK0e9GAMYsS2M6AT0NvvtacOgjzVxJ5FoVaSFjEK2CERdyIM5Z64uM
+	W4un4/bEY0/TikWqGoFgCr1Mm31lafopS7CnEZhxdISiDBC53DPQgEinH7YoMmChpOPrhX
+	8DA3bOIA9iU2H7v6P4P+nM1sWGkshTzZPcqPstWwXNJg9HOERUsZo8ejUk+Pepzgk4Rsoj
+	ey3A5HATL+Y8kqx3ADoExeYeBLc/JQNQ6HDW2VN4Sa8ZpRNZcGQd5mHE4ZFQTw==
+ARC-Authentication-Results: i=1;
+	rspamd-56c68c6fd9-dwzgr;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Irritate-Wiry: 224af7105b62c195_1746039493949_1718528248
+X-MC-Loop-Signature: 1746039493949:3990414102
+X-MC-Ingress-Time: 1746039493949
+Received: from uk-fast-smtpout3.hostinger.io (uk-fast-smtpout3.hostinger.io
+ [31.220.23.37])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.107.188.211 (trex/7.0.3);
+	Wed, 30 Apr 2025 18:58:13 +0000
+Received: from mail-ej1-f50.google.com (mail-ej1-f50.google.com [209.85.218.50])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4ZnmfW2wpmz2mRLr
+	for <huntergroupspa@yahoo.com>; Wed, 30 Apr 2025 18:58:11 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1746039491;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type; bh=f7uLjZJr4mJgEjpjiVlFnV89MlWFactm12P+aYdzyHA=;
+	b=nZWg3NQwkceG1ghrKgL1IdnbP8hjdwT4Q+/RvDsYtx0UK5SzGlrqDkCQ5wAxGmU+aSKCzm
+	5LDdc7I4HBHZOeIr5W+D28cMz5L0R4fTBm+xoXc89sG4JRpZ6nwUHY3Oj37M3wB/YYak9y
+	bZeUu4G0N117JRnnc9rjyz+aLXeQzUO8SpfVkBujflV7WmTONnuZqpiq1C5vlrOMJeRwuf
+	PPUF3giLs7MOActJcGT8s5R4LjuxlVs8G2/YVvdfS58ZZFRw9yoyErIi31qWkJTmBkqQHL
+	wfYCZRflnDSxTLL+TeO4HhdewWVurhZb5h6qC2DuXPeu03QOqVA83/V+bSHH1g==
+Received: by mail-ej1-f50.google.com with SMTP id a640c23a62f3a-ac25520a289so24303466b.3
+        for <huntergroupspa@yahoo.com>; Wed, 30 Apr 2025 11:58:11 -0700 (PDT)
+X-Gm-Message-State: AOJu0YyZbbBu/mW/yHDvHtqsf7RIDgIqms3D8W/wgJyWYKwWY7dIqY0F
+	4StEmEgQ+nkkIWaNyQC3S8QGGD+z4Ww66tWmBCmK+ppXChwVDR2yJaXI7+Ct7jexHWA3jE2Jd8+
+	F9hg69CsQdjspVmFMfuEwzg2egRw=
+X-Google-Smtp-Source: AGHT+IGIebWUpoYGsConrfpXY+i3QAaNkszh6I1rYkghWt6ZxzK6Oq0+x3yHtDTbo8WXuvI1ujUqG5ydZ89ctMBJWlc=
+X-Received: by 2002:a17:907:9703:b0:ace:9d90:c568 with SMTP id
+ a640c23a62f3a-acedc625b16mr449854866b.24.1746039489990; Wed, 30 Apr 2025
+ 11:58:09 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 14:58:09 -0400
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 14:58:09 -0400
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+Reply-To: dan@adlercapital.us
+X-Gmail-Original-Message-ID: <CALKwW5r5DNeqhTq-rk7SKih_80QA1WkogPAskSuCizy+ELfu0w@mail.gmail.com>
+X-Gm-Features: ATxdqUElVCisFCCVpgnObtzuxTmq0wYJoSH9YvAqbkQfyPkwnGyEcLj9H52YJds
+Message-ID: <CALKwW5r5DNeqhTq-rk7SKih_80QA1WkogPAskSuCizy+ELfu0w@mail.gmail.com>
+Subject: Refinancing 1520 Nw 61st St - Term Sheet
+To: Yvonne Hanaish-Hunter <huntergroupspa@yahoo.com>
+Content-Type: multipart/alternative; boundary="00000000000090997b0634037f2e"
+Date: Wed, 30 Apr 2025 18:58:11 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=IrhMc6/g c=1 sm=1 tr=0 ts=681272c3 a=ox2L7D8zyEvnS2b4KBZd6Q==:117 a=MKtGQD3n3ToA:10 a=XR8D0OoHHMoA:10 a=lFKJgX85bOAA:10 a=Sf7-u6fO2wGvV_ookeIA:9 a=QEXdDO2ut3YA:10 a=g8kNmUVFAAAA:8 a=QYFVi8MFJuxPQOZPrQgA:9 a=I4fyDjnKdtnRMGwj:21 a=lqcHg5cX4UMA:10 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=UdJEcHnZjgYWaL8AJcn4:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=XBCFus3eppDTG1vohfyV:22
+X-CM-Envelope: MS4xfNXcbbfvfGGPAyK34qWtq26kjoTa0dgrc7NkAtXwgmBl4R4f4my9QDm/eMrGxEKXB29RuboL4HBYyIpMEbOsHIlWxAhI7gSThId1qSsgBS++bjU5EqV9 bNIlwEPAOPVto+7hbY/vS+EyJEnzitNpRgBcdLA+hO3BRa2sj2xtGp1YAJE4UcChwzNXm3KXpKtaUyHTqvGMcAnn/fUw5agpetk=
+X-AuthUser: dan@adlercapital.info
+
+--00000000000090997b0634037f2e
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+UHJpdmF0ZSBsZW5kaW5nOiBSYXRlcyBmcm9tIH42LjUlIHwgVXAgdG8gODAlIExUViB8IENsb3Nl
+IGluIDINCndlZWtzzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/i
+gIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwg
+zY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwNCs2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P
+4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCM
+IM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMIM2P4oCMDQrN
+j+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KA
+jCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDNj+KAjCDN
+j+KAjCDNj+KAjCDNj+KAjCDNj+KAjA0KzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/igIwgzY/i
+gIwgzY/igIwgzY/igIwNCkhpIFl2b25uZSwNCg0KSeKAmW0gYSBwcml2YXRlIGxlbmRlciB3b3Jr
+aW5nIHdpdGggcmVhbCBlc3RhdGUgaW52ZXN0b3JzIGluIFNvdXRoIEZsb3JpZGEsDQpmb2N1c2Vk
+IG9uIHJlZmlzIGFuZCBwdXJjaGFzZXMgdW5kZXIgTExDcy4gSSBzcGVjaWFsaXplIGluIDEgLSA0
+IHVuaXQNCnByb3BlcnRpZXMsIGxpa2UgKjE1MjAgTncgNjFzdCBTdCwqIGFuZCBoZWxwIGNsaWVu
+dHMgcHVsbCB0aGUgKm1heGltdW0NCmxldmVyYWdlICpmcm9tIHRoZWlyIHByb3BlcnRpZXMgYXQg
+dGhlICpsb3dlc3QgcG9zc2libGUgcmF0ZSouDQoNCkhlcmXigJlzIHdoYXQgSSBvZmZlcjoNCuKA
+oiAqVXAgdG8gODUlIExUViAgKg0K4oCiIE5vIERTQ1IgcmF0aW8gcmVxdWlyZWQNCuKAoiAqUmF0
+ZXMgZnJvbSB+Ni41JSoNCuKAoiBObyBwZXJzb25hbCBpbmNvbWUgZG9jcw0K4oCiIENsb3NlIGlu
+ICoyIHdlZWtzIG9uIGF2ZXJhZ2UqDQrigKIgTGVuZGluZyBhdmFpbGFibGUgbmF0aW9ud2lkZQ0K
+4oCiIERhaWx5IHVwZGF0ZXMgZnJvbSBhcHBsaWNhdGlvbiB0byBjbG9zZQ0KDQpXYW50IGEgdGVy
+bSBzaGVldCB3aXRoIGFsbCBmZWVzIG91dGxpbmVkPw0KKkp1c3QgcmVwbHkg4oCceWVz4oCdIG9y
+IGRyb3AgeW91ciBjZWxsKiBpZiB5b3XigJlkIHByZWZlciBhIHF1aWNrIGNhbGwgLSBJ4oCZbGwN
+CnRleHQgdG8gc2V0IHVwIGEgMi1taW4gY2hhdCBhbmQgcHJpY2UgaXQgb3V0IGJhc2VkIG9uIHRo
+ZSBwcm9wZXJ0eeKAmXMNCmZpbmFuY2lhbHMuDQoNCipEYW5pZWwgQWRsZXIqDQoqUHJpdmF0ZSBM
+ZW5kaW5nIEFkdmlzb3IqDQpkYW5AYWRsZXJjYXBpdGFsLnVzDQooOTE3KSA5NjMtMDE4MQ0K
+--00000000000090997b0634037f2e
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: base64
+
+PGRpdiBzdHlsZT0iZGlzcGxheTpub25lO21heC1oZWlnaHQ6MHB4O292ZXJmbG93OmhpZGRlbiI+
+UHJpdmF0ZSBsZW5kaW5nOiBSYXRlcyBmcm9tIH42LjUlIHwgVXAgdG8gODAlIExUViB8IENsb3Nl
+IGluIDIgd2Vla3PNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KA
+jMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCM
+wqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzC
+oM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKg
+zY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDN
+j+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P
+4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/i
+gIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KA
+jMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgzY/igIzCoM2P4oCM
+wqDNj+KAjMKgzY/igIzCoM2P4oCMwqDNj+KAjMKgPC9kaXY+PGRpdiBkaXI9Imx0ciI+PGRpdiBk
+aXI9Imx0ciI+PGRpdiBkaXI9Imx0ciI+PGRpdiBkaXI9Imx0ciI+SGkgWXZvbm5lLDxkaXY+PGJy
+PjxkaXY+PGRpdj5J4oCZbSBhIHByaXZhdGUgbGVuZGVyIHdvcmtpbmcgd2l0aCByZWFsIGVzdGF0
+ZSBpbnZlc3RvcnMgaW4gU291dGggRmxvcmlkYSwgZm9jdXNlZCBvbiByZWZpcyBhbmQgcHVyY2hh
+c2VzIHVuZGVyIExMQ3MuIEkgc3BlY2lhbGl6ZSBpbiAxIC0gNCB1bml0IHByb3BlcnRpZXMsIGxp
+a2XCoDxiPjE1MjAgTncgNjFzdCBTdCw8L2I+wqBhbmQgaGVscCBjbGllbnRzIHB1bGwgdGhlIDxi
+Pm1heGltdW0gbGV2ZXJhZ2XCoDwvYj5mcm9tIHRoZWlyIHByb3BlcnRpZXMgYXQgdGhlIDxiPmxv
+d2VzdCBwb3NzaWJsZSByYXRlPC9iPi48YnI+PGJyPkhlcmXigJlzIHdoYXQgSSBvZmZlcjo8YnI+
+4oCiIDxiPlVwIHRvIDg1JSBMVFYgwqA8L2I+PGJyPuKAoiBObyBEU0NSIHJhdGlvIHJlcXVpcmVk
+PGJyPuKAoiA8Yj5SYXRlcyBmcm9tIH42LjUlPC9iPiDCoDxicj7igKIgTm8gcGVyc29uYWwgaW5j
+b21lIGRvY3MgwqA8YnI+4oCiIENsb3NlIGluIDxiPjIgd2Vla3Mgb24gYXZlcmFnZTwvYj7CoMKg
+PC9kaXY+PGRpdj7igKIgTGVuZGluZyBhdmFpbGFibGUgbmF0aW9ud2lkZTwvZGl2PjxkaXY+4oCi
+IERhaWx5IHVwZGF0ZXMgZnJvbSBhcHBsaWNhdGlvbiB0byBjbG9zZTwvZGl2PjxkaXY+PGJyPldh
+bnQgYSB0ZXJtIHNoZWV0IHdpdGggYWxsIGZlZXMgb3V0bGluZWQ/wqDCoDwvZGl2PjxkaXY+PGI+
+SnVzdCByZXBseSDigJx5ZXPigJ0gb3IgZHJvcCB5b3VyIGNlbGw8L2I+IGlmIHlvdeKAmWQgcHJl
+ZmVyIGEgcXVpY2sgY2FsbCAtIEnigJlsbCB0ZXh0IHRvIHNldCB1cCBhIDItbWluIGNoYXQgYW5k
+IHByaWNlIGl0IG91dCBiYXNlZCBvbiB0aGUgcHJvcGVydHnigJlzIGZpbmFuY2lhbHMuPGJyPjwv
+ZGl2PjxkaXY+PGJyPjxiPkRhbmllbMKgQWRsZXI8L2I+PC9kaXY+PC9kaXY+PC9kaXY+PGRpdj48
+ZGl2PjxpPlByaXZhdGUgTGVuZGluZyBBZHZpc29yPC9pPjwvZGl2PjxhIGhyZWY9Im1haWx0bzpk
+YW5AYWRsZXJjYXBpdGFsLnVzIj5kYW5AYWRsZXJjYXBpdGFsLnVzPC9hPjxkaXY+KDkxNykgOTYz
+LTAxODHCoDwvZGl2PjwvZGl2PjwvZGl2Pg0KPC9kaXY+DQo8L2Rpdj4NCjwvZGl2Pg0KPGltZyBz
+cmM9Imh0dHBzOi8vc3RhZHM5OC5hbWFpbHJvdXRlLm5ldC9kOEk3cEJSckp1eGFJd1pmUlVEdG5Q
+S1I1M05mZ0R1Q01WaWp1Qy1KWFVMVUxRbjhSQ3pwNmtQbzROTkx1V2stTkNUZVgyZkFGaGhsZDV2
+bGhFSng2akRtWGU3UGlianFXQkNNanFDZm1BcUYtcy15eXlZaGtVVExZSjFKR3NIZUFXcVNRcnV0
+cDhUbS1LMmdfcWFDZHFyVkpodlZVZ0d4NUJJOU1TVWRaTklhamdtOW50T0w0NnNqLW5kWFJVMkNt
+ZUJBbFp1biIgYWx0PSIiPg0K
+--00000000000090997b0634037f2e--

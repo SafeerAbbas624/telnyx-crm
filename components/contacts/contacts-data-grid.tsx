@@ -236,6 +236,7 @@ export default function ContactsDataGrid({
   // Save view dialog state
   const [showSaveViewDialog, setShowSaveViewDialog] = useState(false);
   const [newViewName, setNewViewName] = useState('');
+  const [viewsMenuOpen, setViewsMenuOpen] = useState(false);
 
   // Available tags for bulk assignment
   const [availableTags, setAvailableTags] = useState<any[]>([]);
@@ -1960,7 +1961,7 @@ export default function ContactsDataGrid({
           </DropdownMenu>
 
           {/* Save/Load Views */}
-          <DropdownMenu>
+          <DropdownMenu open={viewsMenuOpen} onOpenChange={setViewsMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm">
                 <Eye className="h-4 w-4 mr-2" />
@@ -1976,8 +1977,13 @@ export default function ContactsDataGrid({
                   size="sm"
                   className="w-full"
                   onClick={() => {
-                    setNewViewName('');
-                    setShowSaveViewDialog(true);
+                    // Close dropdown first to prevent aria-hidden focus issue
+                    setViewsMenuOpen(false);
+                    // Small delay to allow dropdown to close before opening dialog
+                    setTimeout(() => {
+                      setNewViewName('');
+                      setShowSaveViewDialog(true);
+                    }, 50);
                   }}
                 >
                   <Plus className="h-4 w-4 mr-2" />

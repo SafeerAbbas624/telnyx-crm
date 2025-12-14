@@ -5,20 +5,41 @@ import { prisma } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-// GET - Get calls for a session
+// GET - Get calls for a session or by specific identifiers
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    
+
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get('sessionId')
+    const queueItemId = searchParams.get('queueItemId')
+    const callControlId = searchParams.get('callControlId')
     const limit = parseInt(searchParams.get('limit') || '100')
     const offset = parseInt(searchParams.get('offset') || '0')
 
+    // If querying by queueItemId and/or callControlId (for AMD polling)
+    if (queueItemId || callControlId) {
+      const where: any = {}
+      if (queueItemId) where.queueItemId = queueItemId
+      if (callControlId) where.callControlId = callControlId
+
+      const call = await prisma.powerDialerCall.findFirst({
+        where,
+        orderBy: { initiatedAt: 'desc' },
+      })
+
+      if (!call) {
+        return NextResponse.json({ error: 'Call not found' }, { status: 404 })
+      }
+
+      return NextResponse.json(call)
+    }
+
+    // Otherwise require sessionId
     if (!sessionId) {
       return NextResponse.json(
         { error: 'Session ID is required' },

@@ -226,13 +226,25 @@ export default function ContactScheduledMessages({ contactId }: ContactScheduled
                       </div>
 
                       {message.channel === 'SMS' && (
-                        <div className="text-gray-600">
-                          <span className="font-medium">To:</span> {message.toNumber}
-                        </div>
+                        <>
+                          {message.fromNumber && (
+                            <div className="text-gray-600">
+                              <span className="font-medium">From:</span> {message.fromNumber}
+                            </div>
+                          )}
+                          <div className="text-gray-600">
+                            <span className="font-medium">To:</span> {message.toNumber}
+                          </div>
+                        </>
                       )}
 
                       {message.channel === 'EMAIL' && (
                         <>
+                          {message.fromEmail && (
+                            <div className="text-gray-600">
+                              <span className="font-medium">From:</span> {message.fromEmail}
+                            </div>
+                          )}
                           <div className="text-gray-600">
                             <span className="font-medium">To:</span> {message.toEmail}
                           </div>

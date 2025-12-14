@@ -12,7 +12,7 @@ interface MakeCallOptions {
   fromNumber?: string // Override the selected phone number
 }
 
-const MAX_CONCURRENT_CALLS = 3
+const MAX_CONCURRENT_CALLS = 4
 
 /**
  * Hook for making calls from anywhere in the CRM.

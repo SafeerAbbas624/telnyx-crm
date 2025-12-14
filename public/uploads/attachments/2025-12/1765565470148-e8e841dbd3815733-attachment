@@ -1,0 +1,153 @@
+Return-Path: <dan@adlercapital.info>
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 5228A183983
+	for <carolina121187@gmail.com>; Mon,  2 Jun 2025 22:33:25 +0000 (UTC)
+Received: from fr-int-smtpout8.hostinger.io (trex-green-8.trex.outbound.svc.cluster.local [100.118.166.165])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 9D5BD18291E
+	for <carolina121187@gmail.com>; Mon,  2 Jun 2025 22:33:24 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1748903604; a=rsa-sha256;
+	cv=none;
+	b=Uuay489DRsvUdsQHZkWBgTJ2Yt65WXF0d1kpC+1rGvmMpsK2ZT921sdmllgHF0NUxUunGs
+	0Dn4sLLplFXDA2uwhPyGgFbbq+V0ANaVcmwWXLokbX0VMQyMGmCuJvWjmqh2rEeD4dzWHB
+	zZoSsZPqddrUHTZXwH8cBDYQS6P2ApB11FwHZ7s1m8yT0+EJYV6uoW2YN9TDN/KjQ/dzVa
+	lUd26mWAcePnWCiBnzchjzjh6YBxRXd4YKzrdae4i2ifMcUBFV66j1h6r1IiY6+LnHohvN
+	o3MX63ALfIbWxECoU7JC4dyNXSAj3IkvpUQDsarJZnBOjuIwTPeqXNtK8EplqA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1748903604;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type:dkim-signature;
+	bh=L0lADC6qJRWoq41ajy1RukciSFk24rE87AaIB0eBNmo=;
+	b=OZaFwgMQ3eUFeu2p1dI1UrfGgtjuI1X+nwq6lfouF04nlt6TBSAb3TDp9eYo0AG8XlUHXA
+	r40WmSlrOzmcso96+Wm7LPvvxdEOYb8zWELfNdlLckcGh6lKLN8e8QqzC8ekVVvaPJ9QOw
+	MxlaH5eZ4RKd0zzKmjjYIcKVEW3u/GFQ7CFFfR2mcgsYOXj8bmoUZ7nHaLyxZYhYxjTwxD
+	Ecu0sOgYWdRk1aX/7FCFOJk4iTiAjoVgB52z9Symp8GkGY4kmhYVuSPPZmS4DgRLr0ncVP
+	veX9iQnrIamTvDznLcrwbNSmpu0rAIIhCM8SKp3qwDBCTq/H/We+rUPQBm5RuA==
+ARC-Authentication-Results: i=1;
+	rspamd-5674bcf875-87c6c;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Good
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Madly-Relation: 32cdc8595f4e57d2_1748903605150_3119147574
+X-MC-Loop-Signature: 1748903605150:213475055
+X-MC-Ingress-Time: 1748903605149
+Received: from fr-int-smtpout8.hostinger.io (fr-int-smtpout8.hostinger.io
+ [89.116.146.204])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.118.166.165 (trex/7.0.3);
+	Mon, 02 Jun 2025 22:33:25 +0000
+Received: from mail-ed1-f50.google.com (mail-ed1-f50.google.com [209.85.208.50])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4bB7sY4Rf2z4dDjG
+	for <carolina121187@gmail.com>; Mon, 02 Jun 2025 22:33:21 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1748903602;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type; bh=L0lADC6qJRWoq41ajy1RukciSFk24rE87AaIB0eBNmo=;
+	b=xOJsMp7i3gVDVU4+La8G2VjtZRabotaOmEmcsHnxcajS+u2rbKZZt/jBB0S5BTihrIRSnd
+	TM3E5txQ1yZmQP8GTuEqlfDOmFP8ZrF6SIz7+sKHGTu2eBd8j09Dla9Sb/LLYizSooUmFh
+	WNjzyJR31TEE+JMDjLYOj/+pDGVbZYdddMaNEXFIuxVxbxBkNww5gQZ0wmzmaFU1u/lZDF
+	pGrL+lmUsqszsTl97iRhGVBylie/RX+MvOoeLkSCLYdBIjuilhIojT8aNMrg6quXkbhHZ3
+	tmoUKnV+6tv1B5BYtEG0Jz/enha1ABfr9WBCNidxFrItOTuRKdQd63tuGRKBFg==
+Received: by mail-ed1-f50.google.com with SMTP id 4fb4d7f45d1cf-606a4af1869so726864a12.1
+        for <carolina121187@gmail.com>; Mon, 02 Jun 2025 15:33:21 -0700 (PDT)
+X-Gm-Message-State: AOJu0Ywir8ClVKiIgmO/0h/VAF1YxhZXikaFW2lChO4t8FUIepvS6Opg
+	ugXprmQ0SlY7QAz6yL2Mbv3VSQ/U3hfn5ctx9LWJyYL6/Te61Dv8dTVRTYTNB6Wsm5MUXoHhxTU
+	6ca1CjkGM7vh0JKg66ivwBjGyKPw6am0=
+X-Google-Smtp-Source: AGHT+IETr8gdOGFQRnK4l2RrlEm5Zrn1LIWqKCeSpJHKONsDKeDkSC7d75WRxHbCjbqDQKihup5wtmqpOzLWaMvwMsc=
+X-Received: by 2002:a17:907:1c08:b0:ad2:3f54:1834 with SMTP id
+ a640c23a62f3a-adb36c0afdfmr1340514066b.40.1748903601047; Mon, 02 Jun 2025
+ 15:33:21 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Mon, 2 Jun 2025 17:33:20 -0500
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Mon, 2 Jun 2025 17:33:20 -0500
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+Reply-To: dan@adlercapital.us
+X-Gmail-Original-Message-ID: <CALKwW5opS5xYzkxtmYXnkSDhS9xLZ1f_QUXXWVKG7eD8QVOQ7Q@mail.gmail.com>
+X-Gm-Features: AX0GCFv_vw7aDM2SiRMjxD-iO5V7M0e1WPDVnx6AM1Se2ZHZSjm1FZCvUsMAUvg
+Message-ID: <CALKwW5opS5xYzkxtmYXnkSDhS9xLZ1f_QUXXWVKG7eD8QVOQ7Q@mail.gmail.com>
+Subject: Refinancing 11956 Sw 241st Ter - Term Sheet
+To: Carolina Bustos <carolina121187@gmail.com>
+Content-Type: multipart/alternative; boundary="000000000000e30f3806369e5907"
+Date: Mon, 02 Jun 2025 22:33:21 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=Vv1xAP2n c=1 sm=1 tr=0 ts=683e26b1 a=Qeh2+HkFnPLHg4IF/vQzOA==:117 a=MKtGQD3n3ToA:10 a=6IFa9wvqVegA:10 a=lFKJgX85bOAA:10 a=QfPPe0mAAAAA:8 a=7GFaEUILDctVQDxLzmUA:9 a=QEXdDO2ut3YA:10 a=-FEs8UIgK8oA:10 a=g8kNmUVFAAAA:8 a=-aevUEU0pTx7CJt9xVAA:9 a=pYal92481T9C9EcV:21 a=lqcHg5cX4UMA:10 a=c2IylcifZW9d1pycYBjo:22 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=-rxLf30tfuisdI1uDDNj:22
+X-CM-Envelope: MS4xfG+7vILP1iir8vO2gdHC0noUjoxB6Q3MHcdwoYYjd004k8uCVSz0LK0OxPpwP6sOUbQvX9Cp4kkOIweXAI9QiLUoeLY0ePyNIw8LIP5vUmuUqpdJZ3Qg oZTE8+B5/o0phUu4j1J5mNz++UGZZioFDymcXpENiUUxbCFeANErTNBll7A7tN+4PPmCZaNLCIP3KeoN2iNMeOZf1QbIeYv3HcY=
+X-AuthUser: dan@adlercapital.info
+
+--000000000000e30f3806369e5907
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Carolina,
+
+Any plans to refinance *11956 Sw 241st Ter *in the near future?
+
+I=E2=80=99m a Direct Private Lender, and I just financed a similar property
+in Homestead and closed at 6.875% and 65% LTV. I'm hoping to get you
+similar or better terms based on the properties of the financials.
+
+Here=E2=80=99s what I can offer under my DSCR program:
+=E2=80=A2 Up to 85% LTV
+=E2=80=A2 Rates from ~6.5%
+=E2=80=A2 No personal income docs
+=E2=80=A2 Close in 2 weeks on average
+=E2=80=A2 Lending available nationwide
+
+Also, if you=E2=80=99ve got a purchase coming up, I can usually close withi=
+n 2
+weeks of ordering the appraisal - even faster for bridge loans.
+
+Can I reach you at *(305) 988-2180* on Thursday at 1 PM to price out a term
+sheet with all fees outlined?
+It=E2=80=99ll only take about 2=E2=80=935 minutes to go over everything.
+
+Best,
+Dan
+
+*Daniel Adler*
+*Private Lending Advisor*
+*Adler Capital* <https://adlercapital.us/>
+dan@adlercapital.us
+(917) 963-0181
+
+--000000000000e30f3806369e5907
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div di=
+r=3D"ltr">Hi Carolina,<div><br></div><div>Any plans to refinance <b>11956 S=
+w 241st Ter </b>in the near future?</div><div><b><br></b></div><div>I=E2=80=
+=99m a Direct Private Lender, and=C2=A0I just financed a similar property i=
+n=C2=A0Homestead and closed at 6.875% and 65% LTV. I&#39;m hoping to get yo=
+u similar or better terms based on the properties of the financials.=C2=A0<=
+/div><div><br></div><div><div><div>Here=E2=80=99s what I can offer under my=
+ DSCR program:</div><div>=E2=80=A2=C2=A0Up to 85% LTV =C2=A0<br>=E2=80=A2=
+=C2=A0Rates from ~6.5%=C2=A0=C2=A0<br>=E2=80=A2 No personal income docs =C2=
+=A0<br>=E2=80=A2 Close in=C2=A02 weeks on average=C2=A0=C2=A0</div><div>=E2=
+=80=A2 Lending available nationwide</div></div><div><br></div><div>Also, if=
+ you=E2=80=99ve got a purchase coming up, I can usually close within 2 week=
+s of ordering the appraisal=C2=A0- even faster for bridge loans.</div><div>=
+<br></div><div>Can I reach you at <strong>(305) 988-2180</strong> on Thursd=
+ay at 1 PM to price out a term sheet with all fees outlined?<br>
+It=E2=80=99ll only take about 2=E2=80=935 minutes to go over everything.</d=
+iv><div><br></div><div>Best,</div><div>Dan</div><div><br><div><b>Daniel=C2=
+=A0Adler</b></div><div><i>Private Lending Advisor</i></div><div><a href=3D"=
+https://adlercapital.us/" target=3D"_blank"><b>Adler Capital</b></a></div><=
+a href=3D"mailto:dan@adlercapital.us" target=3D"_blank">dan@adlercapital.us=
+</a><div>(917) 963-0181=C2=A0</div></div></div></div></div>
+</div>
+</div>
+</div>
+<img src=3D"https://stads98.amailroute.net/bZgl7Mzc1No-h6ToxKzTq-qLtL8veTUN=
+isTMcpZr9C1xqVpTNamqIebq2pXx67vtNNUSWA8W3_YeZ17zahKOIMgovYpB3P4jRsu5k-3l1Su=
+qjaI1_TqAcxdkNOXZjxYFND90EHFKlFhPVyyIQAltHSEdySaYfXJcub2FGyqF43EajgmKEOXAIL=
+JpmLa5kgqn1-UTNF2esp" alt=3D"">
+
+--000000000000e30f3806369e5907--

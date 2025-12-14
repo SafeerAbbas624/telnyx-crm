@@ -231,9 +231,10 @@ export function DialerScriptPanel({
 
             {hydratedContent ? (
               <div className="bg-white rounded-lg p-4 border">
-                <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-                  {hydratedContent}
-                </div>
+                <div
+                  className="prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: hydratedContent }}
+                />
               </div>
             ) : (
               <div className="bg-white rounded-lg p-4 border text-center text-muted-foreground">

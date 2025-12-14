@@ -22,6 +22,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label'
 import { PowerDialerCallWindow } from './power-dialer-call-window'
 import { ArrowLeft, Play, Pause, User, Phone, Save, Edit2, UserCog, MessageSquare, Mail, PhoneCall, History, Edit3, RotateCcw, Trash2, Tag, X, CheckSquare, Shuffle } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   AlertDialog,
@@ -41,7 +47,7 @@ import { useCallUI } from '@/lib/context/call-ui-context'
 import { useSmsUI } from '@/lib/context/sms-ui-context'
 import { useEmailUI } from '@/lib/context/email-ui-context'
 import { usePhoneNumber } from '@/lib/context/phone-number-context'
-import { useTaskUI } from '@/lib/context/task-ui-context'
+import { QuickTaskPopover } from '@/components/tasks/quick-task-popover'
 
 interface Contact {
   id: string
@@ -62,15 +68,18 @@ interface Contact {
   // Power dialer tracking fields
   dialAttempts?: number
   lastCalledAt?: Date | string
+  __retryCount?: number // Internal retry counter for multi-round dialing
 }
 
 interface CallLine {
   lineNumber: number
   contact: Contact | null
-  status: 'idle' | 'dialing' | 'ringing' | 'connected' | 'hanging_up' | 'ended' // 'ended' = call over, waiting for disposition
+  status: 'idle' | 'dialing' | 'ringing' | 'amd_checking' | 'connected' | 'hanging_up' | 'ended' | 'voicemail' // 'ended' = call over, waiting for disposition
   startedAt?: Date
   callId?: string
+  callControlId?: string // For AMD calls via Call Control API
   callerIdNumber?: string // The number we're using to call
+  amdResult?: 'human' | 'machine' | 'fax' | 'unknown'
 }
 
 // Session history entry - tracks each completed call in this session
@@ -126,6 +135,11 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
   const [tagSearchQuery, setTagSearchQuery] = useState('')
 
+  // AMD (Answering Machine Detection) - Skip voicemails, only connect to live people
+  const [amdEnabled, setAmdEnabled] = useState(true)
+  const amdEnabledRef = useRef(amdEnabled)
+  useEffect(() => { amdEnabledRef.current = amdEnabled }, [amdEnabled])
+
   // Contact panel context for opening contact details
   const { openContactPanel } = useContactPanel()
 
@@ -134,7 +148,6 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const { openSms } = useSmsUI()
   const { openEmail } = useEmailUI()
   const { selectedPhoneNumber } = usePhoneNumber()
-  const { openTask } = useTaskUI()
 
   // Refs for latest state values (to avoid closure issues in setTimeout callbacks)
   const isRunningRef = useRef(isRunning)
@@ -149,6 +162,57 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   useEffect(() => { queueRef.current = queue }, [queue])
   useEffect(() => { callLinesRef.current = callLines }, [callLines])
   useEffect(() => { waitingForDispositionRef.current = waitingForDisposition }, [waitingForDisposition])
+
+  // AMD Helper Functions
+  const initiateAMDCall = async (contact: Contact, fromNumber: string, toNumber: string): Promise<{ callControlId: string } | null> => {
+    try {
+      const response = await fetch('/api/power-dialer/call-with-amd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactId: contact.id,
+          fromNumber,
+          toNumber,
+          listId,
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to initiate AMD call')
+      }
+
+      const data = await response.json()
+      return { callControlId: data.callControlId }
+    } catch (error) {
+      console.error('[PowerDialer AMD] Failed to initiate call:', error)
+      return null
+    }
+  }
+
+  const pollAMDStatus = async (callControlId: string): Promise<{ status: string; amdResult?: string; hangupCause?: string } | null> => {
+    try {
+      const response = await fetch(`/api/power-dialer/amd-status?callControlId=${callControlId}`)
+      if (!response.ok) return null
+      const data = await response.json()
+      if (!data.found) return null
+      return { status: data.status, amdResult: data.amdResult, hangupCause: data.hangupCause }
+    } catch {
+      return null
+    }
+  }
+
+  const cleanupAMDCall = async (callControlId: string) => {
+    try {
+      await fetch('/api/power-dialer/amd-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callControlId, action: 'cleanup' })
+      })
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 
   // Initialize call lines
   useEffect(() => {
@@ -471,8 +535,9 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
     }
 
     // Reload queue from API (all contacts now PENDING and fresh)
+    // Apply exclude filter to remove contacts who got excluded tags during the campaign
     try {
-      const res = await fetch(`/api/power-dialer/lists/${listId}/contacts?status=pending&limit=100`)
+      const res = await fetch(`/api/power-dialer/lists/${listId}/contacts?status=pending&limit=100&applyExcludeFilter=true`)
       if (res.ok) {
         const data = await res.json()
 
@@ -798,6 +863,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         : new Date().toISOString()
 
     // Update in database AND execute new disposition's automation actions
+    // Pass the previous disposition ID so the API can remove old tags before adding new ones
     try {
       const response = await fetch('/api/dialer/disposition', {
         method: 'POST',
@@ -805,6 +871,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         body: JSON.stringify({
           contactId: entry.contact.id,
           dispositionId: newDispositionId,
+          previousDispositionId: entry.dispositionId, // Pass previous disposition to remove its tags
           notes: entry.notes,
           listId,
           calledAt: calledAtStr,
@@ -880,30 +947,283 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
             continue
           }
 
-          // Update line to dialing state
-          setCallLines(prev => {
-            const updated = [...prev]
-            updated[lineIdx] = {
-              ...updated[lineIdx],
-              contact,
-              status: 'dialing',
-              startedAt: new Date(),
-              callerIdNumber
-            }
-            return updated
-          })
-
           // Format phone number for Telnyx
           const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils')
           const toNumber = formatPhoneNumberForTelnyx(contact.phone) || contact.phone
 
-          // Start real WebRTC call
-          const { rtcClient } = await import('@/lib/webrtc/rtc-client')
-          await rtcClient.ensureRegistered()
-          const { sessionId } = await rtcClient.startCall({
-            toNumber,
-            fromNumber: callerIdNumber
-          })
+          // Check if AMD is enabled
+          if (amdEnabledRef.current) {
+            // AMD ENABLED: Use server-side Call Control API with AMD
+            console.log('[PowerDialer AMD] 📞 Initiating AMD call to', contact.firstName, contact.lastName)
+
+            // Update line to dialing state
+            setCallLines(prev => {
+              const updated = [...prev]
+              updated[lineIdx] = {
+                ...updated[lineIdx],
+                contact,
+                status: 'dialing',
+                startedAt: new Date(),
+                callerIdNumber
+              }
+              return updated
+            })
+
+            const amdResult = await initiateAMDCall(contact, callerIdNumber, toNumber)
+            if (!amdResult) {
+              console.error('[PowerDialer AMD] Failed to initiate AMD call')
+              setCallLines(prev => prev.map((line, idx) =>
+                idx === lineIdx ? { ...line, contact: null, status: 'idle' as const } : line
+              ))
+              continue
+            }
+
+            const { callControlId } = amdResult
+            console.log('[PowerDialer AMD] Call initiated, callControlId:', callControlId)
+
+            // Update line with callControlId
+            setCallLines(prev => prev.map((line, idx) =>
+              idx === lineIdx ? { ...line, callControlId, status: 'ringing' as const } : line
+            ))
+
+            // Poll for AMD result
+            const pollInterval = 500 // Poll every 500ms
+            const maxPollTime = 45000 // Max 45 seconds
+            const pollStartTime = Date.now()
+
+            const pollForResult = async () => {
+              // Check if we should stop polling
+              if (!isRunningRef.current || isPausedRef.current) {
+                console.log('[PowerDialer AMD] Polling stopped - dialer paused/stopped')
+                cleanupAMDCall(callControlId)
+                return
+              }
+
+              const status = await pollAMDStatus(callControlId)
+
+              if (!status) {
+                // Call not found or error - might have been cleaned up
+                console.log('[PowerDialer AMD] Call not found, cleaning up line')
+                setCallLines(prev => prev.map((line, idx) =>
+                  idx === lineIdx && line.callControlId === callControlId
+                    ? { ...line, contact: null, status: 'idle' as const, callControlId: undefined }
+                    : line
+                ))
+                return
+              }
+
+              console.log('[PowerDialer AMD] Poll result:', status.status, 'for', contact.firstName)
+
+              // Update line status based on AMD status
+              if (status.status === 'ringing') {
+                setCallLines(prev => prev.map((line, idx) =>
+                  idx === lineIdx && line.callControlId === callControlId
+                    ? { ...line, status: 'ringing' as const }
+                    : line
+                ))
+              } else if (status.status === 'amd_checking' || status.status === 'answered') {
+                setCallLines(prev => prev.map((line, idx) =>
+                  idx === lineIdx && line.callControlId === callControlId
+                    ? { ...line, status: 'amd_checking' as const }
+                    : line
+                ))
+              }
+
+              if (status.status === 'human_detected') {
+                // HUMAN DETECTED! Connect via WebRTC
+                console.log('[PowerDialer AMD] 🟢 HUMAN DETECTED for', contact.firstName, '- connecting WebRTC')
+
+                // Connect WebRTC to the live call
+                const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+                await rtcClient.ensureRegistered()
+                const { sessionId } = await rtcClient.startCall({
+                  toNumber,
+                  fromNumber: callerIdNumber
+                })
+
+                // Update line to connected
+                setCallLines(prev => {
+                  // First-answer-wins: hang up other ringing/dialing lines
+                  const otherLines = prev.filter(l =>
+                    l.callControlId !== callControlId &&
+                    (l.status === 'ringing' || l.status === 'dialing' || l.status === 'amd_checking')
+                  )
+
+                  if (otherLines.length > 0) {
+                    console.log('[PowerDialer AMD] Hanging up', otherLines.length, 'other lines (first-answer-wins)')
+                    otherLines.forEach(line => {
+                      if (line.callControlId) {
+                        cleanupAMDCall(line.callControlId)
+                      }
+                    })
+                  }
+
+                  return prev.map((line, idx) => {
+                    if (idx === lineIdx && line.callControlId === callControlId) {
+                      return { ...line, callId: sessionId, status: 'connected' as const, amdResult: 'human' }
+                    } else if (line.status === 'ringing' || line.status === 'dialing' || line.status === 'amd_checking') {
+                      return { ...line, contact: null, status: 'idle' as const, callControlId: undefined }
+                    }
+                    return line
+                  })
+                })
+
+                setConnectedLine(lineIdx + 1)
+                setDispositionNotes('')
+
+                // Log the call to database
+                fetch('/api/telnyx/webrtc-calls', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    webrtcSessionId: sessionId,
+                    contactId: contact.id,
+                    fromNumber: callerIdNumber,
+                    toNumber,
+                  })
+                }).catch(err => console.error('[PowerDialer AMD] Failed to log call:', err))
+
+                // Listen for call end
+                const handleCallUpdate = (event: any) => {
+                  const callId = event?.callId || event?.call?.callId
+                  if (callId !== sessionId) return
+                  const state = event?.state || event?.call?.state
+                  if (state === 'hangup' || state === 'destroy' || state === 'bye') {
+                    console.log('[PowerDialer AMD] 🔴 Call ENDED for', contact.firstName)
+                    setCallLines(prev => prev.map(line =>
+                      line.callId === sessionId ? { ...line, status: 'ended' as const } : line
+                    ))
+                    rtcClient.off('callUpdate', handleCallUpdate)
+                  }
+                }
+                rtcClient.on('callUpdate', handleCallUpdate)
+
+                cleanupAMDCall(callControlId)
+                return // Stop polling
+              }
+
+              if (status.status === 'voicemail') {
+                // VOICEMAIL DETECTED - Skip this contact
+                console.log('[PowerDialer AMD] 📵 VOICEMAIL detected for', contact.firstName, '- skipping')
+
+                // Add to session history as voicemail
+                const voicemailDispo = dispositions.find(d =>
+                  d.name.toLowerCase().includes('voicemail') ||
+                  d.name.toLowerCase().includes('no answer')
+                )
+
+                const historyEntry: SessionHistoryEntry = {
+                  id: `${Date.now()}-${contact.id}-${lineIdx}`,
+                  contact,
+                  calledAt: new Date(),
+                  dispositionId: voicemailDispo?.id || '',
+                  dispositionName: 'Voicemail',
+                  dispositionColor: voicemailDispo?.color || '#9333ea',
+                  notes: 'Voicemail detected by AMD',
+                  callerIdNumber
+                }
+                setSessionHistory(prevHistory => [historyEntry, ...prevHistory])
+
+                // Clear the line
+                setCallLines(prev => prev.map((line, idx) =>
+                  idx === lineIdx && line.callControlId === callControlId
+                    ? { ...line, contact: null, status: 'idle' as const, callControlId: undefined, amdResult: 'machine' }
+                    : line
+                ))
+
+                cleanupAMDCall(callControlId)
+
+                // AUTO-CONTINUE: Dial the next contact after voicemail is skipped
+                if (isRunningRef.current && !isPausedRef.current) {
+                  console.log('[PowerDialer AMD] ▶️ Auto-continuing to next contact after voicemail...')
+                  setTimeout(() => startDialingBatch(), 300)
+                }
+                return // Stop polling
+              }
+
+              if (status.status === 'no_answer' || status.status === 'busy' || status.status === 'failed' || status.status === 'ended') {
+                // Call ended without answer
+                console.log('[PowerDialer AMD] 📵 Call ended:', status.status, 'for', contact.firstName)
+
+                const noAnswerDispo = dispositions.find(d =>
+                  d.name.toLowerCase().includes('no answer') ||
+                  d.name.toLowerCase().includes('retry')
+                )
+
+                const historyEntry: SessionHistoryEntry = {
+                  id: `${Date.now()}-${contact.id}-${lineIdx}`,
+                  contact,
+                  calledAt: new Date(),
+                  dispositionId: noAnswerDispo?.id || '',
+                  dispositionName: status.status === 'busy' ? 'Busy' : 'No Answer',
+                  dispositionColor: noAnswerDispo?.color || '#6b7280',
+                  notes: `Call ended: ${status.hangupCause || status.status}`,
+                  callerIdNumber
+                }
+                setSessionHistory(prevHistory => [historyEntry, ...prevHistory])
+
+                // Clear the line
+                setCallLines(prev => prev.map((line, idx) =>
+                  idx === lineIdx && line.callControlId === callControlId
+                    ? { ...line, contact: null, status: 'idle' as const, callControlId: undefined }
+                    : line
+                ))
+
+                cleanupAMDCall(callControlId)
+
+                // AUTO-CONTINUE: Dial the next contact after no answer/busy/failed
+                if (isRunningRef.current && !isPausedRef.current) {
+                  console.log('[PowerDialer AMD] ▶️ Auto-continuing to next contact after', status.status)
+                  setTimeout(() => startDialingBatch(), 300)
+                }
+                return // Stop polling
+              }
+
+              // Continue polling if not timed out
+              if (Date.now() - pollStartTime < maxPollTime) {
+                setTimeout(pollForResult, pollInterval)
+              } else {
+                console.log('[PowerDialer AMD] Polling timed out for', contact.firstName)
+                cleanupAMDCall(callControlId)
+                setCallLines(prev => prev.map((line, idx) =>
+                  idx === lineIdx && line.callControlId === callControlId
+                    ? { ...line, contact: null, status: 'idle' as const, callControlId: undefined }
+                    : line
+                ))
+
+                // AUTO-CONTINUE: Dial the next contact after timeout
+                if (isRunningRef.current && !isPausedRef.current) {
+                  console.log('[PowerDialer AMD] ▶️ Auto-continuing to next contact after timeout...')
+                  setTimeout(() => startDialingBatch(), 300)
+                }
+              }
+            }
+
+            // Start polling
+            setTimeout(pollForResult, pollInterval)
+
+          } else {
+            // AMD DISABLED: Use direct WebRTC (original behavior)
+            // Update line to dialing state
+            setCallLines(prev => {
+              const updated = [...prev]
+              updated[lineIdx] = {
+                ...updated[lineIdx],
+                contact,
+                status: 'dialing',
+                startedAt: new Date(),
+                callerIdNumber
+              }
+              return updated
+            })
+
+            // Start real WebRTC call
+            const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+            await rtcClient.ensureRegistered()
+            const { sessionId } = await rtcClient.startCall({
+              toNumber,
+              fromNumber: callerIdNumber
+            })
 
           console.log('[PowerDialer] 📞 Started call to', contact.firstName, contact.lastName, 'sessionId:', sessionId)
 
@@ -926,18 +1246,90 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
 
           // Listen for call events
           const handleCallUpdate = (event: any) => {
-            const callId = event?.call?.callId || event?.call?.id
+            // State is directly on the event, not on event.call
+            const callId = event?.callId || event?.call?.callId || event?.call?.id
+
+            // Validate that we have a call ID
+            if (!callId) {
+              console.warn('[PowerDialer] Received call event without call ID:', event)
+              return
+            }
+
             if (callId !== sessionId) return
 
-            const state = event?.call?.state
-            console.log('[PowerDialer] Call state update:', state, 'for', contact.firstName)
+            // State is directly on event (from rtc-client emit) OR on event.call (from telnyx raw)
+            const state = event?.state || event?.call?.state
+
+            // Validate that we have a state
+            if (!state) {
+              console.warn('[PowerDialer] Received call event without state for callId:', callId, event)
+              return
+            }
+
+            console.log('[PowerDialer] Call state update:', state, 'for', contact.firstName, 'callId:', callId)
 
             if (state === 'active' || state === 'answering') {
-              // Call connected
+              // Call connected - first-answer-wins logic
+              console.log('[PowerDialer] 🟢 Call CONNECTED for', contact.firstName)
+
+              // First, hang up all other ringing/dialing lines (first-answer-wins)
               setCallLines(prev => {
-                const updated = prev.map(line =>
-                  line.callId === sessionId ? { ...line, status: 'connected' as const } : line
+                const otherRingingLines = prev.filter(l =>
+                  l.callId !== sessionId &&
+                  (l.status === 'ringing' || l.status === 'dialing')
                 )
+
+                // Hang up other ringing calls via WebRTC and add them to session history
+                if (otherRingingLines.length > 0) {
+                  console.log('[PowerDialer] 🔴 Hanging up', otherRingingLines.length, 'other ringing lines (first-answer-wins)')
+
+                  // Find default "No Answer" disposition for the hung-up lines
+                  const noAnswerDispo = dispositions.find(d =>
+                    d.name.toLowerCase().includes('no answer') ||
+                    d.name.toLowerCase().includes('retry')
+                  )
+
+                  otherRingingLines.forEach(async (line) => {
+                    if (line.callId) {
+                      try {
+                        rtcClient.hangup(line.callId).catch(err =>
+                          console.error('[PowerDialer] Failed to hangup other line:', err)
+                        )
+                      } catch (e) {
+                        console.error('[PowerDialer] Error hanging up line:', line.lineNumber, e)
+                      }
+                    }
+
+                    // Add to session history as "No Answer" (never connected because another line answered first)
+                    if (line.contact) {
+                      const historyEntry: SessionHistoryEntry = {
+                        id: `${Date.now()}-${line.contact.id}-${line.lineNumber}`,
+                        contact: line.contact,
+                        calledAt: new Date(),
+                        dispositionId: noAnswerDispo?.id || '', // Empty string if no "No Answer" disposition found
+                        dispositionName: noAnswerDispo?.name || 'No Answer',
+                        dispositionColor: noAnswerDispo?.color || '#6b7280',
+                        notes: '', // No notes for auto-hung-up calls
+                        callerIdNumber: line.callerIdNumber
+                      }
+                      setSessionHistory(prevHistory => [historyEntry, ...prevHistory])
+                    }
+                  })
+                }
+
+                // Update all lines: connected line gets 'connected', other ringing lines get hung up and cleared immediately
+                // We clear them immediately (not with a delay) so they're available for the next batch after disposition
+                const updated = prev.map(line => {
+                  if (line.callId === sessionId) {
+                    return { ...line, status: 'connected' as const }
+                  } else if (line.status === 'ringing' || line.status === 'dialing') {
+                    // Clear immediately - these were automatically hung up by first-answer-wins
+                    // They don't need disposition since they never connected
+                    return { ...line, contact: null, status: 'idle' as const, callId: undefined, callerIdNumber: undefined }
+                  }
+                  return line
+                })
+
                 const connectedIdx = updated.findIndex(l => l.callId === sessionId)
                 if (connectedIdx !== -1) {
                   setConnectedLine(updated[connectedIdx].lineNumber)
@@ -947,6 +1339,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               })
             } else if (state === 'hangup' || state === 'destroy' || state === 'bye') {
               // Call ended - mark as ended (waiting for disposition)
+              console.log('[PowerDialer] 🔴 Call ENDED for', contact.firstName)
               setCallLines(prev => prev.map(line =>
                 line.callId === sessionId ? { ...line, status: 'ended' as const } : line
               ))
@@ -955,6 +1348,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
           }
 
           rtcClient.on('callUpdate', handleCallUpdate)
+          } // End of else block (AMD disabled)
 
         } catch (err: any) {
           console.error('[PowerDialer] ❌ Failed to start call:', err)
@@ -1058,6 +1452,35 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
             </Select>
           </div>
 
+          {/* AMD Toggle - Voicemail Detection */}
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+              <span className="text-base">🔍</span> AMD:
+            </Label>
+            <button
+              onClick={() => setAmdEnabled(!amdEnabled)}
+              disabled={isRunning && !isPaused}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2",
+                amdEnabled ? "bg-cyan-600 focus:ring-cyan-500" : "bg-gray-300 focus:ring-gray-400",
+                (isRunning && !isPaused) && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  amdEnabled ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+            <span className={cn(
+              "text-xs",
+              amdEnabled ? "text-cyan-700 font-medium" : "text-gray-500"
+            )}>
+              {amdEnabled ? "Skip Voicemails" : "Off"}
+            </span>
+          </div>
+
           <div className="h-6 w-px bg-gray-300" />
 
           {!isRunning ? (
@@ -1141,22 +1564,20 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                     openContactPanel(line.contact.id)
                   }
                 }}
-                onCreateTask={() => {
-                  if (line.contact) {
-                    openTask({
-                      contact: {
-                        id: line.contact.id,
-                        firstName: line.contact.firstName,
-                        lastName: line.contact.lastName
-                      },
-                      subject: 'Follow up call',
-                      taskType: 'Call',
-                      description: `Follow up from power dialer call`
-                    })
-                  }
-                }}
-                onHangup={() => {
+                onHangup={async () => {
                   console.log('[PowerDialer] 📴 Hanging up line', line.lineNumber, '- keeping contact visible for disposition')
+
+                  // Actually hang up the WebRTC call
+                  if (line.callId) {
+                    try {
+                      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+                      await rtcClient.hangup(line.callId)
+                      console.log('[PowerDialer] ✅ WebRTC call hung up successfully for line', line.lineNumber)
+                    } catch (err) {
+                      console.error('[PowerDialer] ❌ Error hanging up WebRTC call:', err)
+                    }
+                  }
+
                   setWaitingForDisposition(true)
                   setCallLines(prev => prev.map(l =>
                     l.lineNumber === line.lineNumber
@@ -1467,6 +1888,14 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                                 )}
                               </div>
                             </div>
+                            {/* Quick Task Button */}
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <QuickTaskPopover
+                                contactId={contact.id}
+                                contactName={`${contact.firstName || ''} ${contact.lastName || ''}`.trim()}
+                                className="h-6 w-6 hover:bg-cyan-100 flex-shrink-0 self-start mt-1"
+                              />
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -1620,27 +2049,81 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                             >
                               <UserCog className="h-3.5 w-3.5 text-blue-600" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0 hover:bg-green-100"
-                              title="Call again"
-                              onClick={() => {
+                            {/* Call again - with dropdown for multiple phones */}
+                            {(() => {
+                              const phones = [
+                                { label: 'Primary', number: entry.contact.phone },
+                                entry.contact.phone2 ? { label: 'Cell/Alt', number: entry.contact.phone2 } : null,
+                                entry.contact.phone3 ? { label: 'Other', number: entry.contact.phone3 } : null,
+                              ].filter(Boolean) as { label: string; number: string }[]
+
+                              const makeCall = async (toNumber: string) => {
                                 const fromNumber = entry.callerIdNumber || selectedPhoneNumber?.phoneNumber || ''
-                                if (fromNumber && entry.contact.phone) {
-                                  openCall({
-                                    contact: { id: entry.contact.id, firstName: entry.contact.firstName, lastName: entry.contact.lastName },
-                                    fromNumber,
-                                    toNumber: entry.contact.phone,
-                                    mode: 'call_control'
-                                  })
+                                if (fromNumber && toNumber) {
+                                  try {
+                                    const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+                                    await rtcClient.ensureRegistered()
+                                    const { sessionId } = await rtcClient.startCall({ fromNumber, toNumber })
+                                    openCall({
+                                      contact: { id: entry.contact.id, firstName: entry.contact.firstName, lastName: entry.contact.lastName },
+                                      fromNumber,
+                                      toNumber,
+                                      mode: 'webrtc',
+                                      webrtcSessionId: sessionId,
+                                    })
+                                    toast.success(`Calling ${entry.contact.firstName}...`)
+                                  } catch (error: any) {
+                                    console.error('[PowerDialer] Call again error:', error)
+                                    toast.error(error.message || 'Failed to initiate call')
+                                  }
                                 } else {
                                   toast.error('No phone number available')
                                 }
-                              }}
-                            >
-                              <PhoneCall className="h-3.5 w-3.5 text-green-600" />
-                            </Button>
+                              }
+
+                              // If only one phone, simple button
+                              if (phones.length <= 1) {
+                                return (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 w-6 p-0 hover:bg-green-100"
+                                    title="Call again"
+                                    onClick={() => phones[0] && makeCall(phones[0].number)}
+                                  >
+                                    <PhoneCall className="h-3.5 w-3.5 text-green-600" />
+                                  </Button>
+                                )
+                              }
+
+                              // Multiple phones - show dropdown
+                              return (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-green-100"
+                                      title="Call again (click for options)"
+                                    >
+                                      <PhoneCall className="h-3.5 w-3.5 text-green-600" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-48">
+                                    {phones.map((p, idx) => (
+                                      <DropdownMenuItem
+                                        key={idx}
+                                        onClick={() => makeCall(p.number)}
+                                        className="cursor-pointer"
+                                      >
+                                        <Phone className="h-3 w-3 mr-2" />
+                                        <span className="text-xs">{p.label}: {p.number}</span>
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )
+                            })()}
                             <Button
                               size="sm"
                               variant="ghost"
@@ -1675,6 +2158,12 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                             >
                               <Mail className="h-3.5 w-3.5 text-orange-600" />
                             </Button>
+                            {/* Quick Task button */}
+                            <QuickTaskPopover
+                              contactId={entry.contact.id}
+                              contactName={`${entry.contact.firstName || ''} ${entry.contact.lastName || ''}`.trim()}
+                              className="h-6 w-6 hover:bg-cyan-100"
+                            />
                           </div>
                         </div>
                       </CardContent>

@@ -1,0 +1,198 @@
+ARC-Seal: i=2; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=pass;
+ b=tw/A5De5zgwhZrFxC8Y+My7sjFR0VYNc7qLWka1q8NISs55BK7mZii1bf4JzJGL0jJeWV527Nsk2HoyRGHnOpCoAxIDbMiEEXa3jEpI6FD666hEvlzIUSObdzbnHt/Ak6JgxFX8+8htf6bXSd4WaG9AxI0RAfNn2vhjVJd3LIeL4dZUf7no3RKC/hgRKDTV4QuGl8eCyUAPVtLDl4nGK8WETIrkzYE0fISsqe6ySyEzowxRYVNjw51DbcaF7M52TSIl16pd/lwqD0S9kvch3TOsYWuWDGOeQO+00/gfcuXD8e5LX3WES3VmwCjeDp5hi+HmumYbR7vPibxhYE2WFCg==
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=coCZx7NOxwT9K+hAPV0XaegJgbhDV0yyemeHfHTHAzk=;
+ b=hh2vWAPdsqcGlmgCstZetPpwCEUryOn+1Q5uOu/dak2ywftiTPnqjEi/p0Tob5a38/pwoTbzhr1eow/4oMrEkS2/nGmB010WVMAWj52NksVVwiUropuS2OmTnJx9f6HIwIov9h9Qg/w5YOEF3Qo5GMb3svGihljepSz53t22hhK3qE0KYbUY5ka1GrQqWcQLXlj0Z1N6yUhYlyby2VQI2IiMMlOESUgclsCVl1l1ItTJcNWsjoq1gfEBYRfi60gnIESmkWADzjXZ9izGcIoI6oVP6/EWWq5WxUpTU+HYxP2A4cA4ttnUReWXXAcNinx0Fhihshav4izfjtsTtBqtEQ==
+ARC-Authentication-Results: i=2; mx.microsoft.com 1; spf=pass (sender ip is
+ 23.83.209.51) smtp.rcpttodomain=msn.com smtp.mailfrom=adlercapital.info;
+ dmarc=pass (p=none sp=none pct=100) action=none
+ header.from=adlercapital.info; dkim=pass (signature was verified)
+ header.d=adlercapital.info; arc=pass (0 oda=0 ltdi=0 93)
+Received: from BY5PR17CA0067.namprd17.prod.outlook.com (2603:10b6:a03:167::44)
+ by SA6PR17MB7480.namprd17.prod.outlook.com (2603:10b6:806:432::17) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.8678.31; Wed, 30 Apr
+ 2025 16:05:02 +0000
+Received: from SJ1PEPF000023D5.namprd21.prod.outlook.com
+ (2603:10b6:a03:167:cafe::99) by BY5PR17CA0067.outlook.office365.com
+ (2603:10b6:a03:167::44) with Microsoft SMTP Server (version=TLS1_3,
+ cipher=TLS_AES_256_GCM_SHA384) id 15.20.8655.40 via Frontend Transport; Wed,
+ 30 Apr 2025 16:05:02 +0000
+Authentication-Results: spf=pass (sender IP is 23.83.209.51)
+ smtp.mailfrom=adlercapital.info; dkim=pass (signature was verified)
+ header.d=adlercapital.info;dmarc=pass action=none
+ header.from=adlercapital.info;
+Received-SPF: Pass (protection.outlook.com: domain of adlercapital.info
+ designates 23.83.209.51 as permitted sender) receiver=protection.outlook.com;
+ client-ip=23.83.209.51; helo=dragonfly.birch.relay.mailchannels.net; pr=C
+Received: from dragonfly.birch.relay.mailchannels.net (23.83.209.51) by
+ SJ1PEPF000023D5.mail.protection.outlook.com (10.167.244.70) with Microsoft
+ SMTP Server (version=TLS1_3, cipher=TLS_AES_256_GCM_SHA384) id 15.20.8722.2
+ via Frontend Transport; Wed, 30 Apr 2025 16:05:01 +0000
+X-IncomingTopHeaderMarker: OriginalChecksum:F93A92B2D2F4DCAD40B5624ADD3C55F240A0F452B3F896ADBF1A61FE9B00B1A3;UpperCasedChecksum:4A7A29529521966D6310B634BF90E5F58462D1F886BDB0596B9B380CE09E9F88;SizeAsReceived:5576;Count:36
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 1985E8A4295
+	for <jfabius@msn.com>; Wed, 30 Apr 2025 16:05:01 +0000 (UTC)
+Received: from uk-fast-smtpout5.hostinger.io (trex-8.trex.outbound.svc.cluster.local [100.117.24.235])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 6098F8A391B
+	for <jfabius@msn.com>; Wed, 30 Apr 2025 16:05:00 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1746029100; a=rsa-sha256;
+	cv=none;
+	b=6TrkPU+aNJXHsQnAae4hXj9kU45T6kBygLIjM/ZuOV+Pb3onWxfmQUhlV6egwBr4RgKwuP
+	LcjkW7d341gtU6EL6bu1tQ4973IuIZYJp0Nx3lGuFiO+idkpCGBQ+Li0M20O2cHIp0vFv8
+	JPseNi2ddimMXqOjt+Qma0GPnTe1iL0b2QuMZawhF/Mt/YYhJYxI5VHDZyZdTTj6jgusaH
+	RzMpkDlIYlqhdyvGLXgagkjKPJPWqQRXGkhC6PH8cqxAD8LNNoSL4z5rAB3mrvre2d2rIj
+	TpZv5RKgXvpuVgFmuodkilacdaD0qDWDJkjQq/85jWLDNqJPGeyomdNp++8XgA==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1746029100;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to:references:references:dkim-signature;
+	bh=coCZx7NOxwT9K+hAPV0XaegJgbhDV0yyemeHfHTHAzk=;
+	b=fqP89KsuGoAgKNx4kFh73mzNGgQXAUwThp5j3W9OgRxu/3EnOEoqQdot038ExG033povxb
+	HfjZuRPHrBqcYfz6MYgnAmAJNC2ajQbIpADj3XuWdj+DZYLigxlLDLy3dQb/Z0L5plqA+x
+	iFFKba41XWtiNDRph7GbYIOAs9/fhNxISe07vCSKChzNO8HSTXVTMSmH5y2y6Cf08U43rH
+	J45sGxDR4OXxzAD9UimKKZcJ5xW2SWmVet7ulRvmkOW2A4ZtnUu7B9ANX++GKjbuOjT82f
+	tBP8phz7KPypmBqTi4fX/dfjMjN8mpFgbaiD8DG2bbr01c+GmiMZtXpiZdeuNw==
+ARC-Authentication-Results: i=1;
+	rspamd-684646cf5b-6rnwh;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Rock-Abortive: 37d6a25512f5a24b_1746029100942_2071199370
+X-MC-Loop-Signature: 1746029100941:2124408248
+X-MC-Ingress-Time: 1746029100941
+Received: from uk-fast-smtpout5.hostinger.io (uk-fast-smtpout5.hostinger.io
+ [31.220.23.74])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.117.24.235 (trex/7.0.3);
+	Wed, 30 Apr 2025 16:05:00 +0000
+Received: from mail-ej1-f54.google.com (mail-ej1-f54.google.com [209.85.218.54])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4ZnhpZ3BrFz5ZBlB
+	for <jfabius@msn.com>; Wed, 30 Apr 2025 16:04:54 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1746029095;
+	h=from:from:reply-to:subject:subject:date:date:message-id:message-id:
+	 to:to:cc:mime-version:mime-version:content-type:content-type:
+	 in-reply-to:in-reply-to:references:references;
+	bh=coCZx7NOxwT9K+hAPV0XaegJgbhDV0yyemeHfHTHAzk=;
+	b=D7Wt1J6jRsi/q8uiSMhKa0ctksHxqRR6VWwHYyC2KSaXt9xKefiBGJZVcL8BQT1ToW1WO7
+	ZvFjSIsM/WVY5Mi5nFkSGZIVWOiM/lu95HS0WQdwUj5KYqGxrbwfPsMqhbcO1BFS7ObOfc
+	gZxKxdsomtER2BLe4kCjp0PKM5PcsncYZXJHj3ANTajSmlRKMEQOHDLGV3PXg7riFY5N4t
+	r8fZgp/DEUYAPXVs98zOOFhvGz7ieC8g1lqwYIK7wKyQCdrNt6us9Qvf/34igeR+m41dNz
+	wOL0gR6J/nXxHgf+HmieR03d+dGsBzgOuX9YQlZT9OaOYLXdJOdTVjnxvJ284Q==
+Received: by mail-ej1-f54.google.com with SMTP id a640c23a62f3a-acae7e7587dso1095875166b.2
+        for <jfabius@msn.com>; Wed, 30 Apr 2025 09:04:54 -0700 (PDT)
+X-Gm-Message-State: AOJu0Yz/aMyb5qnidSU24m3lWtYntt/pHcr/F9VUNqtX2rKtdoqoS0JJ
+	kF+KnVFWst44yGR1djSl8yzv8M5CxlUUQSYVGVY4qlUtIhvZjZrHGgT1VP5npr9GiOtydsa/f75
+	1WCX1eetX3RhDoesrtIf7nO361hA=
+X-Google-Smtp-Source: AGHT+IHceGretUcj9Q7FV/8m2uLp9Zb/2CFZB52RRQKVW6xx6A9GEnLr583VHcnVuKL4cj3ultESCTe/GrtApkNK3FA=
+X-Received: by 2002:a17:907:9724:b0:acb:6746:8769 with SMTP id
+ a640c23a62f3a-acedc5e1130mr409710266b.18.1746029093443; Wed, 30 Apr 2025
+ 09:04:53 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 12:04:52 -0400
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 12:04:52 -0400
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+In-Reply-To: <CALKwW5oMkLbVWtWWh8THcwfgJGA1nHcp4t2MXC4kKSvnH-5uEw@mail.gmail.com>
+References: <CALKwW5oMkLbVWtWWh8THcwfgJGA1nHcp4t2MXC4kKSvnH-5uEw@mail.gmail.com>
+X-Gmail-Original-Message-ID: <CALKwW5qGJgC4N6r4ZzRbXhvZbVRsvM2fMdbVPga_RcTPWLoveg@mail.gmail.com>
+X-Gm-Features: ATxdqUFNmoEF2LeltH15DbHP37pFEow6F8BNvwsUa1kQ9YWF5A3lD1rVNnMEuFk
+Message-ID: <CALKwW5qGJgC4N6r4ZzRbXhvZbVRsvM2fMdbVPga_RcTPWLoveg@mail.gmail.com>
+Subject: Re: Refinancing 20 Nw 59th St - Term Sheet
+To: Jean Fabius <jfabius@msn.com>
+Content-Type: multipart/alternative; boundary="000000000000e1e3c706340113e2"
+Date: Wed, 30 Apr 2025 16:04:54 +0000 (UTC)
+X-CM-Envelope: MS4xfE3LLhxIKrVFW9p3T/COXvdcnF/lPuTNT/qlHbERyAb0kYouGKg8VsvQw2NdE5PGj4/8R2xhLuoutkqY14cfz6Zk8tDKf4+1hXstTl0mji/ug32kwiW2 IQ1Txl1x/n6AsT3O3paJXw4OMtPHiA9Idt6cQGE1WJW43fzM39vT0Takmmb3Njat9yg7m3fbQ9vwIaPA5mp20aHUDqdZtxBlHcM=
+X-CM-Analysis: v=2.4 cv=IrhMc6/g c=1 sm=1 tr=0 ts=68124a27 a=P7SCm5FBaGkOUgmNSK28lg==:117 a=MKtGQD3n3ToA:10 a=XR8D0OoHHMoA:10 a=lFKJgX85bOAA:10 a=oTHh2SbqC5VLe0TgH_8A:9 a=QEXdDO2ut3YA:10 a=g8kNmUVFAAAA:8 a=wIdLm0aqXn2eMGNW7ToA:9 a=3ILcpJuVv2OZ-9tz:21 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=XBCFus3eppDTG1vohfyV:22
+X-AuthUser: dan@adlercapital.info
+X-IncomingHeaderCount: 36
+Return-Path: dan@adlercapital.info
+X-EOPAttributedMessage: 0
+X-EOPTenantAttributedMessage: 84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa:0
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: SJ1PEPF000023D5:EE_|SA6PR17MB7480:EE_
+X-MS-Office365-Filtering-Correlation-Id: 56222d2b-717a-4ebf-06df-08dd8800c38e
+X-MS-Exchange-EOPDirect: true
+X-Sender-IP: 23.83.209.51
+X-SID-PRA: DAN@ADLERCAPITAL.INFO
+X-SID-Result: PASS
+X-Microsoft-Antispam:
+ BCL:0;ARA:1444111002|42200799015|2500799015|56000799018|32000799015|461199028|13020799006|9000799050|3412199025|440099028|13082799006|1370799030|1360799030|1380799030|56899033;
+X-Microsoft-Antispam-Message-Info:
+ =?us-ascii?Q?bZSaIZ/kHxpKpXnVAAvFpy+OGPPNn0h121fnhtH8dVYarWa9mRVjS0V35Pjo?=
+ =?us-ascii?Q?hjTmR9V8QpcnmTAvy1pb90mCxwkKeIPK8MdqRrKDH5DOePm+hsXj9NJ90zT5?=
+ =?us-ascii?Q?PB7MJGZmSTWuqBEVKU1H1O1CZhtNUoelA+uhlLizVx7LKUFtycxVjjKvtp1E?=
+ =?us-ascii?Q?l4fwkxZrktWDupJFZXuAvzwoTryJBUhmF0o+DqdC5XluAIrL96srvGYwtTsc?=
+ =?us-ascii?Q?wgrzGqoRI5OWqHuVbpbrqVWoVvZrebkXvoh95Ki99JMXWszkIOy4R7pFuFxI?=
+ =?us-ascii?Q?FHfTogRkMlyKq5iIA8M19x7c6DhKE7mqc02VjnpyoYoj0WbTOcvfIk5EFm0Q?=
+ =?us-ascii?Q?3zIU+rQm/4Xh15LNNa0KY4n9F1w+jkX3tCD4fYZOrp/kps496otQOAx7FPKN?=
+ =?us-ascii?Q?K9u4adthZbkxXdSDbKBxm5HzMClLpTDOmPyLLt6hkWNuLLmBw1Tk9ZhP9zu3?=
+ =?us-ascii?Q?GuK0a6L5vrElebeQCJpoSGrucBq2skLsg607rc0IVE2JWVc898jhDTQr+c8y?=
+ =?us-ascii?Q?OmEMfKvG7BDl26+rXmlDCv37e1BvpbYwp8xG09raaUnBQtfA5ZTV+9aw4Vjt?=
+ =?us-ascii?Q?br2BATdbFEMr1ec3E0GCz4/ExrsIv0IQJmprRXW79n/L1Vecnv6GPNhw1Ol7?=
+ =?us-ascii?Q?pirEekckCgfOuw0TOwncv3E0WbkTR1wuh1I669vDomOvEbrLMX/7VwlH+L7l?=
+ =?us-ascii?Q?K6i4IAupP/i3Enfk7oERdWTUbgk6wug2t3wemu+Jw16iufN5Ohsscnq4uN01?=
+ =?us-ascii?Q?W97qGzp2c4eLomHpMW5xH5uBpIj/qM4qNFsVbLHm//IdzcUieUh/vPIh78nh?=
+ =?us-ascii?Q?PEUKuKZtlvnO9BstifrMTwC3HBVZHoV3qxzE5v75jDlV+pM3BGQRkvi3RUm9?=
+ =?us-ascii?Q?OQwGZwh0AUpOSbrbDNnde3Q+c2TnW1tUM/1fTCyzJ3KH4uMPiQLLFiNMKWHR?=
+ =?us-ascii?Q?SMHps9sm3hkthx48M1vdh8crnqYBad4uipFtDRo9toMJgk1yL2An+9noTSsn?=
+ =?us-ascii?Q?NZVCzCUj9GbwvboDGOJtn4ehiEQgejQ37dU7puqR3v1IwoYLw76k3I+ktsYD?=
+ =?us-ascii?Q?6BSkvbPxPdAe0QseOKW1pTHZ0lZXLv9LmmnxVcBZO7CILGY4b+M=3D?=
+
+--000000000000e1e3c706340113e2
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Jean,
+
+I=E2=80=99ve got a *rental property analysis* tool and an *interest rate ca=
+lculator*
+I can send your way - super helpful if you're exploring refi or purchase
+options.
+
+Or if you=E2=80=99d rather skip the tools, just reply with a few quick deta=
+ils and
+I=E2=80=99ll send a personalized term sheet for 20 Nw 59th St:
+
+1. Current rent
+2. Annual property taxes
+3. Annual insurance cost
+4. Estimated property value
+5. Loan amount you're looking for
+
+Let me know what=E2=80=99s easier.
+
+=E2=80=93 Dan
+(917) 963-0181
+
+--000000000000e1e3c706340113e2
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><p>Hi Jean, =C2=A0<br><b=
+r>I=E2=80=99ve got a <b>rental property analysis</b> tool and an <b>interes=
+t rate calculator</b> I can send your way - super helpful if you&#39;re exp=
+loring refi or purchase options.<br><br>Or if you=E2=80=99d rather skip the=
+ tools, just reply with a few quick details and I=E2=80=99ll send a persona=
+lized term sheet for 20 Nw 59th St:<br><br>1. Current rent =C2=A0<br>2. Ann=
+ual property taxes =C2=A0<br>3. Annual insurance cost =C2=A0<br>4. Estimate=
+d property value =C2=A0<br>5. Loan amount you&#39;re looking for<br><br>Let=
+ me know what=E2=80=99s easier.<br><br>=E2=80=93 Dan =C2=A0<br>(917) 963-01=
+81</p></div>
+</div>
+</div>
+<img src=3D"http://stads98.amailroute.net/y/o?t=3D32a396a3aed244a9a35e5d353=
+2530420">
+
+--000000000000e1e3c706340113e2--

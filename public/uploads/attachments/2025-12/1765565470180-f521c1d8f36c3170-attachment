@@ -1,0 +1,231 @@
+ARC-Seal: i=2; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=pass;
+ b=BznimZ6JN/zOj3VZfNGBxM6OovcCtaua4iVcZdPfjJW4TeLEy/zqVja+Dm+PAAAGvdeV+vqrijrG4j3g56qltuIJ7JkQ4RwVv0dtcXpfO5AJfLT02KYuoBKRLRh32FbdecMbfiRDYXzEUjaK+Uy5pK2xplccEwcRx5yELXH8P4ptXeR1A9yOlYgtVYQoWi++KAkIyyrI2V6feHudwTE0z78hZ3bzOV3TvQAU/D+qwJa4QbsWs8n9afYbeBkuX+edQ00LZP9SIpzvqPGTDE9DzSvmUylmrm7FfrnZk1ZX0/02D86+R1mLdjeLTJ40DZsgb9CEvmTLUBL4I4lH34oR1w==
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=rRgKYAi3byCCg4r3VF/e994u54bwUEvOGPF+ac6YcyU=;
+ b=mjUWeNByqOwequ6wlSBbwpFkY/W+CXcDnyZqhH9K0p0U9Rk0oXSNXSxiTMC1dMM93YJfr9jNfA3Iqt7ArCMnkOuFHF/K+EyUgAx5xQ80wbfwSMAeM90u/Bi9ZaDgPSA/QTyjlKywW5vZbSQIXoEFWTMbtxN2/s6WNRrfcUhVBxoB6Euvbs9HwvEIZW5Xd8fmlAjp55WgW/c3v0yE59VBmg5J3yhg0duS/WRTyJd/bpJvH+W6LT7wp2LPo5IhGKs0GOG6cGl8LQEKeWVE5GtcXBCaBEt+3eAY/kifcNSfye+gEnvrgZczVkvbZgmPecE7EWHi55nTHc92jUVptqQPQA==
+ARC-Authentication-Results: i=2; mx.microsoft.com 1; spf=pass (sender ip is
+ 23.83.220.32) smtp.rcpttodomain=hotmail.com smtp.mailfrom=adlercapital.info;
+ dmarc=pass (p=none sp=none pct=100) action=none
+ header.from=adlercapital.info; dkim=pass (signature was verified)
+ header.d=adlercapital.info; arc=pass (0 oda=0 ltdi=0 93)
+Received: from DB3PR08CA0020.eurprd08.prod.outlook.com (2603:10a6:8::33) by
+ GV2PR08MB9424.eurprd08.prod.outlook.com (2603:10a6:150:dd::5) with Microsoft
+ SMTP Server (version=TLS1_2, cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id
+ 15.20.8792.33; Wed, 4 Jun 2025 19:38:20 +0000
+Received: from DB1PEPF000509F4.eurprd02.prod.outlook.com
+ (2603:10a6:8:0:cafe::7c) by DB3PR08CA0020.outlook.office365.com
+ (2603:10a6:8::33) with Microsoft SMTP Server (version=TLS1_3,
+ cipher=TLS_AES_256_GCM_SHA384) id 15.20.8792.28 via Frontend Transport; Wed,
+ 4 Jun 2025 19:38:19 +0000
+Authentication-Results: spf=pass (sender IP is 23.83.220.32)
+ smtp.mailfrom=adlercapital.info; dkim=pass (signature was verified)
+ header.d=adlercapital.info;dmarc=pass action=none
+ header.from=adlercapital.info;
+Received-SPF: Pass (protection.outlook.com: domain of adlercapital.info
+ designates 23.83.220.32 as permitted sender) receiver=protection.outlook.com;
+ client-ip=23.83.220.32; helo=catfish.yew.relay.mailchannels.net; pr=C
+Received: from catfish.yew.relay.mailchannels.net (23.83.220.32) by
+ DB1PEPF000509F4.mail.protection.outlook.com (10.167.242.150) with Microsoft
+ SMTP Server (version=TLS1_3, cipher=TLS_AES_256_GCM_SHA384) id 15.20.8792.29
+ via Frontend Transport; Wed, 4 Jun 2025 19:38:19 +0000
+X-IncomingTopHeaderMarker: OriginalChecksum:024A8F40E335561AA936FD4A2CD8244D7ACC877D51E83CA8242BB9183EC52D0E;UpperCasedChecksum:2B51EF6355DDE817D00CA0A94658C46FFE4FD49F03F5D3671C6DFF652346756C;SizeAsReceived:5465;Count:35
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id 70FD91A2766
+	for <itzlino@hotmail.com>; Wed,  4 Jun 2025 19:38:17 +0000 (UTC)
+Received: from nl-srv-smtpout7.hostinger.io (100-124-1-39.trex-nlb.outbound.svc.cluster.local [100.124.1.39])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 5912E1A47E2
+	for <itzlino@hotmail.com>; Wed,  4 Jun 2025 19:38:16 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1749065896; a=rsa-sha256;
+	cv=none;
+	b=SqmL2SCjjPh6wvogl9Qs/TXYw7/EaQnZE26S8UPLazhxSVXT1rScY4Ee8P9Pi9uljS983E
+	pS0YHdiL0sb5Z3r17uu7mlBzNBnYwIgtWw+y5vOCJrkFfPqyA8j3tqp52O51dp9bUNqdfM
+	To0ZTvvs5d5G82sIQKRb6dEnO8oKLbXjYBDGZ8Pun75JBh1DkVAYTENUZQ+nE2trLAgyPX
+	uP4mRrk1lNW/qlt4jXNoS3tS1KUM904xwVLjSylR7lfAcVRXks/dOQ1aWGWXg9TE2/ju7S
+	d13QsVbEitQ2BowUHqZnz9KZTx0ksySj6Ti1HrnPd0Avbx07yDAwpUdVI+zn1Q==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1749065896;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type:dkim-signature;
+	bh=rRgKYAi3byCCg4r3VF/e994u54bwUEvOGPF+ac6YcyU=;
+	b=6GIdr2lZRADyJyLbVCyCOGDFjQk2uH0A9FP6YXsWHUzO7+h+UxtPDjGg6nqwIcOj/JyJQi
+	zPbt1bQ27KmwRu2A/er6hOEnJ5DwATT6nBEd91b+JbA3mbjn7IQjv1w4+IAEIZKGjhlYnF
+	lwK5pz/6wH+eLX8G1rvJ94nTGi6vAh9hTtXKVEYMu8XOct86bVx9j8I8TGHNAAp683pquK
+	yZt+Bf+2Q7i1MI7lOqrQdr1ANr8qNEiqRWq2KkG1c7atktKWjkK1GyRCCXIB5/qtAs3Rrm
+	xeqiPEKsfuijv8813tpx3phfVBvaSTanUJJe72S2mZrJXVFLQQ0WXqq3xnGnBA==
+ARC-Authentication-Results: i=1;
+	rspamd-95f6fbf49-82pdg;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Good
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Ruddy-Chemical: 2f34c19d01194083_1749065896875_134151786
+X-MC-Loop-Signature: 1749065896875:3914791904
+X-MC-Ingress-Time: 1749065896874
+Received: from nl-srv-smtpout7.hostinger.io (nl-srv-smtpout7.hostinger.io
+ [45.87.82.131])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.124.1.39 (trex/7.0.3);
+	Wed, 04 Jun 2025 19:38:16 +0000
+Received: from mail-ej1-f50.google.com (mail-ej1-f50.google.com [209.85.218.50])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4bCHtZ1ssTz8ffvB
+	for <itzlino@hotmail.com>; Wed, 04 Jun 2025 19:38:14 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1749065894;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type; bh=rRgKYAi3byCCg4r3VF/e994u54bwUEvOGPF+ac6YcyU=;
+	b=OoTrh+W9oOJ1tEfKL9eo/QbqViPPht64SCCdHDBXe/MkB6sINZNPtmq1m0NUB+YeO0Akhn
+	FbnkU2MjSTBDyVjL/222FsD/25PKcjb+5t886Je2Ws3htMX6gaBLIw36Iy388cTc6HZDy9
+	ubTNWwI8VCCKmFH2m2B+VwlIKjjfH44YhOw+z6UYkzMPzlftTtpyoAmWIAuOijevOJcV/k
+	JJtJDt8+KNi1arehLE7wzIYXbR2F3CBQi8O4+CxR1DXyFjfm49Ep/YZf2x98Jghyv+WNwc
+	7NIHjgELBTEFGu73ScyrNl1tH01ql7BuGGAQOjpKVtpAZpshEPfB1lSapzkUng==
+Received: by mail-ej1-f50.google.com with SMTP id a640c23a62f3a-ad88eb71eb5so26609466b.0
+        for <itzlino@hotmail.com>; Wed, 04 Jun 2025 12:38:14 -0700 (PDT)
+X-Gm-Message-State: AOJu0Yy/YFQHWY34fpMgtMZ/lSNmwtLPJ7cFPUejDBF93Kxu34suT1Gf
+	fNS6kypTmAep+uwJ4ZDqTNvKrg5Op9SLOZt5A5FPx06ymfElWakvI8Hq2JoPXNnUV6MrwMP374Y
+	oQIjbw7/aVf9lPrVZgnzmPg5CNv6dCI4=
+X-Google-Smtp-Source: AGHT+IGaEQsq1NwiK/adnbraIkSL9Hb7/dtGAVVjIqyZg856GWIMaMlgKqZ+VlCIFCB1AdoV9uoeqXbOUg+E0H0Bzkc=
+X-Received: by 2002:a17:907:2d28:b0:ad5:56fa:1904 with SMTP id
+ a640c23a62f3a-addf8faa1bbmr366976366b.44.1749065893825; Wed, 04 Jun 2025
+ 12:38:13 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 4 Jun 2025 15:38:12 -0400
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 4 Jun 2025 15:38:12 -0400
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+Reply-To: dan@adlercapital.us
+X-Gmail-Original-Message-ID: <CALKwW5qGGL9vO8NYChr1CA33twD5op6fw_p9u5N-nMSMe5KEJg@mail.gmail.com>
+X-Gm-Features: AX0GCFtoTohsffqhCjClDEM841M8NhKuJg-SGVEwANCzVBl0Im9bAsQaOQinxR8
+Message-ID: <CALKwW5qGGL9vO8NYChr1CA33twD5op6fw_p9u5N-nMSMe5KEJg@mail.gmail.com>
+Subject: Refinancing 2491 Nw 104th Ter - Term Sheet
+To: Lino Morejon <itzlino@hotmail.com>
+Content-Type: multipart/alternative; boundary="0000000000004a565a0636c4231b"
+Date: Wed, 04 Jun 2025 19:38:14 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=MNgym9Zl c=1 sm=1 tr=0 ts=6840a0a6 a=ox2L7D8zyEvnS2b4KBZd6Q==:117 a=MKtGQD3n3ToA:10 a=6IFa9wvqVegA:10 a=lFKJgX85bOAA:10 a=QfPPe0mAAAAA:8 a=7GFaEUILDctVQDxLzmUA:9 a=QEXdDO2ut3YA:10 a=-FEs8UIgK8oA:10 a=g8kNmUVFAAAA:8 a=-aevUEU0pTx7CJt9xVAA:9 a=pYal92481T9C9EcV:21 a=lqcHg5cX4UMA:10 a=c2IylcifZW9d1pycYBjo:22 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=Z1EQoZjIRXizzhojR2tX:22
+X-CM-Envelope: MS4xfPwXTFIUrXLqGdGLRfyUP1koHA3aXFFC7FwFwqQOjEht3y54RY+esAYVz8OZ9SV/ie4mm/1UvmwGX1Ya1J+1ryH8ogQzhKN/jzCaLwa03o1G8XQX1sbr WruXZR5aeX/2mFjsMG1w6dCauHaTYWNqX0n6XFH9tkUhRt5Tw3xu8yFFc78kFfe4YrZvUfGTjoisBCXdlniCd9QlPteJYvetJvI=
+X-AuthUser: dan@adlercapital.info
+X-IncomingHeaderCount: 35
+Return-Path: dan@adlercapital.info
+X-EOPAttributedMessage: 0
+X-EOPTenantAttributedMessage: 84df9e7f-e9f6-40af-b435-aaaaaaaaaaaa:0
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: DB1PEPF000509F4:EE_|GV2PR08MB9424:EE_
+X-MS-Office365-Filtering-Correlation-Id: 57ccc98b-4c2c-48ea-e486-08dda39f5c35
+X-MS-Exchange-EOPDirect: true
+X-Sender-IP: 23.83.220.32
+X-SID-PRA: DAN@ADLERCAPITAL.INFO
+X-SID-Result: PASS
+X-Microsoft-Antispam:
+ BCL:0;ARA:1444111002|461199028|2500799015|32000799015|9400799033|42200799015|33080799003|56000799018|9000799050|13020799006|84100799003|32080799003|1680799057|3412199025|4302099013|440099028|13082799006|17072799003|1360799030|1370799030|1380799030|56899033|1602099012;
+X-Microsoft-Antispam-Message-Info:
+ =?us-ascii?Q?rMhO+QEQb2pzqyrm5bAO+6+BCRxliiuuzSsyKfOjLUVUqdV0vTiehTxia5pe?=
+ =?us-ascii?Q?7yl4ieQFjy6JaWlLwphtCL4ap43AUzNvddB1Y+2ksWSruN6CT10guvUprK6d?=
+ =?us-ascii?Q?eODLzBshFJ06USBxFXjRL5ba4eiLlwQMIbkSEqbe2PkSThMvIeLYDHv9hYYJ?=
+ =?us-ascii?Q?sJ0lIY5mH3n81oRc3VqsnobqAYetprQSR9Xj5KjUc+3U6gHicsXy+NgBWc7t?=
+ =?us-ascii?Q?tJvBjK/FadVVouRgmXfCSfgy/MxUVbG1Y8imiimd3k7RTQz8t347uHJnlolo?=
+ =?us-ascii?Q?Mr+D6SNYhNAZwsOYx57uaiqW8v4lZw4GtzMlWdIyHc2aZNQlv1x6b16mrRl3?=
+ =?us-ascii?Q?NlhMSue/dD6LxjLaTs42CVEPwaVzBUdVzk7AxvYX3UtpBRk+WmF0mlw+Yt24?=
+ =?us-ascii?Q?DL/NsoCtKK0NBKnp4Ama7HaQKL7NWqhXpRsD0NJ39rPnwtGlA+90QAKXESAe?=
+ =?us-ascii?Q?jQ+W0e94udmztv4rxfTTbaMtHErKiq2vFlVYqejO6pdVtF8swJtgIoKxn/Kf?=
+ =?us-ascii?Q?Zw6jZ/Y7MvBxOk98/LRWOqSjUTfbR3MlqI+3k55nbvvYMevIMQ/K6fDo5ZtO?=
+ =?us-ascii?Q?q96VleqggNAanB+O/H+bX75vYpgk7cQIqnokGy2DwLmn6X0z5TvghCY5spvQ?=
+ =?us-ascii?Q?mtHsuN/2gSFB5qv32cpWv+W9/dTlFxLfig9424iFAmThq72Qx5GVds+tyI4K?=
+ =?us-ascii?Q?03IZbMqgIG+xWYb/P+rNAZs0EwZBwS9wj2ESXPODA6Wsy9K57ZhfU3dkg+YQ?=
+ =?us-ascii?Q?tWUPKtWwPjRGUPHcYUSx31Hn5HeyqYOzx32yyVPEhtGhEbq58I3KmDgB123O?=
+ =?us-ascii?Q?ACMLoS5k7v4egvNkFA84eNK4QPI1nykxdbm1Rm4Su0OE2///q7gtYCCBXFRG?=
+ =?us-ascii?Q?j/RrLx2nZfOhEmcRBXWlUkVHHVLOKXHTWSAw0/pk/VNfDuNjJXNw3mjw0XNA?=
+ =?us-ascii?Q?ULEbbIaktJ3K9JLs3N+6aHV39HQ+4BbbaIaYFmlt0eAqClSN9DrerlN91LRg?=
+ =?us-ascii?Q?uju8fLU398fPvZUEdHy32IewAamKaeiBFnhp3A2U34s/zltNNRmqPg7hbpmP?=
+ =?us-ascii?Q?RlQw8r6ZBj3FcjKbBcrCJo7DooHvNOT4DhjvY/3cP7UzNTrl6jc9SEfNBy+q?=
+ =?us-ascii?Q?LKkJPA2VILDOTmlYZ+aqRBe7+jc73v21nkFAPLcNelVZ6D9Lc+jfLrTyJTeF?=
+ =?us-ascii?Q?o26L/PkAgaa8vSJKGmBdMJrIm02bZLEL7/nYetDjJZyfuBQBEnliCUzZ0dzF?=
+ =?us-ascii?Q?IJt44Ab6+gV8m/Ixsv5KLCoDIdmuLu8wW5uLseFUY1cmn4aPFWf8uOxgWHbX?=
+ =?us-ascii?Q?QDo23zFmcNn7pEFh9Y1veebf4IJrgtOohITiQQ8dFIVDwsqvx/HFKpdOW2vQ?=
+ =?us-ascii?Q?SPYDpmiEmE9VU9X/IaWg73ugZcxkdeNWJA6oG9mQpTeduWkqVaY+o1q94tGE?=
+ =?us-ascii?Q?Jsh06lxeZNSphNW+48ndDZr65cYwjfQw/f/41CC1/x5QsWK7hte2mVypRKJN?=
+ =?us-ascii?Q?8tAPxnfY1q5eV/9YcA/8KRvOu+oYYnvWhWSrQ3mLvfTI4G7c7Ub9hn/9V9VL?=
+ =?us-ascii?Q?elgvR4GY46jXkDDHM/Dzw9CcW+es4VNpLJMZlVmphHOl1Luc7ln7GTC873k1?=
+ =?us-ascii?Q?VhR0u9JqVONcewZKlrjSVNNlOqntAFoQJK8IZ9JPHDm1mu/hgQXjK09IzNKL?=
+ =?us-ascii?Q?OTRRlHMFyVdg5umCDGzZGGVdXtx42kVlUygQ6YDIDMao8nOg+HFrAVgBPSHF?=
+ =?us-ascii?Q?j1ytHHNN+FGQ0ZCQJO+q0kz0eA2S8WTQ7+5EW45MVQv5VQG+jbbZT3SvE809?=
+ =?us-ascii?Q?MrPnmGujpQFdJQ=3D=3D?=
+
+--0000000000004a565a0636c4231b
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Lino,
+
+Any plans to refinance *2491 Nw 104th Ter *in the near future?
+
+I=E2=80=99m a Direct Private Lender, and I just financed a similar property
+in Miami and closed at 6.875% and 65% LTV. I'm hoping to get you similar or
+better terms based on the properties of the financials.
+
+Here=E2=80=99s what I can offer under my DSCR program:
+=E2=80=A2 Up to 85% LTV
+=E2=80=A2 Rates from ~6.5%
+=E2=80=A2 No personal income docs
+=E2=80=A2 Close in 2 weeks on average
+=E2=80=A2 Lending available nationwide
+
+Also, if you=E2=80=99ve got a purchase coming up, I can usually close withi=
+n 2
+weeks of ordering the appraisal - even faster for bridge loans.
+
+Can I reach you at *(305) 989-1667* on Thursday at 1 PM to price out a term
+sheet with all fees outlined?
+It=E2=80=99ll only take about 2=E2=80=935 minutes to go over everything.
+
+Best,
+Dan
+
+*Daniel Adler*
+*Private Lending Advisor*
+*Adler Capital* <https://adlercapital.us/>
+dan@adlercapital.us
+(917) 963-0181
+
+--0000000000004a565a0636c4231b
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div dir=3D"ltr"><div di=
+r=3D"ltr">Hi Lino,<div><br></div><div>Any plans to refinance <b>2491 Nw 104=
+th Ter </b>in the near future?</div><div><b><br></b></div><div>I=E2=80=99m =
+a Direct Private Lender, and=C2=A0I just financed a similar property in=C2=
+=A0Miami and closed at 6.875% and 65% LTV. I&#39;m hoping to get you simila=
+r or better terms based on the properties of the financials.=C2=A0</div><di=
+v><br></div><div><div><div>Here=E2=80=99s what I can offer under my DSCR pr=
+ogram:</div><div>=E2=80=A2=C2=A0Up to 85% LTV =C2=A0<br>=E2=80=A2=C2=A0Rate=
+s from ~6.5%=C2=A0=C2=A0<br>=E2=80=A2 No personal income docs =C2=A0<br>=E2=
+=80=A2 Close in=C2=A02 weeks on average=C2=A0=C2=A0</div><div>=E2=80=A2 Len=
+ding available nationwide</div></div><div><br></div><div>Also, if you=E2=80=
+=99ve got a purchase coming up, I can usually close within 2 weeks of order=
+ing the appraisal=C2=A0- even faster for bridge loans.</div><div><br></div>=
+<div>Can I reach you at <strong>(305) 989-1667</strong> on Thursday at 1 PM=
+ to price out a term sheet with all fees outlined?<br>
+It=E2=80=99ll only take about 2=E2=80=935 minutes to go over everything.</d=
+iv><div><br></div><div>Best,</div><div>Dan</div><div><br><div><b>Daniel=C2=
+=A0Adler</b></div><div><i>Private Lending Advisor</i></div><div><a href=3D"=
+https://adlercapital.us/" target=3D"_blank"><b>Adler Capital</b></a></div><=
+a href=3D"mailto:dan@adlercapital.us" target=3D"_blank">dan@adlercapital.us=
+</a><div>(917) 963-0181=C2=A0</div></div></div></div></div>
+</div>
+</div>
+</div>
+<img src=3D"https://stads98.amailroute.net/bZgl7Mzc1No-h6ToxKzTq3NymUnNF0dt=
+c6oHoqc9JL8_PBH0VWRrqXmz3ZD1tSuyPJVyRWwzgQCOgCCWcFWSuWX4RNmG8F50HFJ7AtvC6wc=
+NZyU9yubItbL-TKeGdbr6HQLgbWtFe8Tyzf0Za6NJVwd_k6GYofcFgdqBQp4UB0sajgmhTFysE0=
+t_n_S_PvVcjmm6FjZb5ZZss" alt=3D"">
+
+--0000000000004a565a0636c4231b--

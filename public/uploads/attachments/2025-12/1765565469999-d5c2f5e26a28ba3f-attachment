@@ -1,0 +1,96 @@
+Return-path: <dan@adlercapital.info>
+Received: from [10.115.3.6] (helo=bosimpinc06)
+	by bosmailscan04.eigbox.net with esmtp (Exim)
+	id 1uAEMz-0003Hs-Cn
+	for lizette.mollinea@catalogproductions.com; Wed, 30 Apr 2025 16:49:29 -0400
+Received: from olivedrab.birch.relay.mailchannels.net ([23.83.209.135])
+	by bizsmtp with ESMTP
+	id AEMxu1phVJFnjAEMyuRxh8; Wed, 30 Apr 2025 16:49:29 -0400
+X-EN-OrigIP: 23.83.209.135
+X-EN-IMPSID: AEMxu1phVJFnjAEMyuRxh8
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+Received: from relay.mailchannels.net (localhost [127.0.0.1])
+	by relay.mailchannels.net (Postfix) with ESMTP id B4360231CD
+	for <lizette.mollinea@catalogproductions.com>; Wed, 30 Apr 2025 20:49:26 +0000 (UTC)
+Received: from uk-fast-smtpout10.hostinger.io (trex-7.trex.outbound.svc.cluster.local [100.108.8.242])
+	(Authenticated sender: hostingeremail)
+	by relay.mailchannels.net (Postfix) with ESMTPA id 11D6E23189
+	for <lizette.mollinea@catalogproductions.com>; Wed, 30 Apr 2025 20:49:25 +0000 (UTC)
+ARC-Seal: i=1; s=arc-2022; d=mailchannels.net; t=1746046166; a=rsa-sha256;
+	cv=none;
+	b=HvuhszAM8voWVpUFFUU9wljw9lTNg4gENMBtqIb25suikJxAO6GKbCQsVpU8z/bkmHc0jZ
+	AaruBJFowL8aB+s5mtrTDD7Mofz/Gxm7gLi4qhZ7phzLlu5D47xD9uTw4IYNBTwgwobwf2
+	+xRL4WpUXbPlNjJG9V7qld3iN7JMiW37IZ6YxosbdsW10pI2Ur55q95nec2NiMconBSJdf
+	qrk/i6iWkhpwdAjXqTOMpJYqnnT5kXZAKSkqgwYB/aOk0onZSvKfXWtTpY66CvbkxQkme/
+	25nFyYGvISLL+bmSmVgZNjp4yW7giu7NGdOLvtfNdyS+/NykfxYQmbZHWyLnMQ==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed;
+ d=mailchannels.net;
+	s=arc-2022; t=1746046166;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type:dkim-signature;
+	bh=J5AYI2EJCjOwrkUgE1MZBU+UYUkzirznOdWktchpoRA=;
+	b=Bv2QjwcIq2afOu1Dj7igHMr9sIE0wKFCRQfcEeZisaTnumjUbVOaSiuys/nRyz+PBo5vlT
+	mZpqhNe2UKa9UfRBdye4xOBE/rC7b+UJzZ7O4syyOZ6pJZl6k6LZitXfiW97lVzVXhcbQk
+	R6uo3jYC0S5XxKA9hlJ03S0sLcDFi6wd6x0xX3mVo4GbgEvMlLpn9P/ESAsiTpZm5nfzUG
+	WXW6ew2n0/CdCYzmyXCBeJmvHvdgoP7Jm0BsBSPiGfXGnUbN6y4/B6+TfPH8Cz3BiZXsxz
+	WPSJP7nREiInl4q+/YxQrfECV+bmRNdSuLRrgbEPdh2YDpi+Z5npz0N7O7F//A==
+ARC-Authentication-Results: i=1;
+	rspamd-56c68c6fd9-26k6h;
+	auth=pass smtp.auth=hostingeremail smtp.mailfrom=dan@adlercapital.info
+X-Sender-Id: hostingeremail|x-authuser|dan@adlercapital.info
+X-MC-Relay: Neutral
+X-MailChannels-SenderId: hostingeremail|x-authuser|dan@adlercapital.info
+X-MailChannels-Auth-Id: hostingeremail
+X-Shrill-Towering: 5d04ef6b68c8a1f5_1746046166582_2227488192
+X-MC-Loop-Signature: 1746046166582:3165702893
+X-MC-Ingress-Time: 1746046166582
+Received: from uk-fast-smtpout10.hostinger.io (uk-fast-smtpout10.hostinger.io
+ [145.14.155.68])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384)
+	by 100.108.8.242 (trex/7.0.3);
+	Wed, 30 Apr 2025 20:49:26 +0000
+Received: from mail-ej1-f44.google.com (mail-ej1-f44.google.com [209.85.218.44])
+	(Authenticated sender: dan@adlercapital.info)
+	by smtp.hostinger.com (smtp.hostinger.com) with ESMTPSA id 4Znq6r03XlzFK5Lm
+	for <lizette.mollinea@catalogproductions.com>; Wed, 30 Apr 2025 20:49:23 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=adlercapital.info;
+	s=hostingermail1; t=1746046164;
+	h=from:from:reply-to:reply-to:subject:subject:date:date:
+	 message-id:message-id:to:to:cc:mime-version:mime-version:
+	 content-type:content-type; bh=J5AYI2EJCjOwrkUgE1MZBU+UYUkzirznOdWktchpoRA=;
+	b=iX99ufUNud9SFZPodx/Yx7aSHSBCP12YexJbUzWpRjL/OmEdn92qTihFOF4JHu7KeUYnBV
+	6+jdL/aOkJaGKcK1JE/i1PQnWollXwcZaWAlr+EgaR4bYWlFQDIM5eW+MGpe3KEWMR8Fo5
+	h1oNZ4II62MVJs4SZfuQP3LZWlF+23AI/4gGJgC48wSSXvZEjKmJSIQdhTAJwdiL5xk5Ru
+	A2NhEEu3cvGSRkTvHQ8XjoqPfX+rZKQJaWme9YmlWMBgwDdq+zBiEJqpEstFAG94jzU4Dy
+	V6PJCNWur7B3+OhNjpZYOj2Q+lswaTQJ30u7V0kFwfVm1N+2stEqAiNDd1eCXw==
+Received: by mail-ej1-f44.google.com with SMTP id a640c23a62f3a-acb5ec407b1so39938566b.1
+        for <lizette.mollinea@catalogproductions.com>; Wed, 30 Apr 2025 13:49:23 -0700 (PDT)
+X-Gm-Message-State: AOJu0YxQux2ItLVnmIyAUfkJ77nzGc+KlmyQ9JSWeEGD9W4aFWKN2Tjj
+	j/s7IXR8H3XgWOBEqyftNtZOVTRR97cc6xDciWpKB0D/Tt8BMxe05c6vp6mnXtBjDCOg4c4EKh6
+	mFbw3Hm8vMNZTWrFo7PVQFi1mVdc=
+X-Google-Smtp-Source: AGHT+IH1LVDHCtHAi4uhtWzoyOQj5E3DHGl4ARXWIxrTXpY5/GAWpGTrwQRjFsO9URY39nTyVdo1JlGbv7op3PXBPQ4=
+X-Received: by 2002:a17:907:6d25:b0:acb:ba0f:4b0f with SMTP id
+ a640c23a62f3a-acee21e82efmr470386766b.31.1746046162919; Wed, 30 Apr 2025
+ 13:49:22 -0700 (PDT)
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 16:49:21 -0400
+Received: from 776393159873 named unknown by gmailapi.google.com with
+ HTTPREST; Wed, 30 Apr 2025 16:49:21 -0400
+MIME-Version: 1.0
+From: Daniel <dan@adlercapital.info>
+Reply-To: dan@adlercapital.us
+X-Gmail-Original-Message-ID: <CALKwW5rqzaNH6=m9M=7VqigiGjF00KK6z81KkODf7fbfWRknQw@mail.gmail.com>
+X-Gm-Features: ATxdqUHlPv2Uioz8j8gUOVNDDL_iD50Q5ZLRpMpLT2ffG3m0ZcACGRRBiVmpPPY
+Message-ID: <CALKwW5rqzaNH6=m9M=7VqigiGjF00KK6z81KkODf7fbfWRknQw@mail.gmail.com>
+Subject: Refinancing 932 W 30th St - Term Sheet
+To: Lizette Mollinea <lizette.mollinea@catalogproductions.com>
+Content-Type: multipart/alternative; boundary="0000000000004d6b0e0634050dbf"
+Date: Wed, 30 Apr 2025 20:49:23 +0000 (UTC)
+X-CM-Analysis: v=2.4 cv=IrhMc6/g c=1 sm=1 tr=0 ts=68128cd4 a=Wv8LZU+Qh79jBM16Q2fFLA==:117 a=MKtGQD3n3ToA:10 a=XR8D0OoHHMoA:10 a=lFKJgX85bOAA:10 a=Sf7-u6fO2wGvV_ookeIA:9 a=QEXdDO2ut3YA:10 a=g8kNmUVFAAAA:8 a=QYFVi8MFJuxPQOZPrQgA:9 a=I4fyDjnKdtnRMGwj:21 a=lqcHg5cX4UMA:10 a=RZjvxRrU2OUqEswDaDam:22 a=4F3BTSOqgYk3y_z9IUnE:22 a=UdJEcHnZjgYWaL8AJcn4:22 a=BYL-pX1xYmNgx-yrYO5N:22 a=anY3-BeULjlUbdkdsFmX:22 a=XBCFus3eppDTG1vohfyV:22
+X-CM-Envelope: MS4xfBLMIoNexyY+Vshu36OT4iPn8gFxwTSnj7hquf3WxPGOKTdzSaZ777EGQW0EUo2N/3363XvRkoYC1cd9GqzuFX/1nhktaVSFRj/sa1Qhxuw00JiWiumr j9bQBEgrlSFkXzOiLH4vy0dc05VhYf1NQT9bfRqJdtISPBDszUI8G3M5qs3jvT9JzBT1mHPHXAJKueM0ingH5O0TElbR0FNjvtM7gZi1IRg9pdwuuKi4cltW
+X-AuthUser: dan@adlercapital.info
+X-CMAE-Envelope: MS4wfIdUBz1CKPWvBAqU6jIzJHBND83pOlShJjlUdvVcmrVXxTxumtFUoYMdndywtpKkC03U7vyXY+cQBcir3ejZlDjIPoYmlAPA8HY6IOL6F/wzlZf29qxi
+ 36HaBAIjR3xUlYFfg9IEx6R9AaFs5jZa9HEsqlJFdp927mNhpVPYAsx1KWjn3Ga99d4I4ae9NKL8D6RDAsDZws62LKhXJKQDP5ncFnzYAzW3b/Q0kf8d1ZF+
+X-EN-Class: impinc
+

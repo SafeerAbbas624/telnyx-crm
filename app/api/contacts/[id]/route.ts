@@ -273,25 +273,56 @@ export async function PATCH(
         desiredTagIds.add(tag.id);
       }
 
-      // Fetch current associations
+      // Fetch current associations with tag names
       const existing = await prisma.contactTag.findMany({
         where: { contact_id: id },
-        select: { tag_id: true },
+        select: { tag_id: true, tag: { select: { name: true } } },
       });
       const existingIds = new Set(existing.map((e) => e.tag_id));
+      const existingTagNames = new Map(existing.map((e) => [e.tag_id, e.tag.name]));
 
       const toAdd = [...desiredTagIds].filter((tid) => !existingIds.has(tid));
       const toRemove = [...existingIds].filter((tid) => !desiredTagIds.has(tid));
+
+      // Get tag names for new tags being added
+      const addedTagNames = new Map<string, string>();
+      if (toAdd.length > 0) {
+        const addedTags = await prisma.tag.findMany({
+          where: { id: { in: toAdd } },
+          select: { id: true, name: true }
+        });
+        addedTags.forEach(t => addedTagNames.set(t.id, t.name));
+      }
 
       if (toAdd.length > 0) {
         await prisma.contactTag.createMany({
           data: toAdd.map((tid) => ({ contact_id: id, tag_id: tid })),
           skipDuplicates: true,
         });
+        // Log tag additions to history
+        await prisma.contactTagHistory.createMany({
+          data: toAdd.map((tid) => ({
+            contact_id: id,
+            tag_id: tid,
+            tag_name: addedTagNames.get(tid) || 'Unknown',
+            action: 'added',
+            created_by: session.user.id
+          }))
+        });
       }
       if (toRemove.length > 0) {
         await prisma.contactTag.deleteMany({
           where: { contact_id: id, tag_id: { in: toRemove } },
+        });
+        // Log tag removals to history
+        await prisma.contactTagHistory.createMany({
+          data: toRemove.map((tid) => ({
+            contact_id: id,
+            tag_id: tid,
+            tag_name: existingTagNames.get(tid) || 'Unknown',
+            action: 'removed',
+            created_by: session.user.id
+          }))
         });
       }
     }
