@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Search, Plus, MessageCircle, Phone, Filter, Calendar, X } from "lucide-react"
+import { Search, Plus, MessageCircle, Phone, Filter, Calendar, X, ClipboardList, CheckSquare } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { formatDistanceToNow } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
@@ -24,6 +24,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import NewTextMessageModal from "./new-text-message-modal"
 import type { Contact } from "@/lib/types"
 import ContactName from "@/components/contacts/contact-name"
@@ -111,6 +121,15 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
     // UX Enhancement: Bulk actions
     const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set())
     const [bulkActionMode, setBulkActionMode] = useState(false)
+
+    // Bulk task creation state
+    const [showBulkTaskDialog, setShowBulkTaskDialog] = useState(false)
+    const [bulkTaskTitle, setBulkTaskTitle] = useState('')
+    const [bulkTaskDescription, setBulkTaskDescription] = useState('')
+    const [bulkTaskType, setBulkTaskType] = useState<'task' | 'call' | 'email' | 'meeting'>('task')
+    const [bulkTaskDueDate, setBulkTaskDueDate] = useState('')
+    const [bulkTaskDueTime, setBulkTaskDueTime] = useState('09:00')
+    const [isCreatingBulkTasks, setIsCreatingBulkTasks] = useState(false)
 
     // Track user activity to prevent auto-refresh collision
     const [lastUserActivity, setLastUserActivity] = useState<number>(Date.now())
@@ -447,6 +466,83 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
     onSelectContact(contact)
   }
 
+  // Handle bulk task creation
+  const handleBulkTaskCreation = async () => {
+    if (selectedConversationIds.size === 0) return
+    if (!bulkTaskTitle.trim()) {
+      toast({ title: 'Error', description: 'Task title is required', variant: 'destructive' })
+      return
+    }
+
+    setIsCreatingBulkTasks(true)
+    try {
+      // Get contact IDs from selected conversations
+      const contactIds = sortedConversations
+        .filter(c => selectedConversationIds.has(c.id))
+        .map(c => c.contact_id)
+
+      const dueDateTime = bulkTaskDueDate && bulkTaskDueTime
+        ? new Date(`${bulkTaskDueDate}T${bulkTaskDueTime}`).toISOString()
+        : null
+
+      const response = await fetch('/api/activities/bulk-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactIds,
+          title: bulkTaskTitle,
+          description: bulkTaskDescription,
+          type: bulkTaskType,
+          dueDate: dueDateTime,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to create tasks')
+      }
+
+      const result = await response.json()
+      toast({ title: 'Success', description: `Created ${result.count} tasks` })
+
+      // Reset state
+      setShowBulkTaskDialog(false)
+      setBulkTaskTitle('')
+      setBulkTaskDescription('')
+      setBulkTaskType('task')
+      setBulkTaskDueDate('')
+      setBulkTaskDueTime('09:00')
+      setSelectedConversationIds(new Set())
+      setBulkActionMode(false)
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message || 'Failed to create tasks', variant: 'destructive' })
+    } finally {
+      setIsCreatingBulkTasks(false)
+    }
+  }
+
+  // Toggle conversation selection
+  const toggleConversationSelection = (conversationId: string) => {
+    setSelectedConversationIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(conversationId)) {
+        newSet.delete(conversationId)
+      } else {
+        newSet.add(conversationId)
+      }
+      return newSet
+    })
+  }
+
+  // Select/deselect all conversations
+  const toggleSelectAll = () => {
+    if (selectedConversationIds.size === sortedConversations.length) {
+      setSelectedConversationIds(new Set())
+    } else {
+      setSelectedConversationIds(new Set(sortedConversations.map(c => c.id)))
+    }
+  }
+
   const truncateMessage = (message: string, maxLength: number = 50) => {
     if (message.length <= maxLength) return message
     return message.substring(0, maxLength) + "..."
@@ -523,6 +619,19 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
             title="Send new message"
           >
             <Plus className="h-4 w-4" />
+          </Button>
+          <Button
+            size="icon"
+            variant={bulkActionMode ? "default" : "outline"}
+            onClick={() => {
+              setBulkActionMode(!bulkActionMode)
+              if (bulkActionMode) {
+                setSelectedConversationIds(new Set())
+              }
+            }}
+            title={bulkActionMode ? "Exit selection mode" : "Select conversations"}
+          >
+            <CheckSquare className="h-4 w-4" />
           </Button>
         </div>
 
@@ -644,6 +753,32 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
             <div className="text-lg font-semibold text-green-600">{apiStats.read}</div>
           </div>
         </div>
+
+        {/* Bulk Action Bar */}
+        {bulkActionMode && (
+          <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={selectedConversationIds.size === sortedConversations.length && sortedConversations.length > 0}
+                onCheckedChange={toggleSelectAll}
+              />
+              <span className="text-sm text-blue-700">
+                {selectedConversationIds.size} selected
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowBulkTaskDialog(true)}
+                disabled={selectedConversationIds.size === 0}
+              >
+                <ClipboardList className="h-4 w-4 mr-1" />
+                Create Tasks
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <ScrollArea className="flex-1 min-h-0 overflow-hidden relative" ref={scrollAreaRef}>
@@ -670,6 +805,15 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
                 onClick={() => handleContactSelect(conversation)}
               >
                 <div className="flex items-start gap-3">
+                  {/* Checkbox for bulk selection */}
+                  {bulkActionMode && (
+                    <div className="flex-shrink-0 pt-1" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedConversationIds.has(conversation.id)}
+                        onCheckedChange={() => toggleConversationSelection(conversation.id)}
+                      />
+                    </div>
+                  )}
                   <div className="relative flex-shrink-0">
                     <Avatar className="h-10 w-10">
                       <AvatarFallback className="bg-primary/10 text-primary font-medium text-sm">
@@ -807,6 +951,78 @@ const EnhancedConversationsList = forwardRef<any, EnhancedConversationsListProps
           loadConversations()
         }}
       />
+
+      {/* Bulk Task Creation Dialog */}
+      <Dialog open={showBulkTaskDialog} onOpenChange={setShowBulkTaskDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Create Tasks for {selectedConversationIds.size} Contacts</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="bulk-task-title">Task Title *</Label>
+              <Input
+                id="bulk-task-title"
+                value={bulkTaskTitle}
+                onChange={(e) => setBulkTaskTitle(e.target.value)}
+                placeholder="e.g., Follow up call"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="bulk-task-description">Description</Label>
+              <Textarea
+                id="bulk-task-description"
+                value={bulkTaskDescription}
+                onChange={(e) => setBulkTaskDescription(e.target.value)}
+                placeholder="Optional task description..."
+                rows={3}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="bulk-task-type">Task Type</Label>
+              <Select value={bulkTaskType} onValueChange={(v: any) => setBulkTaskType(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="task">Task</SelectItem>
+                  <SelectItem value="call">Call</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                  <SelectItem value="meeting">Meeting</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="bulk-task-date">Due Date</Label>
+                <Input
+                  id="bulk-task-date"
+                  type="date"
+                  value={bulkTaskDueDate}
+                  onChange={(e) => setBulkTaskDueDate(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="bulk-task-time">Due Time</Label>
+                <Input
+                  id="bulk-task-time"
+                  type="time"
+                  value={bulkTaskDueTime}
+                  onChange={(e) => setBulkTaskDueTime(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkTaskDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkTaskCreation} disabled={isCreatingBulkTasks || !bulkTaskTitle.trim()}>
+              {isCreatingBulkTasks ? 'Creating...' : `Create ${selectedConversationIds.size} Tasks`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 })
