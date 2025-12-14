@@ -9,7 +9,7 @@ import { EmailUIProvider } from "@/lib/context/email-ui-context"
 import { TaskUIProvider } from "@/lib/context/task-ui-context"
 import { PhoneNumberProvider } from "@/lib/context/phone-number-context"
 import { ContactPanelProvider } from "@/lib/context/contact-panel-context"
-import { MultiCallProvider } from "@/lib/context/multi-call-context"
+import { MultiCallProvider, useMultiCall } from "@/lib/context/multi-call-context"
 import RedesignedCallPopup from "@/components/call/redesigned-call-popup"
 import MultiCallCards from "@/components/call/multi-call-cards"
 import InlineSmsPanel from "@/components/sms/inline-sms-panel"
@@ -27,9 +27,9 @@ interface ProvidersProps {
   children: React.ReactNode
 }
 
-// Wrapper component to handle inbound call actions with access to CallUI context
+// Wrapper component to handle inbound call actions with access to MultiCall context
 function InboundCallHandler() {
-  const { openCall } = useCallUI()
+  const { addInboundCall } = useMultiCall()
 
   const handleAnswer = useCallback(async () => {
     try {
@@ -79,19 +79,17 @@ function InboundCallHandler() {
         })
       }).catch(err => console.error('[INBOUND] Failed to log inbound call:', err))
 
-      // Open the call UI - use the ORIGINAL callId if sessionId changed
-      openCall({
-        fromNumber: inboundInfo.callerNumber,
-        toNumber: inboundInfo.destinationNumber || '', // The Telnyx number that was called
-        mode: 'webrtc',
-        webrtcSessionId: sessionId || originalCallId, // Prefer sessionId, fallback to original
+      // Add the inbound call to the multi-call UI (thin window without activity history)
+      addInboundCall({
+        callId: sessionId || originalCallId,
         contact: contact,
-        direction: 'inbound',
+        callerNumber: inboundInfo.callerNumber,
+        destinationNumber: inboundInfo.destinationNumber || '',
       })
     } catch (err) {
       console.error("[INBOUND] Error answering call:", err)
     }
-  }, [openCall])
+  }, [addInboundCall])
 
   const handleDecline = useCallback(async () => {
     try {

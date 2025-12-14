@@ -637,12 +637,17 @@ export default function RedesignedCallPopup() {
                 <div className="text-center text-gray-500 text-xs py-8">No activities yet</div>
               ) : (
                 <div className="space-y-2">
-                  {/* Sort: pinned items first, then by date */}
+                  {/* Sort: pinned items first, then by date, then calls before notes */}
                   {[...activities]
                     .sort((a, b) => {
                       if (a.isPinned && !b.isPinned) return -1
                       if (!a.isPinned && b.isPinned) return 1
-                      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                      // Sort by timestamp first
+                      const timeDiff = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                      if (timeDiff !== 0) return timeDiff
+                      // If same timestamp, prioritize calls over notes
+                      const typePriority: Record<string, number> = { call: 1, email: 2, meeting: 3, task: 4, note: 5 }
+                      return (typePriority[a.type] || 6) - (typePriority[b.type] || 6)
                     })
                     .map((activity) => {
                     const handleTogglePin = async () => {

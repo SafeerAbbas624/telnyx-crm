@@ -36,6 +36,12 @@ type MultiCallContextType = {
     toNumber: string
     fromNumber: string
   }) => Promise<string | null>
+  addInboundCall: (opts: {
+    callId: string
+    contact?: Contact
+    callerNumber: string
+    destinationNumber: string
+  }) => void
   hangUpCall: (callId: string) => void
   hangUpAllCalls: () => void
   dismissCall: (callId: string) => void
@@ -346,6 +352,44 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [handleCallAnswered, handleCallEnded])
 
+  // Add an inbound call to the multi-call UI (for answered inbound calls)
+  const addInboundCall = useCallback(async (opts: {
+    callId: string
+    contact?: Contact
+    callerNumber: string
+    destinationNumber: string
+  }) => {
+    console.log('[MultiCall] Adding inbound call:', opts.callId)
+
+    const newCall: ManualDialerCall = {
+      id: opts.callId,
+      contactId: opts.contact?.id,
+      contactName: opts.contact ? `${opts.contact.firstName || ''} ${opts.contact.lastName || ''}`.trim() : undefined,
+      phoneNumber: opts.callerNumber, // The caller's number (who called us)
+      fromNumber: opts.destinationNumber, // Our Telnyx number that was called
+      status: 'connected', // Already connected since we answered
+      startedAt: Date.now(),
+    }
+
+    setActiveCalls(prev => new Map(prev).set(opts.callId, newCall))
+    setPrimaryCallId(opts.callId)
+
+    // Set up listener for call end events
+    try {
+      const { rtcClient } = await import('@/lib/webrtc/rtc-client')
+      const handleCallUpdate = (data: { state: string; callId: string }) => {
+        if (data.callId !== opts.callId) return
+        if (['hangup', 'destroy', 'failed', 'bye', 'cancel', 'rejected'].includes(data.state)) {
+          handleCallEnded(opts.callId)
+          rtcClient.off('callUpdate', handleCallUpdate)
+        }
+      }
+      rtcClient.on('callUpdate', handleCallUpdate)
+    } catch (e) {
+      console.error('[MultiCall] Error setting up inbound call listener:', e)
+    }
+  }, [handleCallEnded])
+
   const hangUpCall = useCallback(async (callId: string) => {
     const call = activeCallsRef.current.get(callId)
     if (!call) return
@@ -490,6 +534,7 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     canStartNewCall,
     startManualCall,
     restartCall,
+    addInboundCall,
     hangUpCall,
     hangUpAllCalls,
     dismissCall,

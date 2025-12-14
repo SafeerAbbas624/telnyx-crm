@@ -627,14 +627,13 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
           }}>
             <PopoverTrigger asChild>
               <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs px-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
                 disabled={droppingVoicemail}
                 title="Drop Voicemail"
               >
-                <Voicemail className="h-3 w-3 mr-1" />
-                VM Drop
+                <Voicemail className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-64 p-2" align="end">

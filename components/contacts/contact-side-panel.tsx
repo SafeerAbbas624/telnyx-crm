@@ -905,12 +905,17 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
                 <div className="text-center py-6 text-gray-400 text-xs">No activity yet</div>
               ) : (
                 <div className="space-y-2">
-                  {/* Sort: pinned items first, then by timestamp */}
+                  {/* Sort: pinned items first, then by timestamp, then calls before notes */}
                   {[...activityHistory]
                     .sort((a, b) => {
                       if (a.isPinned && !b.isPinned) return -1
                       if (!a.isPinned && b.isPinned) return 1
-                      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                      // Sort by timestamp first
+                      const timeDiff = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                      if (timeDiff !== 0) return timeDiff
+                      // If same timestamp, prioritize calls over notes/activities
+                      const typePriority: Record<string, number> = { call: 1, sms: 2, email: 3, activity: 4 }
+                      return (typePriority[a.type] || 5) - (typePriority[b.type] || 5)
                     })
                     .map((item) => {
                     const handleTogglePin = async () => {

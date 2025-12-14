@@ -79,6 +79,7 @@ import {
   Calendar as CalendarIcon,
   Building2,
   Search,
+  ClipboardList,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -267,6 +268,16 @@ export default function ContactsDataGrid({
 
   // Task types for reference (used in other places)
   const [savedTaskTypes, setSavedTaskTypes] = useState<string[]>([]);
+
+  // Bulk task creation state
+  const [showBulkTaskDialog, setShowBulkTaskDialog] = useState(false);
+  const [bulkTaskData, setBulkTaskData] = useState({
+    title: '',
+    type: 'Call',
+    dueDate: undefined as Date | undefined,
+    notes: '',
+  });
+  const [creatingBulkTasks, setCreatingBulkTasks] = useState(false);
 
   // Create deal dialog state
   const [showCreateDealDialog, setShowCreateDealDialog] = useState(false);
@@ -817,6 +828,53 @@ export default function ContactsDataGrid({
       toast.error(error instanceof Error ? error.message : 'Failed to create tag');
     } finally {
       setCreatingTag(false);
+    }
+  };
+
+  // Bulk task creation handler
+  const handleBulkTaskCreation = async () => {
+    const selectedRows = table.getFilteredSelectedRowModel().rows;
+    if (selectedRows.length === 0) {
+      toast.error('No contacts selected');
+      return;
+    }
+
+    if (!bulkTaskData.title.trim()) {
+      toast.error('Please enter a task title');
+      return;
+    }
+
+    setCreatingBulkTasks(true);
+    try {
+      const contactIds = selectedRows.map((row: any) => row.original.id);
+
+      const response = await fetch('/api/activities/bulk-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactIds,
+          title: bulkTaskData.title,
+          type: bulkTaskData.type,
+          dueDate: bulkTaskData.dueDate?.toISOString(),
+          notes: bulkTaskData.notes,
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create tasks');
+      }
+
+      toast.success(`Created ${result.count} tasks for ${selectedRows.length} contacts`);
+      setShowBulkTaskDialog(false);
+      setBulkTaskData({ title: '', type: 'Call', dueDate: undefined, notes: '' });
+      setRowSelection({}); // Clear selection after operation
+    } catch (error) {
+      console.error('Bulk task creation error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to create tasks');
+    } finally {
+      setCreatingBulkTasks(false);
     }
   };
 
@@ -1831,6 +1889,14 @@ export default function ContactsDataGrid({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowBulkTaskDialog(true)}
+            >
+              <ClipboardList className="h-4 w-4 mr-2" />
+              Create Tasks ({selectedCount})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleExportSelected}
             >
               <Download className="h-4 w-4 mr-2" />
@@ -2726,6 +2792,105 @@ export default function ContactsDataGrid({
               Cancel
             </Button>
             <Button onClick={handleCreateDeal}>Create Deal</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Task Creation Dialog */}
+      <Dialog open={showBulkTaskDialog} onOpenChange={setShowBulkTaskDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Tasks for Selected Contacts</DialogTitle>
+            <DialogDescription>
+              Create a task for each of the {table.getFilteredSelectedRowModel().rows.length} selected contacts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Task Title *</Label>
+              <Input
+                placeholder="e.g., Follow up call, Send proposal..."
+                value={bulkTaskData.title}
+                onChange={(e) => setBulkTaskData({ ...bulkTaskData, title: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Task Type</Label>
+              <Select
+                value={bulkTaskData.type}
+                onValueChange={(value) => setBulkTaskData({ ...bulkTaskData, type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Call">Call</SelectItem>
+                  <SelectItem value="Email">Email</SelectItem>
+                  <SelectItem value="Meeting">Meeting</SelectItem>
+                  <SelectItem value="Follow-up">Follow-up</SelectItem>
+                  <SelectItem value="Task">Task</SelectItem>
+                  <SelectItem value="Note">Note</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Due Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !bulkTaskData.dueDate && "text-muted-foreground"
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {bulkTaskData.dueDate ? format(bulkTaskData.dueDate, 'PPP') : 'Pick a date'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={bulkTaskData.dueDate}
+                    onSelect={(date) => setBulkTaskData({ ...bulkTaskData, dueDate: date })}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-2">
+              <Label>Notes (optional)</Label>
+              <Textarea
+                placeholder="Add any notes for these tasks..."
+                value={bulkTaskData.notes}
+                onChange={(e) => setBulkTaskData({ ...bulkTaskData, notes: e.target.value })}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBulkTaskDialog(false);
+                setBulkTaskData({ title: '', type: 'Call', dueDate: undefined, notes: '' });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleBulkTaskCreation} disabled={creatingBulkTasks || !bulkTaskData.title.trim()}>
+              {creatingBulkTasks ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <ClipboardList className="h-4 w-4 mr-2" />
+                  Create Tasks
+                </>
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
