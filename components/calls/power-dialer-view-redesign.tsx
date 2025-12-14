@@ -1030,16 +1030,44 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               }
 
               if (status.status === 'human_detected') {
-                // HUMAN DETECTED! Connect via WebRTC
-                console.log('[PowerDialer AMD] 🟢 HUMAN DETECTED for', contact.firstName, '- connecting WebRTC')
+                // HUMAN DETECTED! Transfer the existing call to WebRTC
+                console.log('[PowerDialer AMD] 🟢 HUMAN DETECTED for', contact.firstName, '- transferring to WebRTC')
 
-                // Connect WebRTC to the live call
+                // Enable power dialer mode on WebRTC client for auto-answer
                 const { rtcClient } = await import('@/lib/webrtc/rtc-client')
                 await rtcClient.ensureRegistered()
-                const { sessionId } = await rtcClient.startCall({
-                  toNumber,
-                  fromNumber: callerIdNumber
+                rtcClient.setPowerDialerMode(true)
+
+                // Transfer the existing Call Control call to WebRTC SIP endpoint
+                // This bridges the live call to our WebRTC client instead of starting a new call
+                const transferRes = await fetch('/api/power-dialer/transfer-to-webrtc', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    callControlId,
+                    callerIdNumber,
+                  }),
                 })
+
+                if (!transferRes.ok) {
+                  const err = await transferRes.json()
+                  console.error('[PowerDialer AMD] Transfer failed:', err)
+                  // Fall back to marking as failed
+                  setCallLines(prev => prev.map((line, idx) =>
+                    idx === lineIdx && line.callControlId === callControlId
+                      ? { ...line, status: 'ended' as const, amdResult: 'unknown' as const }
+                      : line
+                  ))
+                  // Continue dialing next contacts
+                  startDialingBatch()
+                  return
+                }
+
+                const transferData = await transferRes.json()
+                console.log('[PowerDialer AMD] Transfer successful:', transferData)
+
+                // Generate a session ID for tracking (the WebRTC client will receive the call)
+                const sessionId = `transfer-${callControlId}-${Date.now()}`
 
                 // Update line to connected
                 setCallLines(prev => {

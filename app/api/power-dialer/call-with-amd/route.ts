@@ -54,18 +54,19 @@ export async function POST(request: NextRequest) {
         connection_id: TELNYX_CONNECTION_ID,
         to: toNumber,
         from: fromNumber,
-        // Use 'premium' AMD for better accuracy (recommended by Telnyx)
+        // Use 'premium' AMD for faster, more accurate ML-based detection
         answering_machine_detection: 'premium',
         answering_machine_detection_config: {
-          // Premium AMD uses ML-based detection, these settings are for fallback
-          total_analysis_time_millis: 10000, // 10 seconds for better detection
-          after_greeting_silence_millis: 2000,
-          between_words_silence_millis: 750,
-          greeting_duration_millis: 5000,
-          initial_silence_millis: 4000,
-          maximum_number_of_words: 8,
+          // FAST AMD: Real humans won't wait more than 2 seconds without a response
+          // Premium AMD uses ML-based detection - these are fallback settings
+          total_analysis_time_millis: 2500,      // 2.5 seconds max total analysis (was 10s)
+          after_greeting_silence_millis: 800,    // 0.8s silence after greeting (was 2s)
+          between_words_silence_millis: 400,     // 0.4s between words (was 750ms)
+          greeting_duration_millis: 2000,        // 2s max greeting length (was 5s)
+          initial_silence_millis: 1500,          // 1.5s initial silence (was 4s)
+          maximum_number_of_words: 5,            // 5 words max (was 8)
           silence_threshold: 256,
-          greeting_total_analysis_time_millis: 8000
+          greeting_total_analysis_time_millis: 2500, // 2.5s total for greeting (was 8s)
         },
         webhook_url: `${WEBHOOK_BASE_URL}/api/power-dialer/webhooks/amd`,
         client_state: Buffer.from(JSON.stringify({

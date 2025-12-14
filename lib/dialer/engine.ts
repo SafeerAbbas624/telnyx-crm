@@ -340,16 +340,17 @@ async function initiateCallLeg(
         connection_id: TELNYX_CONNECTION_ID,
         to: contact.phone,
         from: fromNumber,
-        answering_machine_detection: 'detect_beep', // Enable AMD
+        answering_machine_detection: 'premium', // Use premium ML-based AMD for faster detection
         answering_machine_detection_config: {
-          total_analysis_time_millis: 5000,
-          after_greeting_silence_millis: 1500,
-          between_words_silence_millis: 500,
-          greeting_duration_millis: 3500,
-          initial_silence_millis: 3000,
+          // FAST AMD: Real humans won't wait more than 2 seconds
+          total_analysis_time_millis: 2500,      // 2.5 seconds max
+          after_greeting_silence_millis: 800,    // 0.8s silence after greeting
+          between_words_silence_millis: 400,     // 0.4s between words
+          greeting_duration_millis: 2000,        // 2s max greeting length
+          initial_silence_millis: 1500,          // 1.5s initial silence
           maximum_number_of_words: 5,
           silence_threshold: 256,
-          greeting_total_analysis_time_millis: 5000
+          greeting_total_analysis_time_millis: 2500,
         },
         webhook_url: `${process.env.NEXTAUTH_URL}/api/dialer/webhooks/calls`,
         client_state: Buffer.from(JSON.stringify({

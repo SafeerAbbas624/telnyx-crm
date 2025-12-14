@@ -16,9 +16,11 @@ export interface ManualDialerCall {
   startedAt: number             // Timestamp
   endedAt?: number              // When the call ended
   telnyxCall?: any              // Reference to Telnyx SDK call object
+  amdEnabled?: boolean          // Whether AMD is active for this call
+  callControlId?: string        // Telnyx Call Control ID (for AMD calls)
 }
 
-const MAX_CONCURRENT = 4
+const MAX_CONCURRENT = 8
 
 type MultiCallContextType = {
   activeCalls: Map<string, ManualDialerCall>
@@ -40,6 +42,7 @@ type MultiCallContextType = {
   dismissAllEnded: () => void
   getCallCount: () => number
   switchPrimaryCall: (callId: string) => void
+  closeAllCallWindows: () => void
 }
 
 const MultiCallContext = createContext<MultiCallContextType | undefined>(undefined)
@@ -131,11 +134,84 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
       return null
     }
 
+    // Use AMD when there are already active calls (multi-line calling)
+    const useAMD = activeCount >= 1
+
     try {
       const { rtcClient } = await import('@/lib/webrtc/rtc-client')
       await rtcClient.ensureRegistered()
 
-      // Start the call
+      if (useAMD) {
+        // Use Call Control API with AMD for multi-line calls
+        console.log('[MultiCall] Using AMD for multi-line call')
+
+        // Enable power dialer mode for auto-answer when call transfers
+        rtcClient.setPowerDialerMode(true)
+
+        const amdRes = await fetch('/api/calls/manual-with-amd', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contactId: opts.contact?.id,
+            contactName: opts.contact ? `${opts.contact.firstName || ''} ${opts.contact.lastName || ''}`.trim() : undefined,
+            fromNumber: opts.fromNumber,
+            toNumber: opts.toNumber,
+          }),
+        })
+
+        if (!amdRes.ok) {
+          const err = await amdRes.json()
+          throw new Error(err.error || 'Failed to initiate AMD call')
+        }
+
+        const amdData = await amdRes.json()
+        const callControlId = amdData.callControlId
+
+        // Create call entry with AMD flag
+        const newCall: ManualDialerCall = {
+          id: callControlId,
+          contactId: opts.contact?.id,
+          contactName: opts.contact ? `${opts.contact.firstName || ''} ${opts.contact.lastName || ''}`.trim() : undefined,
+          phoneNumber: opts.toNumber,
+          fromNumber: opts.fromNumber,
+          status: 'ringing',
+          startedAt: Date.now(),
+          amdEnabled: true,
+          callControlId,
+        }
+
+        console.log('[MultiCall] Adding AMD call:', callControlId)
+        setActiveCalls(prev => new Map(prev).set(callControlId, newCall))
+
+        // Poll for AMD result
+        const pollAMD = async () => {
+          const maxPolls = 30 // 30 seconds max
+          for (let i = 0; i < maxPolls; i++) {
+            await new Promise(r => setTimeout(r, 1000))
+
+            const statusRes = await fetch(`/api/power-dialer/amd-status?callControlId=${callControlId}`)
+            if (!statusRes.ok) continue
+
+            const statusData = await statusRes.json()
+            console.log('[MultiCall] AMD status:', statusData.status)
+
+            if (statusData.status === 'human_detected') {
+              handleCallAnswered(callControlId)
+              return
+            } else if (['machine_detected', 'voicemail', 'no_answer', 'failed', 'hangup'].includes(statusData.status)) {
+              handleCallEnded(callControlId)
+              return
+            }
+          }
+          // Timeout - treat as failed
+          handleCallEnded(callControlId)
+        }
+        pollAMD()
+
+        return callControlId
+      }
+
+      // Standard WebRTC call (single call, no AMD)
       const result = await rtcClient.startCall({
         toNumber: opts.toNumber,
         fromNumber: opts.fromNumber
@@ -143,7 +219,6 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
       const callId = result.sessionId
 
       // Get reference to the specific call object from rtcClient's activeCalls map
-      // Use getCallById to get the correct call, not currentCall which gets overwritten
       const telnyxCall = rtcClient.getCallById(callId)
       console.log('[MultiCall] Got telnyxCall for', callId, ':', !!telnyxCall)
 
@@ -157,6 +232,7 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
         status: 'ringing',
         startedAt: Date.now(),
         telnyxCall,
+        amdEnabled: false,
       }
 
       console.log('[MultiCall] Adding new call:', callId, 'Total will be:', activeCalls.size + 1)
@@ -348,6 +424,41 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  // Hang up all calls and dismiss all windows after a delay
+  const closeAllCallWindows = useCallback(() => {
+    console.log('[MultiCall] Shift+X: Closing all call windows...')
+
+    // First, hang up all active calls
+    hangUpAllCalls()
+
+    // Wait 1.5 seconds then dismiss all call windows
+    setTimeout(() => {
+      console.log('[MultiCall] Dismissing all call windows')
+      setActiveCalls(new Map())
+      setPrimaryCallId(null)
+    }, 1500)
+  }, [hangUpAllCalls])
+
+  // Keyboard shortcut: Shift+X to close all call windows
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Shift+X to close all call windows
+      if (e.shiftKey && e.key.toLowerCase() === 'x') {
+        // Don't trigger if user is typing in an input/textarea
+        const target = e.target as HTMLElement
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+          return
+        }
+
+        e.preventDefault()
+        closeAllCallWindows()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [closeAllCallWindows])
+
   const value = {
     activeCalls,
     primaryCallId,
@@ -360,6 +471,7 @@ export function MultiCallProvider({ children }: { children: React.ReactNode }) {
     dismissAllEnded,
     getCallCount,
     switchPrimaryCall,
+    closeAllCallWindows,
   }
 
   return (

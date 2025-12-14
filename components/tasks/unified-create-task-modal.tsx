@@ -277,7 +277,7 @@ export default function UnifiedCreateTaskModal({
             <Label>
               Contact <span className="text-red-500">*</span>
             </Label>
-            <Popover open={contactSearchOpen} onOpenChange={setContactSearchOpen}>
+            <Popover open={contactSearchOpen} onOpenChange={setContactSearchOpen} modal={true}>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"

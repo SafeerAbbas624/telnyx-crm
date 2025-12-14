@@ -1603,6 +1603,9 @@ model User {
   // Click to call via cell
   clickToCallPending   ClickToCallPending[] @relation("UserClickToCallPending")
 
+  // Voicemail messages for voicemail drop
+  voicemailMessages    VoicemailMessage[]
+
   @@map("users")
 }
 
@@ -2056,6 +2059,37 @@ model CallScript {
   @@index([pipelineId])
   @@index([isActive])
   @@map("call_scripts")
+}
+
+// Voicemail Message - Pre-recorded voicemail messages for voicemail drop feature
+model VoicemailMessage {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  // Display name for the voicemail (e.g., "Introduction", "Follow-up")
+  description String? // Optional description
+
+  // Audio file storage (local file path on VPS)
+  filePath    String  @map("file_path") // Path to audio file on server
+  fileName    String  @map("file_name") // Original file name
+  fileSize    Int     @map("file_size") // File size in bytes
+  duration    Int?    // Duration in seconds (optional, can be calculated)
+  mimeType    String  @default("audio/wav") @map("mime_type")
+
+  // Status
+  isActive    Boolean @default(true) @map("is_active")
+  isDefault   Boolean @default(false) @map("is_default") // Default voicemail to use
+  usageCount  Int     @default(0) @map("usage_count")
+
+  // Owner (admin account)
+  userId      String  @map("user_id") @db.Uuid
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([isActive])
+  @@map("voicemail_messages")
 }
 
 // Call Campaign - Organizes contacts for autodialer with script and dispositions

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ChevronDown, ChevronRight, Settings, User, Users, ListChecks, Phone, Mail, MessageSquare, Copy, FileText, Clock, PhoneCall } from "lucide-react"
+import { ChevronDown, ChevronRight, Settings, User, Users, ListChecks, Phone, Mail, MessageSquare, Copy, FileText, Clock, PhoneCall, Volume2 } from "lucide-react"
 import ProfileSettings from "./profile-settings"
 import TeamManagement from "./team-management"
 import TaskTypesSettings from "./task-types-settings"
@@ -15,8 +15,9 @@ import DuplicateManagement from "./duplicate-management"
 import CallScriptsSettings from "./call-scripts-settings"
 import ScheduledMessagesSettings from "./scheduled-messages"
 import DispositionsSettings from "./dispositions-settings"
+import VoicemailMessagesSettings from "./voicemail-messages-settings"
 
-const VALID_TABS = ['profile', 'team', 'task-types', 'templates', 'call-scripts', 'dispositions', 'phone-numbers', 'email-accounts', 'duplicates', 'scheduled']
+const VALID_TABS = ['profile', 'team', 'task-types', 'templates', 'call-scripts', 'dispositions', 'voicemail-messages', 'phone-numbers', 'email-accounts', 'duplicates', 'scheduled']
 
 // Define settings sections with their items
 const settingsSections = [
@@ -47,6 +48,7 @@ const settingsSections = [
     items: [
       { id: 'call-scripts', label: 'Call Scripts', icon: FileText },
       { id: 'dispositions', label: 'Dispositions', icon: PhoneCall },
+      { id: 'voicemail-messages', label: 'Voicemail Messages', icon: Volume2 },
     ]
   },
   {
@@ -115,6 +117,7 @@ export default function SettingsPage() {
       case 'templates': return <TemplatesSettings />
       case 'call-scripts': return <CallScriptsSettings />
       case 'dispositions': return <DispositionsSettings />
+      case 'voicemail-messages': return <VoicemailMessagesSettings />
       case 'phone-numbers': return <TelnyxPhoneNumbers />
       case 'email-accounts': return <EmailSettings />
       case 'duplicates': return <DuplicateManagement />

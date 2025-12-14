@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2, Tag, Clock, FileText, CheckSquare, Pin, PinOff } from "lucide-react"
+import { Phone, X, MessageSquare, Mail, PhoneCall, Minimize2, Building, MapPin, Plus, User, ListTodo, Loader2, Tag, Clock, FileText, CheckSquare, Pin, PinOff, Voicemail, Volume2 } from "lucide-react"
 import { format } from "date-fns"
 import { useMultiCall, ManualDialerCall } from "@/lib/context/multi-call-context"
 import { formatPhoneNumberForDisplay } from "@/lib/phone-utils"
@@ -53,6 +53,11 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const [tagSearchQuery, setTagSearchQuery] = useState("")
   const [loadingTags, setLoadingTags] = useState(false)
   const [activities, setActivities] = useState<any[]>([])
+  const [showVoicemailDropPopover, setShowVoicemailDropPopover] = useState(false)
+  const [voicemailMessages, setVoicemailMessages] = useState<any[]>([])
+  const [loadingVoicemails, setLoadingVoicemails] = useState(false)
+  const [droppingVoicemail, setDroppingVoicemail] = useState(false)
+  const [voicemailDropStatus, setVoicemailDropStatus] = useState<string | null>(null)
   const { toast } = useToast()
   const { openEmail } = useEmailUI()
 
@@ -318,6 +323,63 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
     (t) => !contactTagIds.has(t.id) && t.name.toLowerCase().includes(tagSearchQuery.toLowerCase())
   )
 
+  // Fetch voicemail messages when popover opens
+  const fetchVoicemailMessages = async () => {
+    if (voicemailMessages.length > 0) return // Already loaded
+    setLoadingVoicemails(true)
+    try {
+      const res = await fetch('/api/voicemail-messages')
+      if (res.ok) {
+        const data = await res.json()
+        setVoicemailMessages(data.voicemails || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch voicemail messages:', error)
+    } finally {
+      setLoadingVoicemails(false)
+    }
+  }
+
+  // Drop voicemail on the call
+  const handleVoicemailDrop = async (voicemailId: string, voicemailName: string) => {
+    if (!call.telnyxCall?.callControlId && !call.id) {
+      toast({ title: 'Error', description: 'No active call to drop voicemail', variant: 'destructive' })
+      return
+    }
+
+    setDroppingVoicemail(true)
+    setVoicemailDropStatus('Dropping voicemail...')
+    setShowVoicemailDropPopover(false)
+
+    try {
+      const callControlId = call.telnyxCall?.callControlId || call.id
+      const res = await fetch('/api/calls/voicemail-drop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callControlId, voicemailMessageId: voicemailId }),
+      })
+
+      if (res.ok) {
+        setVoicemailDropStatus(`Playing "${voicemailName}"...`)
+        toast({ title: 'Voicemail Drop', description: `Playing "${voicemailName}"` })
+        // Auto-clear status after 10 seconds (typical voicemail length)
+        setTimeout(() => {
+          setVoicemailDropStatus(null)
+          setDroppingVoicemail(false)
+        }, 10000)
+      } else {
+        const err = await res.json()
+        setVoicemailDropStatus(null)
+        setDroppingVoicemail(false)
+        toast({ title: 'Error', description: err.error || 'Failed to drop voicemail', variant: 'destructive' })
+      }
+    } catch (error) {
+      setVoicemailDropStatus(null)
+      setDroppingVoicemail(false)
+      toast({ title: 'Error', description: 'Failed to drop voicemail', variant: 'destructive' })
+    }
+  }
+
   // Minimized view
   if (isMinimized) {
     return (
@@ -352,6 +414,9 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
             </div>
             {isPrimary && call.status === 'connected' && (
               <span className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5 rounded font-medium">🔊 AUDIO</span>
+            )}
+            {call.amdEnabled && call.status === 'ringing' && (
+              <span className="bg-purple-500 text-white text-[10px] px-1.5 py-0.5 rounded font-medium animate-pulse">🔍 AMD</span>
             )}
             <div>
               <div className="font-semibold text-sm">{contactName}</div>
@@ -558,6 +623,64 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
             </Button>
           )}
         </div>
+
+        {/* Voicemail Drop Status */}
+        {voicemailDropStatus && (
+          <div className="flex items-center gap-2 px-2 py-1 bg-purple-100 rounded text-xs text-purple-700">
+            <Volume2 className="h-3 w-3 animate-pulse" />
+            {voicemailDropStatus}
+          </div>
+        )}
+
+        {/* Voicemail Drop Button */}
+        {isActive && (
+          <Popover open={showVoicemailDropPopover} onOpenChange={(open) => {
+            setShowVoicemailDropPopover(open)
+            if (open) fetchVoicemailMessages()
+          }}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs px-2 border-purple-300 text-purple-700 hover:bg-purple-50"
+                disabled={droppingVoicemail}
+                title="Drop Voicemail"
+              >
+                <Voicemail className="h-3 w-3 mr-1" />
+                VM Drop
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-2" align="end">
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-gray-700">Select Voicemail Message</div>
+                {loadingVoicemails ? (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                  </div>
+                ) : voicemailMessages.length === 0 ? (
+                  <div className="text-xs text-gray-500 text-center py-4">
+                    No voicemail messages.<br />
+                    <a href="/settings?tab=voicemail-messages" className="text-blue-600 hover:underline">Add one in Settings</a>
+                  </div>
+                ) : (
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {voicemailMessages.map((vm) => (
+                      <button
+                        key={vm.id}
+                        onClick={() => handleVoicemailDrop(vm.id, vm.name)}
+                        className="w-full text-left px-2 py-1.5 rounded hover:bg-purple-50 text-xs flex items-center gap-2"
+                      >
+                        <Volume2 className="h-3 w-3 text-purple-500" />
+                        <span className="flex-1 truncate">{vm.name}</span>
+                        {vm.isDefault && <span className="text-[10px] bg-purple-100 text-purple-600 px-1 rounded">Default</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
 
         {/* Hang Up Button */}
         {isActive && (
