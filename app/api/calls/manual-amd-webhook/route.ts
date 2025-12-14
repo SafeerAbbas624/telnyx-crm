@@ -55,21 +55,29 @@ export async function POST(request: NextRequest) {
 
       case 'call.machine.premium.detection.ended':
       case 'call.machine.detection.ended': {
-        const result = body.data?.payload?.result
+        const result = body.data?.payload?.result?.toLowerCase()
         console.log(`[Manual AMD Webhook] AMD Result: ${result}`)
 
-        if (result === 'human' || result === 'human_detected') {
-          // Human detected - transfer to WebRTC
-          console.log(`[Manual AMD Webhook] Human detected, transferring to WebRTC`)
-          
+        // STRICT HUMAN DETECTION: Only connect on CONFIRMED human results
+        // Premium AMD results: human_residence, human_business, machine, silence, fax_detected, not_sure
+        // Standard AMD results: human, machine, fax, not_sure
+        const isConfirmedHuman = result === 'human_residence' ||
+                                  result === 'human_business' ||
+                                  result === 'human'
+
+        if (isConfirmedHuman) {
+          // CONFIRMED Human detected - transfer to WebRTC
+          console.log(`[Manual AMD Webhook] ✅ CONFIRMED Human detected (${result}), transferring to WebRTC`)
+
           if (pendingCall) {
             pendingCall.status = 'human_detected'
+            pendingCall.amdResult = 'human'
           }
 
           // Transfer to WebRTC SIP endpoint
           const rtcLogin = process.env.TELNYX_RTC_LOGIN
           const sipDomain = process.env.TELNYX_RTC_SIP_DOMAIN || 'sip.telnyx.com'
-          
+
           if (rtcLogin) {
             const sipUri = `sip:${rtcLogin}@${sipDomain}`
             await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`, {
@@ -85,11 +93,18 @@ export async function POST(request: NextRequest) {
             })
           }
         } else {
-          // Voicemail/machine detected - hang up
-          console.log(`[Manual AMD Webhook] Machine detected (${result}), hanging up`)
-          
+          // Everything else is treated as machine/voicemail to avoid false positives:
+          // - 'machine' - obvious voicemail
+          // - 'fax' / 'fax_detected' - fax machine
+          // - 'silence' - no audio detected
+          // - 'not_sure' - AMD couldn't determine, safer to treat as voicemail
+          const reason = result === 'not_sure' ? 'uncertain (not_sure)' : result
+          console.log(`[Manual AMD Webhook] ❌ Machine/Voicemail detected (${reason}), hanging up`)
+
           if (pendingCall) {
             pendingCall.status = 'machine_detected'
+            pendingCall.amdResult = result === 'not_sure' ? 'uncertain' :
+                                    result?.includes('fax') ? 'fax' : 'machine'
           }
 
           await fetch(`https://api.telnyx.com/v2/calls/${callControlId}/actions/hangup`, {

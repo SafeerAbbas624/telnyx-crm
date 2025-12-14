@@ -452,18 +452,84 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
     }, 800)
   }, [performAutoSave])
 
-  // Instant save for tags (no debounce)
-  const saveTagsInstantly = useCallback(() => {
+  // Instant save for tags (no debounce) - accepts new tags directly to avoid async state issues
+  const saveTagsInstantly = useCallback(async (newTags: any[]) => {
+    if (!currentContact) return
+
     setHasChanges(true)
+    setSelectedTags(newTags) // Update local state
 
     // Clear any pending debounced save
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
 
-    // Save immediately
-    performAutoSave()
-  }, [performAutoSave])
+    // Save immediately with the new tags passed directly (not from state)
+    setSaveStatus('saving')
+    try {
+      const payload: any = {
+        firstName: firstName.trim(),
+        lastName: lastName.trim() || undefined,
+        phone1: phones[0] || undefined,
+        phone2: phones[1] || undefined,
+        phone3: phones[2] || undefined,
+        email1: emails[0] || undefined,
+        email2: emails[1] || undefined,
+        email3: emails[2] || undefined,
+        dealStatus,
+        tags: newTags.map((t: any) => ({
+          id: typeof t.id === 'string' && t.id.startsWith('new:') ? undefined : t.id,
+          name: t.name,
+          color: t.color || '#3B82F6'
+        })),
+      }
+
+      // First property goes to contact record
+      if (properties[0]) {
+        payload.propertyAddress = properties[0].address || undefined
+        payload.city = properties[0].city || undefined
+        payload.state = properties[0].state || undefined
+        payload.zipCode = properties[0].zipCode || undefined
+        payload.llcName = properties[0].llcName || undefined
+        payload.propertyType = properties[0].propertyType || undefined
+      }
+
+      const res = await fetch(`/api/contacts/${currentContact.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (res.ok) {
+        const updated = await res.json()
+        console.log('[ContactPanel] Tags saved successfully', { tags: updated.tags?.length })
+        setCurrentContact(updated)
+        setSelectedTags(updated.tags || [])
+        setSaveStatus('saved')
+        setHasChanges(false)
+        toast.success('Tags updated ✓', { duration: 2000 })
+
+        // Emit event to notify contacts list to update this contact
+        window.dispatchEvent(new CustomEvent('contact-updated', {
+          detail: { contactId: currentContact.id, updatedContact: updated }
+        }))
+
+        // Emit event to notify tag components to refresh their data
+        window.dispatchEvent(new CustomEvent('tags-updated'))
+
+        setTimeout(() => setSaveStatus('idle'), 2000)
+      } else {
+        const errText = await res.text()
+        console.error('[ContactPanel] Tag save failed:', res.status, errText)
+        setSaveStatus('error')
+        toast.error('Failed to save tags')
+      }
+    } catch (error) {
+      console.error('Tag save failed:', error)
+      setSaveStatus('error')
+      toast.error('Failed to save tags')
+    }
+  }, [currentContact, firstName, lastName, phones, emails, properties, dealStatus])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -1250,7 +1316,7 @@ export default function ContactSidePanel({ contact, open, onClose }: ContactSide
               <CardContent className="px-3 pb-3">
                 <TagInput
                   value={selectedTags}
-                  onChange={(tags) => { setSelectedTags(tags); saveTagsInstantly() }}
+                  onChange={(tags) => saveTagsInstantly(tags)}
                   contactId={currentContact?.id}
                   placeholder="Add tags..."
                   showSuggestions={true}

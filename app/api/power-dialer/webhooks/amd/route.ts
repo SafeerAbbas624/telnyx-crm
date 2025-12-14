@@ -121,52 +121,28 @@ export async function POST(request: NextRequest) {
 
         // Premium AMD results: human_residence, human_business, machine, silence, fax_detected, not_sure
         // Standard AMD results: human, machine, fax, not_sure
-        const isMachine = amdResult?.includes('machine') ||
-                          amdResult === 'fax' ||
-                          amdResult === 'fax_detected' ||
-                          amdResult === 'silence'
 
-        const isHuman = amdResult === 'human' ||
-                        amdResult?.includes('human') ||
-                        amdResult === 'human_residence' ||
-                        amdResult === 'human_business'
+        // STRICT HUMAN DETECTION: Only connect on CONFIRMED human results
+        // This prevents false positives where voicemails are detected as humans
+        const isConfirmedHuman = amdResult === 'human_residence' ||
+                                  amdResult === 'human_business' ||
+                                  amdResult === 'human'  // Standard AMD human result
 
-        if (isMachine) {
-          // Voicemail/Machine detected - hang up immediately
-          console.log(`[AMD WEBHOOK] Machine/Voicemail detected (${amdResult}), hanging up`)
+        // Everything else is treated as machine/voicemail to avoid false positives:
+        // - 'machine' - obvious voicemail
+        // - 'fax' / 'fax_detected' - fax machine
+        // - 'silence' - no audio detected (likely voicemail or dead line)
+        // - 'not_sure' - AMD couldn't determine, safer to treat as voicemail
+        //   (Real humans typically have clear speech patterns that AMD can detect)
+        const isMachineOrUncertain = amdResult?.includes('machine') ||
+                                      amdResult === 'fax' ||
+                                      amdResult === 'fax_detected' ||
+                                      amdResult === 'silence' ||
+                                      amdResult === 'not_sure'
 
-          // Update in-memory status BEFORE hanging up so polling can detect it
-          if (pendingCall) {
-            pendingCall.status = 'voicemail'
-            pendingCall.amdResult = amdResult?.includes('fax') ? 'fax' : 'machine'
-          }
-
-          await hangupCall(callControlId)
-
-          // Update database
-          if (queueItemId) {
-            await prisma.powerDialerCall.updateMany({
-              where: { queueItemId, callControlId },
-              data: {
-                status: 'VOICEMAIL',
-                amdResult: amdResult,
-                endedAt: new Date(),
-              }
-            })
-            await prisma.powerDialerQueue.update({
-              where: { id: queueItemId },
-              data: {
-                status: 'COMPLETED',
-                callOutcome: 'VOICEMAIL'
-              }
-            })
-          }
-
-          // Keep the entry for a bit so polling can detect voicemail
-          // Clean up happens after polling detects it
-        } else if (isHuman) {
-          // Human detected - mark as ready for connection
-          console.log(`[AMD WEBHOOK] Human detected (${amdResult}), ready for connection`)
+        if (isConfirmedHuman) {
+          // CONFIRMED Human detected - mark as ready for connection
+          console.log(`[AMD WEBHOOK] ✅ CONFIRMED Human detected (${amdResult}), ready for connection`)
 
           // Update in-memory status for polling
           if (pendingCall) {
@@ -185,23 +161,67 @@ export async function POST(request: NextRequest) {
               }
             })
           }
-        } else if (amdResult === 'not_sure') {
-          // Could not determine - treat as human to avoid missing real calls
-          console.log(`[AMD WEBHOOK] AMD result uncertain (not_sure), treating as human`)
+        } else if (isMachineOrUncertain) {
+          // Machine/Voicemail/Uncertain detected - hang up immediately and return to queue
+          const reason = amdResult === 'not_sure' ? 'uncertain (not_sure)' : amdResult
+          console.log(`[AMD WEBHOOK] ❌ Machine/Voicemail detected (${reason}), hanging up and returning to queue`)
+
+          // Update in-memory status BEFORE hanging up so polling can detect it
+          if (pendingCall) {
+            pendingCall.status = 'voicemail'
+            pendingCall.amdResult = amdResult === 'not_sure' ? 'uncertain' :
+                                    amdResult?.includes('fax') ? 'fax' : 'machine'
+          }
+
+          await hangupCall(callControlId)
+
+          // Update database - mark queue item as PENDING to return to queue (like no answer)
+          if (queueItemId) {
+            await prisma.powerDialerCall.updateMany({
+              where: { queueItemId, callControlId },
+              data: {
+                status: 'NO_ANSWER_VOICEMAIL',
+                amdResult: amdResult,
+                endedAt: new Date(),
+              }
+            })
+            // Return to queue by setting status to PENDING - will be called again
+            await prisma.powerDialerQueue.update({
+              where: { id: queueItemId },
+              data: {
+                status: 'PENDING',
+                callOutcome: 'NO_ANSWER_VOICEMAIL'
+              }
+            })
+          }
+
+          // Keep the entry for a bit so polling can detect voicemail
+          // Clean up happens after polling detects it
+        } else {
+          // Unknown result - log and treat as uncertain (voicemail)
+          console.log(`[AMD WEBHOOK] ⚠️ Unknown AMD result (${amdResult}), treating as voicemail for safety`)
 
           if (pendingCall) {
-            pendingCall.status = 'human_detected'
+            pendingCall.status = 'voicemail'
             pendingCall.amdResult = 'unknown'
           }
+
+          await hangupCall(callControlId)
 
           if (queueItemId) {
             await prisma.powerDialerCall.updateMany({
               where: { queueItemId, callControlId },
               data: {
-                status: 'HUMAN_DETECTED',
-                amdResult: 'not_sure',
-                answered: true,
-                answeredAt: new Date(),
+                status: 'NO_ANSWER_VOICEMAIL',
+                amdResult: amdResult || 'unknown',
+                endedAt: new Date(),
+              }
+            })
+            await prisma.powerDialerQueue.update({
+              where: { id: queueItemId },
+              data: {
+                status: 'PENDING',
+                callOutcome: 'NO_ANSWER_VOICEMAIL'
               }
             })
           }

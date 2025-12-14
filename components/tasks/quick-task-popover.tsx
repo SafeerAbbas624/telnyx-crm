@@ -55,7 +55,7 @@ export function QuickTaskPopover({
           taskType: 'Follow Up',
           subject: subject.trim(),
           description: '',
-          priority: 'medium',
+          priority: 'low',
           status: 'planned',
           dueDate: dueDate.toISOString(),
           contactId,

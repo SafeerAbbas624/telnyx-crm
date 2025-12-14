@@ -140,6 +140,12 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const amdEnabledRef = useRef(amdEnabled)
   useEffect(() => { amdEnabledRef.current = amdEnabled }, [amdEnabled])
 
+  // Multi-phone number selection for caller ID rotation
+  const [selectedCallerIds, setSelectedCallerIds] = useState<string[]>([])
+  const [callerIdRotationIndex, setCallerIdRotationIndex] = useState(0)
+  const callerIdRotationIndexRef = useRef(0)
+  useEffect(() => { callerIdRotationIndexRef.current = callerIdRotationIndex }, [callerIdRotationIndex])
+
   // Contact panel context for opening contact details
   const { openContactPanel } = useContactPanel()
 
@@ -147,7 +153,25 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
   const { openCall } = useCallUI()
   const { openSms } = useSmsUI()
   const { openEmail } = useEmailUI()
-  const { selectedPhoneNumber } = usePhoneNumber()
+  const { selectedPhoneNumber, availablePhoneNumbers } = usePhoneNumber()
+
+  // Initialize selected caller IDs from available phone numbers
+  useEffect(() => {
+    if (availablePhoneNumbers.length > 0 && selectedCallerIds.length === 0) {
+      // Default to all available numbers for rotation
+      setSelectedCallerIds(availablePhoneNumbers.map(pn => pn.phoneNumber))
+    }
+  }, [availablePhoneNumbers])
+
+  // Helper function to get next caller ID using round-robin
+  const getNextCallerId = (): string => {
+    if (selectedCallerIds.length === 0) {
+      return selectedPhoneNumber?.phoneNumber || ''
+    }
+    const callerId = selectedCallerIds[callerIdRotationIndexRef.current % selectedCallerIds.length]
+    setCallerIdRotationIndex(prev => prev + 1)
+    return callerId
+  }
 
   // Refs for latest state values (to avoid closure issues in setTimeout callbacks)
   const isRunningRef = useRef(isRunning)
@@ -750,12 +774,16 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                            dispNameLower.includes('callback')
     const hasRequeueAction = dispo?.actions?.some(a => a.actionType === 'REQUEUE_CONTACT') || isNoAnswerType
 
-    // 1. First, hang up the call (visual transition)
-    setCallLines(prev => prev.map(l =>
-      l.lineNumber === lineNumber
-        ? { ...l, status: 'hanging_up' as const }
-        : l
-    ))
+    // 1. Only show "hanging up" if call is still active (not already ended)
+    // If call is already ended, skip this transition
+    const isCallAlreadyEnded = line?.status === 'ended' || line?.status === 'voicemail'
+    if (!isCallAlreadyEnded) {
+      setCallLines(prev => prev.map(l =>
+        l.lineNumber === lineNumber
+          ? { ...l, status: 'hanging_up' as const }
+          : l
+      ))
+    }
 
     // 2. Add to session history (most recent first)
     if (contact) {
@@ -923,11 +951,10 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
 
     console.log('[PowerDialer] 📋 Dialing', contactsToDialCount, 'contacts')
 
-    // Get the caller ID from selected phone number
-    const callerIdNumber = selectedPhoneNumber?.phoneNumber
-    if (!callerIdNumber) {
-      console.error('[PowerDialer] ❌ No phone number selected - cannot dial')
-      toast.error('Please select a phone number to dial from')
+    // Check if we have caller IDs selected
+    if (selectedCallerIds.length === 0 && !selectedPhoneNumber?.phoneNumber) {
+      console.error('[PowerDialer] ❌ No phone numbers selected - cannot dial')
+      toast.error('Please select at least one phone number to dial from')
       return
     }
 
@@ -946,6 +973,10 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
             console.log('[PowerDialer] No idle lines available')
             continue
           }
+
+          // Get caller ID using round-robin rotation
+          const callerIdNumber = getNextCallerId()
+          console.log(`[PowerDialer] 📞 Using caller ID: ${callerIdNumber} (rotation index: ${callerIdRotationIndexRef.current})`)
 
           // Format phone number for Telnyx
           const { formatPhoneNumberForTelnyx } = await import('@/lib/phone-utils')
@@ -1131,12 +1162,11 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
               }
 
               if (status.status === 'voicemail') {
-                // VOICEMAIL DETECTED - Skip this contact
-                console.log('[PowerDialer AMD] 📵 VOICEMAIL detected for', contact.firstName, '- skipping')
+                // VOICEMAIL DETECTED - Treat as no answer, contact returned to queue
+                console.log('[PowerDialer AMD] 📵 VOICEMAIL detected for', contact.firstName, '- treating as no answer, returning to queue')
 
-                // Add to session history as voicemail
-                const voicemailDispo = dispositions.find(d =>
-                  d.name.toLowerCase().includes('voicemail') ||
+                // Add to session history as no answer - voicemail
+                const noAnswerDispo = dispositions.find(d =>
                   d.name.toLowerCase().includes('no answer')
                 )
 
@@ -1144,10 +1174,10 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                   id: `${Date.now()}-${contact.id}-${lineIdx}`,
                   contact,
                   calledAt: new Date(),
-                  dispositionId: voicemailDispo?.id || '',
-                  dispositionName: 'Voicemail',
-                  dispositionColor: voicemailDispo?.color || '#9333ea',
-                  notes: 'Voicemail detected by AMD',
+                  dispositionId: noAnswerDispo?.id || '',
+                  dispositionName: 'No Answer - Voicemail',
+                  dispositionColor: noAnswerDispo?.color || '#f59e0b',
+                  notes: 'Voicemail detected by AMD - returned to queue',
                   callerIdNumber
                 }
                 setSessionHistory(prevHistory => [historyEntry, ...prevHistory])
@@ -1388,7 +1418,7 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
         }
       }
     }, 300)
-  }, [maxLines, selectedPhoneNumber]) // useCallback dependency
+  }, [maxLines, selectedCallerIds, selectedPhoneNumber]) // useCallback dependency - includes caller ID rotation
 
   // Render script with dynamic fields replaced or shown as placeholders
   const renderScriptWithFields = (contact: Contact | null) => {
@@ -1478,6 +1508,87 @@ export function PowerDialerViewRedesign({ listId, listName, onBack }: PowerDiale
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Caller ID Multi-Select for Rotation */}
+          <div className="flex items-center gap-2">
+            <Label className="text-sm font-medium text-gray-600 flex items-center gap-1">
+              <Phone className="h-3.5 w-3.5" /> Caller IDs:
+            </Label>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 min-w-[120px] justify-between"
+                  disabled={isRunning && !isPaused}
+                >
+                  <span className="truncate">
+                    {selectedCallerIds.length === 0
+                      ? 'Select...'
+                      : selectedCallerIds.length === 1
+                        ? selectedCallerIds[0].replace('+1', '')
+                        : `${selectedCallerIds.length} numbers`}
+                  </span>
+                  <Shuffle className="h-3 w-3 ml-1 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <div className="p-2 border-b">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-500">Round-Robin Rotation</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs"
+                      onClick={() => {
+                        if (selectedCallerIds.length === availablePhoneNumbers.length) {
+                          setSelectedCallerIds([])
+                        } else {
+                          setSelectedCallerIds(availablePhoneNumbers.map(pn => pn.phoneNumber))
+                        }
+                      }}
+                    >
+                      {selectedCallerIds.length === availablePhoneNumbers.length ? 'Clear All' : 'Select All'}
+                    </Button>
+                  </div>
+                </div>
+                {availablePhoneNumbers.map((pn) => (
+                  <DropdownMenuItem
+                    key={pn.id}
+                    className="flex items-center gap-2 cursor-pointer"
+                    onSelect={(e) => {
+                      e.preventDefault()
+                      setSelectedCallerIds(prev => {
+                        if (prev.includes(pn.phoneNumber)) {
+                          return prev.filter(n => n !== pn.phoneNumber)
+                        } else {
+                          return [...prev, pn.phoneNumber]
+                        }
+                      })
+                    }}
+                  >
+                    <Checkbox
+                      checked={selectedCallerIds.includes(pn.phoneNumber)}
+                      className="pointer-events-none"
+                    />
+                    <span className="font-mono text-sm">
+                      {pn.phoneNumber.replace('+1', '')}
+                    </span>
+                    {pn.friendlyName && (
+                      <span className="text-xs text-gray-500 truncate">
+                        ({pn.friendlyName})
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                {availablePhoneNumbers.length === 0 && (
+                  <div className="p-2 text-xs text-gray-500 text-center">
+                    No phone numbers available
+                  </div>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* AMD Toggle - Voicemail Detection */}

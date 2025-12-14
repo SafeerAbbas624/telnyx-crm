@@ -41,17 +41,19 @@ export async function POST(request: NextRequest) {
         connection_id: TELNYX_CONNECTION_ID,
         to: toNumber,
         from: fromNumber,
-        // Use 'premium' AMD for faster, more accurate ML-based detection
+        // Use 'premium' AMD for ML-based detection with high accuracy
+        // Premium AMD uses speech recognition + ML to distinguish humans from machines
         answering_machine_detection: 'premium',
         answering_machine_detection_config: {
-          total_analysis_time_millis: 2500,
-          after_greeting_silence_millis: 800,
-          between_words_silence_millis: 400,
-          greeting_duration_millis: 2000,
-          initial_silence_millis: 1500,
-          maximum_number_of_words: 5,
+          // BALANCED AMD: Prioritize accuracy over speed to reduce false positives
+          total_analysis_time_millis: 5000,      // 5 seconds max total analysis
+          after_greeting_silence_millis: 1200,   // 1.2s silence after greeting
+          between_words_silence_millis: 600,     // 0.6s between words
+          greeting_duration_millis: 4000,        // 4s max greeting length
+          initial_silence_millis: 2500,          // 2.5s initial silence before speech
+          maximum_number_of_words: 8,            // 8 words max
           silence_threshold: 256,
-          greeting_total_analysis_time_millis: 2500,
+          greeting_total_analysis_time_millis: 5000, // 5s total for greeting analysis
         },
         webhook_url: `${WEBHOOK_BASE_URL}/api/calls/manual-amd-webhook`,
         client_state: Buffer.from(JSON.stringify({

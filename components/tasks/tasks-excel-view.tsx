@@ -63,6 +63,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -1660,7 +1661,8 @@ export default function TasksExcelView() {
           <DropdownMenuContent align="start" className="w-48 max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Filter by Type</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {Array.from(new Set(tasks.map(t => t.taskType).filter(Boolean))).sort().map((type) => (
+            {/* Show "General" first, then all saved task types from settings, plus any types from existing tasks */}
+            {['General', ...Array.from(new Set([...savedTaskTypes, ...tasks.map(t => t.taskType).filter(Boolean)]))].sort().map((type) => (
               <DropdownMenuCheckboxItem
                 key={type}
                 checked={taskTypeFilter.includes(type!)}
@@ -1676,14 +1678,15 @@ export default function TasksExcelView() {
               </DropdownMenuCheckboxItem>
             ))}
             <DropdownMenuSeparator />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={() => setTaskTypeFilter([])}
+            <DropdownMenuItem
+              className="justify-center text-muted-foreground cursor-pointer"
+              onSelect={(e) => {
+                e.preventDefault();
+                setTaskTypeFilter([]);
+              }}
             >
               Reset
-            </Button>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
