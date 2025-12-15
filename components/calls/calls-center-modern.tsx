@@ -174,6 +174,20 @@ export default function CallsCenterModern() {
     }
   };
 
+  // Find contact by phone number (searches phone1, phone2, phone3)
+  const findContactByPhone = (phoneNumber: string): Contact | undefined => {
+    const digits = phoneNumber.replace(/\D/g, '');
+    const normalized = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+
+    return allContacts.find((c) => {
+      const phones = [c.phone1, c.phone2, c.phone3].filter(Boolean).map((p) => {
+        const d = p!.replace(/\D/g, '');
+        return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+      });
+      return phones.includes(normalized);
+    });
+  };
+
   // Make call using WebRTC
   const makeCall = async (toNumber: string, contact?: Contact) => {
     if (!selectedPhoneNumber) {
@@ -187,6 +201,15 @@ export default function CallsCenterModern() {
       return;
     }
 
+    // If no contact was passed, try to find one by phone number
+    let resolvedContact = contact;
+    if (!resolvedContact) {
+      resolvedContact = findContactByPhone(toNumber);
+      if (resolvedContact) {
+        console.log('[Calls] Found contact by phone:', resolvedContact.firstName, resolvedContact.lastName);
+      }
+    }
+
     try {
       setIsCalling(true);
       const fromNumber = selectedPhoneNumber.phoneNumber;
@@ -195,10 +218,10 @@ export default function CallsCenterModern() {
       const callId = await startManualCall({
         toNumber: normalizedTo,
         fromNumber,
-        contact: contact ? {
-          id: contact.id,
-          firstName: contact.firstName,
-          lastName: contact.lastName,
+        contact: resolvedContact ? {
+          id: resolvedContact.id,
+          firstName: resolvedContact.firstName,
+          lastName: resolvedContact.lastName,
         } : undefined,
       });
 

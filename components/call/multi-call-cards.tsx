@@ -59,6 +59,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const [voicemailDropStatus, setVoicemailDropStatus] = useState<string | null>(null)
   const { toast } = useToast()
   const { openEmail } = useEmailUI()
+  const { openContactPanel } = useContactPanel()
 
   // Draft key for localStorage
   const draftKey = call.contactId ? `note-draft-${call.contactId}` : null
@@ -94,22 +95,36 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
     return () => clearInterval(timer)
   }, [call.startedAt, call.status])
 
-  // Load contact details
+  // Load contact details - by ID if available, otherwise search by phone number
   useEffect(() => {
-    if (!call.contactId) return
     const loadContact = async () => {
       try {
-        const res = await fetch(`/api/contacts/${call.contactId}`)
-        if (res.ok) {
-          const data = await res.json()
-          setContactDetails(data)
+        if (call.contactId) {
+          // Load contact by ID
+          const res = await fetch(`/api/contacts/${call.contactId}`)
+          if (res.ok) {
+            const data = await res.json()
+            setContactDetails(data)
+          }
+        } else if (call.phoneNumber) {
+          // Try to find contact by phone number using lookup-by-number API
+          const res = await fetch(`/api/contacts/lookup-by-number?number=${encodeURIComponent(call.phoneNumber)}`)
+          if (res.ok) {
+            const data = await res.json()
+            if (data.id) {
+              setContactDetails(data)
+              // Update the call object's contactId for future reference
+              call.contactId = data.id
+              call.contactName = `${data.firstName || ''} ${data.lastName || ''}`.trim()
+            }
+          }
         }
       } catch (error) {
         console.error('Error loading contact:', error)
       }
     }
     loadContact()
-  }, [call.contactId])
+  }, [call.contactId, call.phoneNumber])
 
   // Status-based styling
   const getStatusStyles = () => {
@@ -155,19 +170,24 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
   const styles = getStatusStyles()
   const isActive = call.status === 'ringing' || call.status === 'connected'
   const isEnded = call.status === 'ended' || call.status === 'failed'
-  const contactName = call.contactName || 'Unknown'
+  // Use contactDetails if we resolved the contact by phone number, otherwise fall back to call.contactName
+  const contactName = contactDetails
+    ? `${contactDetails.firstName || ''} ${contactDetails.lastName || ''}`.trim() || 'Unknown'
+    : call.contactName || 'Unknown'
   const phoneNumber = call.phoneNumber
+  // Effective contact ID - prefer contactDetails if we found the contact by phone lookup
+  const effectiveContactId = contactDetails?.id || call.contactId
 
   // Handle saving notes
   const handleSaveNotes = async () => {
-    if (!notes.trim() || !call.contactId) return
+    if (!notes.trim() || !effectiveContactId) return
     setSavingNotes(true)
     try {
       const res = await fetch('/api/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contactId: call.contactId,
+          contactId: effectiveContactId,
           type: 'note',
           title: 'Call Note',
           description: notes,
@@ -182,7 +202,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         }
         // Emit event to notify activity history to refresh
         window.dispatchEvent(new CustomEvent('activity-created', {
-          detail: { contactId: call.contactId }
+          detail: { contactId: effectiveContactId }
         }))
       }
     } catch (error: any) {
@@ -194,7 +214,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
 
   // Handle quick task creation
   const handleCreateQuickTask = async () => {
-    if (!quickTaskTitle.trim() || !call.contactId) return
+    if (!quickTaskTitle.trim() || !effectiveContactId) return
     setCreatingTask(true)
     try {
       const res = await fetch('/api/tasks', {
@@ -202,7 +222,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: quickTaskTitle,
-          contactId: call.contactId,
+          contactId: effectiveContactId,
           dueDate: quickTaskDueDate || undefined,
           status: 'pending',
         }),
@@ -215,7 +235,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
         setShowQuickTask(false)
         // Emit event to notify task lists to refresh
         window.dispatchEvent(new CustomEvent('task-created', {
-          detail: { contactId: call.contactId, task: newTask }
+          detail: { contactId: effectiveContactId, task: newTask }
         }))
       } else {
         const error = await res.json()
@@ -247,7 +267,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
 
   // Add tag to contact - optimistic update for instant feedback
   const addTagToContact = async (tag: any) => {
-    if (!call.contactId) return
+    if (!effectiveContactId) return
     const currentTags = contactDetails?.tags || []
     const newTags = [...currentTags, { id: tag.id, name: tag.name, color: tag.color }]
 
@@ -257,7 +277,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
 
     // Then sync to server in background
     try {
-      const res = await fetch(`/api/contacts/${call.contactId}`, {
+      const res = await fetch(`/api/contacts/${effectiveContactId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: newTags }),
@@ -276,7 +296,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
 
   // Remove tag from contact - optimistic update for instant feedback
   const removeTagFromContact = async (tagId: string) => {
-    if (!call.contactId) return
+    if (!effectiveContactId) return
     const currentTags = contactDetails?.tags || []
     const removedTag = currentTags.find((t: any) => t.id === tagId)
     const newTags = currentTags.filter((t: any) => t.id !== tagId)
@@ -287,7 +307,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
 
     // Then sync to server in background
     try {
-      const res = await fetch(`/api/contacts/${call.contactId}`, {
+      const res = await fetch(`/api/contacts/${effectiveContactId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: newTags }),
@@ -461,20 +481,20 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
           >
             <Mail className="h-4 w-4 text-purple-600" />
           </Button>
-          {/* View Contact Button */}
-          {call.contactId && (
+          {/* View Contact Button - show if we have contactId or found contact by phone */}
+          {effectiveContactId && (
             <Button
               variant="ghost"
               size="sm"
               className="h-8 w-8 p-0 hover:bg-blue-100"
-              onClick={onViewContact}
+              onClick={() => openContactPanel(effectiveContactId)}
               title="View Contact"
             >
               <User className="h-4 w-4 text-blue-600" />
             </Button>
           )}
           {/* Quick Task Button */}
-          {call.contactId && (
+          {effectiveContactId && (
             <Popover open={showQuickTask} onOpenChange={setShowQuickTask}>
               <PopoverTrigger asChild>
                 <Button
@@ -521,7 +541,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
             </Popover>
           )}
           {/* Quick Tag Button */}
-          {call.contactId && (
+          {effectiveContactId && (
             <Popover open={showTagPopover} onOpenChange={(open) => { setShowTagPopover(open); if (open) loadTags(); }}>
               <PopoverTrigger asChild>
                 <Button
@@ -781,7 +801,7 @@ function ExpandedCallCard({ call, isPrimary, onHangUp, onDismiss, onSms, onViewC
             <Button
               size="sm"
               className="w-full h-8"
-              disabled={!notes.trim() || !call.contactId || savingNotes}
+              disabled={!notes.trim() || !effectiveContactId || savingNotes}
               onClick={handleSaveNotes}
             >
               {savingNotes ? (
